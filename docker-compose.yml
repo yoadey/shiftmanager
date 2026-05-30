@@ -1,0 +1,104 @@
+# ============================================================
+# ShiftManager — Docker Compose
+#
+# Profiles:
+#   (default)  — app + postgres
+#   full       — app + postgres + redis
+#   migrate    — one-shot DB migration runner
+#
+# Usage:
+#   cp .env.example .env && editor .env
+#   docker compose --profile migrate up migrate   # run migrations once
+#   docker compose up                             # default stack
+#   docker compose --profile full up              # with Redis
+# ============================================================
+
+version: "3.9"
+
+services:
+  # ----------------------------------------------------------
+  # Application
+  # ----------------------------------------------------------
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    ports:
+      - "8080:8080"
+    env_file:
+      - .env
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_started
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost:8080/health || exit 1"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 15s
+    restart: unless-stopped
+
+  # ----------------------------------------------------------
+  # PostgreSQL 16
+  # ----------------------------------------------------------
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: shiftmanager
+      POSTGRES_USER: shiftmanager
+      POSTGRES_PASSWORD: password
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U shiftmanager -d shiftmanager"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+    restart: unless-stopped
+
+  # ----------------------------------------------------------
+  # Redis 7 (optional — enable with --profile full)
+  # Without Redis the app falls back to in-memory storage.
+  # ----------------------------------------------------------
+  redis:
+    image: redis:7-alpine
+    profiles:
+      - full
+    command: >
+      redis-server
+        --maxmemory 64mb
+        --maxmemory-policy allkeys-lru
+        --save ""
+        --appendonly no
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 3s
+      retries: 3
+    restart: unless-stopped
+
+  # ----------------------------------------------------------
+  # DB Migration runner (init-container style)
+  # Run once before first start:
+  #   docker compose --profile migrate up migrate
+  # ----------------------------------------------------------
+  migrate:
+    image: migrate/migrate:v4
+    profiles:
+      - migrate
+    volumes:
+      - ./migrations:/migrations:ro
+    command: >
+      -path=/migrations
+      -database=${DATABASE_URL:-postgres://shiftmanager:password@postgres:5432/shiftmanager?sslmode=disable}
+      up
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: "no"
+
+volumes:
+  pgdata:

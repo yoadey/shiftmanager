@@ -1,0 +1,17 @@
+---
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: shiftmanager-api
+  namespace: shiftmanager
+  labels:
+    app.kubernetes.io/name: shiftmanager
+    app.kubernetes.io/component: api
+spec:
+  # Ensure at least one pod is available during voluntary disruptions
+  # (node drains, rolling updates, etc.)
+  minAvailable: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: shiftmanager
+      app.kubernetes.io/component: api
