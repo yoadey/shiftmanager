@@ -1,0 +1,814 @@
+
+Vereins-Helferschichten-
+Management
+ShiftManager
+Software-Anforderungsdokument
+Version 1.4   •   Mai 2026
+
+Erstellt:
+Vereinsvorstand
+Technologie-Stack:
+Backend: Go  |  Frontend: React
+Status:
+Entwurf
+Zielgruppe:
+Vereinsmitglieder, Vorstände, Veranstalter
+
+  1  Einleitung und Projektziel
+ShiftManager ist eine webbasierte Plattform zur digitalen Verwaltung von Mitglieder-Helferschichten im Vereinsbetrieb. Das System löst folgende Kernprobleme des Vereinsalltags:
+Kernprobleme heute
+Manuelle, fehleranfällige Schichtplanung per Tabelle
+Unklarer Überblick über belegte/freie Schichten
+Zeitaufwändige Abrechnung nicht geleisteter Stunden
+Kein zentraler Anlaufpunkt für Mitglieder
+
+Lösung mit ShiftManager
+Digitale Selbstanmeldung für Schichten
+Echtzeitanzeige freier und belegter Schichten
+Automatische Stundenverfolgung und Abrechnung
+Kiosk-Modus für das Vereinsheim
+
+  2  Stakeholder und Nutzergruppen
+Die folgende Tabelle beschreibt alle Rollen im System, ihre Verantwortlichkeiten und Rechte:
+Rolle
+Beschreibung
+Kernberechtigungen
+Administrator
+Technische und organisatorische Gesamtverantwortung
+Vollzugriff auf alle Funktionen
+Benutzerverwaltung und Rollenzuweisung
+Systemweite Konfiguration (Stundenziel, Preise)
+Datenbankexport, Audit-Log-Einsicht
+OIDC-Konfiguration und Mitgliederliste verwalten
+Vorstand
+Vereinsführung mit erweitertem Datenzugriff
+Alles wie Veranstaltungsleiter
+Jahresauswertung für alle Mitglieder einsehen
+Individuelle Stundenkorrektur / -überschreibung
+Stundenziel und Abgeltungspreise konfigurieren
+Datenschutzeinstellungen konfigurieren
+Manuelle Stundenbuchung
+Veranstaltungsleiter
+Erstellt und verwaltet Veranstaltungen
+Veranstaltungen erstellen, bearbeiten, löschen
+Schichten innerhalb eigener Veranstaltungen anlegen
+Teilnehmerlisten einsehen und exportieren
+Individuelle Anwesenheitsbestätigung pro Person
+Mitglied
+Normales Vereinsmitglied
+Eigenes Stundenkonto einsehen
+Sich für Schichten an- und abmelden
+Kommentar zur Schicht hinterlegen
+Erinnerungspräferenzen verwalten
+Kiosk-Nutzer
+Anonymer Zugang im Vereinsheim
+Mitglieder suchen (wenn aktiviert)
+Schichteintragung mit E-Mail-Verifizierung
+Keine Anmeldung erforderlich
+
+  3  Funktionale Anforderungen
+3.1  Benutzerverwaltung und Authentifizierung
+3.1.1  OIDC-Authentifizierung
+Die Anmeldung erfolgt ausschließlich über OpenID Connect (OIDC). Benutzernamen und Passwörter werden nicht im System gespeichert.
+ID
+Anforderung
+Priorität
+Kategorie
+A-001
+Das System MUSS einen konfigurierbaren OIDC-Provider (z. B. Keycloak, Auth0, Azure AD) unterstützen.
+MUSS
+Authentifizierung
+A-002
+Die OIDC-Client-ID, Client-Secret und Discovery-URL müssen über Umgebungsvariablen konfigurierbar sein.
+MUSS
+Konfiguration
+A-003
+Nach erfolgreicher OIDC-Anmeldung wird ein internes JWT-Session-Token ausgestellt.
+MUSS
+Sicherheit
+A-004
+Token-Refresh muss automatisch erfolgen, solange die Session aktiv ist.
+SOLL
+UX
+A-005
+Es müssen mehrere OIDC-Provider gleichzeitig unterstützt werden können (z. B. Vereins-SSO + Google).
+KANN
+Erweiterbarkeit
+
+3.1.2  Mitgliederverwaltung
+Die Mitgliederliste wird unabhängig vom OIDC-Provider gepflegt und kann manuell oder automatisch mit einem OIDC-Benutzer verknüpft werden. So lassen sich Stunden auch für Mitglieder ohne aktives OIDC-Konto erfassen und verfolgen.
+ID
+Anforderung
+Priorität
+Kategorie
+ML-001
+Administratoren und Vorstände können Mitglieder direkt im System anlegen, bearbeiten und deaktivieren.
+MUSS
+Mitglieder
+ML-002
+Jeder Mitgliedseintrag enthält: Vorname, Nachname, E-Mail-Adresse, Eintrittsdatum und (optional) Austrittsdatum.
+MUSS
+Mitglieder
+ML-003
+Das Eintrittsdatum wird beim Anlegen automatisch auf den aktuellen Zeitpunkt gesetzt und kann manuell überschrieben werden.
+MUSS
+Mitglieder
+ML-004
+Ein Mitglied kann mit einem OIDC-Benutzer verknüpft werden – automatisch per E-Mail-Abgleich beim ersten Login oder manuell durch einen Administrator.
+MUSS
+Mitglieder
+ML-005
+Mitglieder ohne OIDC-Verknüpfung sind im Kiosk-Modus und bei manuellen Stundenbuchungen nutzbar.
+MUSS
+Mitglieder
+ML-006
+Die Mitgliederliste kann per CSV-Datei importiert werden. Bestehende Einträge werden anhand der E-Mail-Adresse abgeglichen und aktualisiert, neue Einträge angelegt.
+MUSS
+Mitglieder
+ML-007
+Vor dem Import zeigt das System eine Vorschau der Änderungen (neue Einträge, Aktualisierungen) zur manuellen Bestätigung.
+SOLL
+Mitglieder
+ML-008
+Die Mitgliederliste kann als CSV exportiert werden.
+SOLL
+Mitglieder
+ML-009
+Änderungen an der Mitgliederliste werden im Audit-Log protokolliert.
+MUSS
+Compliance
+
+3.1.3  Kiosk-Modus (Vereinsheim-Computer)
+Der Kiosk-Modus ermöglicht die Schichteintragung ohne Benutzeranmeldung. Er ist für einen dedizierten Browser-Tab im Vereinsheim gedacht. Ob Mitglieder über eine Suche auffindbar sind, steuert eine Datenschutz-Einstellung des Administrators. Dieselbe Logik gilt für angemeldete Mitglieder, die eine andere Person für eine Schicht eintragen.
+E-Mail-Identifikationsfluss (bei deaktivierter Mitgliedersuche)
+Nutzer gibt eine E-Mail-Adresse ein.
+Szenario A — Bekannte E-Mail: Adresse gehört einem registrierten Mitglied → System sendet Bestätigungslink. Erst nach Klick gilt die Schicht als bestätigt.
+Szenario B — Unbekannte E-Mail: Adresse ist keinem Mitglied zugeordnet → System sendet eine Benachrichtigung an den Veranstaltungsorganisator. Der Organisator muss die Eintragung manuell klären.
+
+ID
+Anforderung
+Priorität
+Kategorie
+K-001
+Der Kiosk-Modus ist über eine separate, dedizierte URL erreichbar.
+MUSS
+Kiosk
+K-002
+Der Administrator kann systemweit konfigurieren, ob eine Mitgliedersuche (Name / Mitgliedsnummer) erlaubt ist oder nur eine E-Mail-Adresse eingegeben werden darf.
+MUSS
+Datenschutz
+K-003
+Ist die Mitgliedersuche aktiv, kann ein Mitglied über Name oder Mitgliedsnummer gesucht werden. Es werden nur Vorname und abgekürzter Nachname angezeigt.
+MUSS
+Kiosk
+K-004
+Ist die Mitgliedersuche deaktiviert, erfolgt die Eintragung ausschließlich über Eingabe einer E-Mail-Adresse.
+MUSS
+Datenschutz
+K-005
+Bei E-Mail-Eingabe prüft das System intern, ob die Adresse einem bekannten Mitglied zugeordnet ist. Das Ergebnis wird dem Kiosk-Nutzer nicht angezeigt.
+MUSS
+Datenschutz
+K-006
+Szenario A (bekannte E-Mail): Das System sendet einen Bestätigungslink. Die Eintragung gilt bis zur Bestätigung als „Reserviert“.
+MUSS
+Kiosk
+K-007
+Szenario B (unbekannte E-Mail): Das System sendet eine Benachrichtigung an den Veranstaltungsorganisator.
+MUSS
+Kiosk
+K-008
+Es können mehrere Personen in einem Kiosk-Vorgang für Schichten eingetragen werden.
+MUSS
+Kiosk
+K-009
+Reservierungen, die nicht innerhalb der konfigurierten Frist bestätigt werden, verfallen automatisch; der Schichtplatz wird danach sofort wieder freigegeben.
+MUSS
+Kiosk
+K-010
+Die Gültigkeitsdauer von Reservierungen (Standard: 48 h) ist vom Administrator und Vorstand systemweit konfigurierbar.
+MUSS
+Kiosk
+K-011
+Bestätigungslinks sind zeitlich begrenzt (entsprechend K-010) und einmalig verwendbar.
+MUSS
+Sicherheit
+K-012
+Der Kiosk-Modus kann durch Administratoren bei Bedarf gesperrt werden.
+SOLL
+Administration
+K-013
+Dieselbe Datenschutz-Einstellung und derselbe E-Mail-Identifikationsfluss gelten auch für angemeldete Mitglieder, die eine andere Person eintragen möchten.
+MUSS
+Datenschutz
+
+3.1.4  Namensanzeige und Datenschutz
+Um den Datenschutz der Mitglieder zu wahren, kann der Vorstand einstellen, wie Namen im System angezeigt werden. Die Einstellung gilt systemweit, mit rollenabhängigen Ausnahmen.
+Beispiel für Namens-Abkürzung
+Vollständiger Name: „Maximilian Müller“
+Abgekürzter Name: „Maximilian M.“  (Nachname auf ersten Buchstaben + Punkt)
+
+ID
+Anforderung
+Priorität
+Kategorie
+NM-001
+Der Vorstand und Administrator können systemweit zwischen zwei Namensmodi wählen: „Vollständiger Name“ oder „Abgekürzter Name“.
+MUSS
+Datenschutz
+NM-002
+Im Modus „Abgekürzter Name“ wird der Nachname auf den ersten Buchstaben mit nachfolgendem Punkt verkürzt (z. B. „Maximilian M.“). Der Vorname bleibt vollständig.
+MUSS
+Datenschutz
+NM-003
+Rollen ab Vorstand aufwärts sehen immer den vollständigen Namen, unabhängig vom Systemmodus.
+MUSS
+Datenschutz
+NM-004
+Der Standardwert für den Namensmodus ist „Abgekürzter Name“.
+MUSS
+Datenschutz
+NM-005
+Die Namensanzeige gilt für alle Ansichten: Schichtlisten, Kiosk-Suche, Dashboards und E-Mail-Texte an Dritte.
+MUSS
+Datenschutz
+NM-006
+Mitglieder sehen ihren eigenen Namen immer vollständig.
+MUSS
+UX
+NM-007
+Änderungen am Namensmodus werden im Audit-Log protokolliert.
+MUSS
+Compliance
+
+3.2  Stundenverwaltung und Abrechnung
+3.2.1  Stundenziel-Konfiguration
+ID
+Anforderung
+Priorität
+Kategorie
+S-001
+Es gibt ein globales Standard-Stundenziel pro Mitglied und Vereinsjahr.
+MUSS
+Stunden
+S-002
+Das globale Stundenziel kann vom Administrator und Vorstand angepasst werden.
+MUSS
+Stunden
+S-003
+Für jedes Mitglied kann individuell ein abweichendes Stundenziel festgelegt werden.
+MUSS
+Stunden
+S-004
+Das individuelle Stundenziel hat Vorrang vor dem globalen Ziel.
+MUSS
+Stunden
+S-005
+Das Stundenziel gilt pro Vereinsjahr; Start- und Enddatum des Vereinsjahres sind konfigurierbar (Standard: 01.01.–31.12.).
+MUSS
+Stunden
+S-006
+Übertragung von überzähligen Stunden ins Folgejahr ist optional konfigurierbar.
+KANN
+Stunden
+
+3.2.2  Stunden-Erfassung und Bestätigung
+Stunden werden erst nach Bestätigung durch den Veranstaltungsleiter oder Vorstand als geleistet gewertet. Im persönlichen Stundenkonto werden zwei Werte unterschieden.
+Stundenkonto-Darstellung (Mitglied-Dashboard)
+„Bestätigte Stunden“: Vom Organisator abgenommene und im System gebuchte Stunden.
+„Inkl. Reservierungen“: Bestätigte Stunden plus noch ausstehende Anmeldungen.
+Beide Werte werden nebeneinander auf dem Dashboard angezeigt.
+
+ID
+Anforderung
+Priorität
+Kategorie
+SA-001
+Auf das Stundenkonto werden ausschließlich vom Veranstaltungsleiter oder Vorstand bestätigte Stunden angerechnet.
+MUSS
+Stunden
+SA-002
+Der Veranstaltungsleiter kann nach Abschluss einer Schicht für jede Person individuell erfassen: tatsächlich geleistete Stunden (abweichend von der Schichtdauer), Nichterscheinen oder Teilleistung.
+MUSS
+Stunden
+SA-003
+Nicht erschienene Mitglieder erhalten für die betreffende Schicht null Stunden; ihr Status wird als „Nichterschienen“ vermerkt.
+MUSS
+Stunden
+SA-004
+Das persönliche Dashboard zeigt getrennt: „Bestätigte Stunden“ und „Bestätigt + Reservierungen“.
+MUSS
+Stunden
+SA-005
+Der Vorstand und Administrator können manuell Stunden buchen, die keiner Veranstaltung zugeordnet sind. Pflichtfelder: Datum, Stunden, Mitglied, Beschreibung.
+MUSS
+Stunden
+SA-006
+Manuelle Stundenbuchungen sind im Stundenkonto gekennzeichnet und im Audit-Log protokolliert.
+MUSS
+Compliance
+SA-007
+Der Vorstand kann bestehende Stundeneinträge korrigieren oder stornieren. Die ursprünglichen Werte bleiben im Audit-Log erhalten.
+MUSS
+Stunden
+SA-008
+Mitglieder können zu ihrer Schicht-Eintragung einen optionalen Kommentar hinterlegen (z. B. Hinweise zur Verfügbarkeit oder zu besonderen Umständen).
+SOLL
+UX
+SA-009
+Kommentare zu Schicht-Eintragungen sind für den Veranstaltungsleiter und Vorstand einsehbar.
+MUSS
+UX
+
+3.2.3  Abgeltungsbeträge-Konfiguration
+Für nicht geleistete Stunden wird ein Abgeltungsbetrag erhoben. Die Höhe ist pro Fehlstunde individuell konfigurierbar – d. h. die erste Fehlstunde kann einen anderen Betrag kosten als die zweite oder dritte.
+ID
+Anforderung
+Priorität
+Kategorie
+G-001
+Abgeltungsbeträge werden als geordnete Liste konfiguriert: Index = Fehlstunde, Wert = Preis.
+MUSS
+Abrechnung
+G-002
+Für Fehlstunden, die über die konfigurierte Liste hinausgehen, gilt der letzte Eintrag als Standardpreis.
+MUSS
+Abrechnung
+G-003
+Die Abgeltungsliste kann vom Vorstand und Administrator über die Verwaltungsoberfläche geändert werden.
+MUSS
+Abrechnung
+G-004
+Es kann eine individuelle Gebührenliste pro Mitglied festgelegt werden.
+SOLL
+Abrechnung
+G-005
+Am Ende des Vereinsjahres wird eine Übersicht der zu zahlenden Beträge generiert.
+MUSS
+Abrechnung
+G-006
+Die Jahresabrechnung ist als PDF und CSV exportierbar.
+SOLL
+Abrechnung
+G-007
+Änderungen an der Gebührenkonfiguration werden protokolliert (Audit-Log) mit Benutzer, Zeitpunkt und vorherigem Wert.
+MUSS
+Compliance
+G-008
+Veränderungen an der Abgeltungsliste wirken sich nur auf das laufende oder zukünftige Vereinsjahr aus, nicht rückwirkend.
+MUSS
+Compliance
+G-009
+Der Administrator/Vorstand kann den Abrechnungsmodus konfigurieren: automatische Berechnung zum Jahresende oder manuell ausgelöste Abrechnung.
+MUSS
+Abrechnung
+
+3.3  Veranstaltungs- und Schichtverwaltung
+3.3.1  Veranstaltungen
+ID
+Anforderung
+Priorität
+Kategorie
+V-001
+Veranstaltungsleiter und Administratoren können Veranstaltungen erstellen.
+MUSS
+Veranstaltungen
+V-002
+Eine Veranstaltung enthält: Name, Beschreibung, Startdatum, Enddatum, Ort, Kategorie, Sichtbarkeit.
+MUSS
+Veranstaltungen
+V-003
+Veranstaltungen können sich über mehrere Tage erstrecken (mehrtägige Veranstaltungen).
+MUSS
+Veranstaltungen
+V-004
+In der Zeitplan-Ansicht werden mehrtägige Veranstaltungen tageweise untereinander dargestellt – jeder Tag erhält eine eigene Zeile mit seinen Schichten.
+MUSS
+Veranstaltungen
+V-005
+Veranstaltungen können einen Status haben: Entwurf, Veröffentlicht, Abgeschlossen, Abgesagt.
+MUSS
+Veranstaltungen
+V-006
+Nur veröffentlichte Veranstaltungen sind für Mitglieder sichtbar.
+MUSS
+Veranstaltungen
+V-007
+Eine Veranstaltung kann als wiederkehrend (wöchentlich, monatlich) konfiguriert werden.
+KANN
+Veranstaltungen
+V-008
+Veranstaltungen können mit Bildern und Anhängen versehen werden.
+KANN
+Veranstaltungen
+
+3.3.2  Schichten
+ID
+Anforderung
+Priorität
+Kategorie
+SC-001
+Innerhalb einer Veranstaltung können mehrere Schichten angelegt werden.
+MUSS
+Schichten
+SC-002
+Eine Schicht enthält: Name, Startzeit, Endzeit, minimale und maximale Helferanzahl, Beschreibung.
+MUSS
+Schichten
+SC-003
+Schichten werden auf einem übersichtlichen Zeitplan (Timeline) dargestellt.
+MUSS
+Schichten
+SC-004
+Freie Schichten (min. Helfer nicht erreicht) werden optisch hervorgehoben.
+MUSS
+Schichten
+SC-005
+Voll belegte Schichten (max. Helfer erreicht) werden als „Ausgebucht“ markiert.
+MUSS
+Schichten
+SC-006
+Mitglieder können sich maximal bis zu einer konfigurierbaren Frist vor Schichtbeginn abmelden.
+SOLL
+Schichten
+SC-007
+Bei Unterschreitung der Mindesthelfer wird eine Benachrichtigung an den Veranstaltungsleiter gesendet.
+SOLL
+Schichten
+SC-008
+Der Veranstaltungsleiter schließt Schichten ab und bestätigt dabei für jede Person individuell die tatsächlich geleistete Zeit (vgl. SA-002).
+MUSS
+Schichten
+SC-009
+Schichten können Anforderungen/Qualifikationen haben (z. B. Führerschein, Staplerschein).
+KANN
+Schichten
+
+3.3.3  Dashboard und Übersicht
+ID
+Anforderung
+Priorität
+Kategorie
+D-001
+Das Mitglieder-Dashboard zeigt getrennt: bestätigte Stunden und Stunden inkl. offener Reservierungen, jeweils gegen das Jahres-Stundenziel.
+MUSS
+Dashboard
+D-002
+Bevorstehende eigene Schichten werden auf dem Dashboard angezeigt.
+MUSS
+Dashboard
+D-003
+Ein öffentlicher Kalender zeigt alle veröffentlichten Veranstaltungen mit freien Schichten.
+MUSS
+Dashboard
+D-004
+Das Administrator-Dashboard zeigt systemweite Statistiken (Gesamtstunden, offene Schichten, etc.).
+MUSS
+Dashboard
+D-005
+Schichten können nach Datum, Veranstaltung und verfügbaren Plätzen gefiltert werden.
+SOLL
+Dashboard
+D-006
+Eine Karten-Ansicht (pro Veranstaltung) zeigt alle Schichten mit Belegungsbalken.
+SOLL
+Dashboard
+
+  4  Benachrichtigungen und Kommunikation
+Das System versendet automatisierte E-Mails für verschiedene Ereignisse. Alle E-Mail-Vorlagen müssen über die Administrationsoberfläche anpassbar sein.
+E-Mail-Typ
+Auslöser
+Empfänger
+Priorität
+Kiosk-Bestätigung
+Eintragung im Kiosk-Modus
+Eingetragene E-Mail
+MUSS
+Schicht-Bestätigung
+Erfolgreiche Anmeldung
+Mitglied
+MUSS
+Schicht-Abmeldung
+Abmeldung von Schicht
+Mitglied
+MUSS
+Erinnerung (1 Woche)
+7 Tage vor Schichtbeginn
+Alle Helfer
+SOLL
+Erinnerung (1 Tag)
+24 h vor Schichtbeginn
+Alle Helfer
+SOLL
+Schicht abgesagt
+Organisator sagt ab
+Alle Helfer
+MUSS
+Jahresabrechnung
+Ende Vereinsjahr
+Mitglieder mit Fehlstunden
+MUSS
+Warnung Fehlstunden
+X Wochen vor Jahresende
+Mitglieder unter Ziel
+SOLL
+Neue Veranstaltung
+Veranstaltung veröffentlicht
+Alle Mitglieder (opt-in)
+KANN
+Unterschreitung Minimum
+Schicht unter Mindesthelfer
+Veranstaltungsleiter
+SOLL
+Stunden bestätigt
+Organisator schließt Schicht ab
+Mitglied
+SOLL
+
+ID
+Anforderung
+Priorität
+Kategorie
+N-001
+Erinnerungsmails können Mitglieder per Opt-out deaktivieren (außer Pflicht-Mails).
+MUSS
+Benachrichtigung
+N-002
+Der Versandzeitpunkt für Erinnerungen ist global konfigurierbar.
+SOLL
+Konfiguration
+N-003
+E-Mail-Versand über SMTP mit Unterstützung von TLS/STARTTLS.
+MUSS
+Infrastruktur
+N-004
+Fehlgeschlagene E-Mails werden protokolliert und können manuell erneut versendet werden.
+SOLL
+Zuverlässigkeit
+
+  5  Technische Anforderungen
+5.1  Architektur-Übersicht
+Technologie-Stack
+Backend: Go (Golang) — RESTful API, Clean Architecture / Hexagonal Architecture
+Frontend: React (TypeScript) mit Vite als Build-Tool
+Datenbank: PostgreSQL (primär), Redis für Sessions und Caching
+Containerisierung: Docker + Docker Compose
+E-Mail: SMTP-Integration (kompatibel mit Mailgun, SendGrid, eigenem SMTP-Server)
+Authentifizierung: OIDC via go-oidc
+
+5.2  Backend (Go)
+ID
+Anforderung
+Priorität
+Kategorie
+T-001
+Das Backend exponiert eine RESTful JSON-API. Alle Endpunkte sind über /api/v1 erreichbar.
+MUSS
+API
+T-002
+Die API ist vollständig mit OpenAPI 3.0 dokumentiert (automatisch generiert).
+SOLL
+Dokumentation
+T-003
+Authentifizierung an der API über Bearer-Token (JWT).
+MUSS
+Sicherheit
+T-004
+CORS ist konfigurierbar (Whitelist der erlaubten Origins).
+MUSS
+Sicherheit
+T-005
+Rate-Limiting pro IP-Adresse für öffentliche Endpunkte (inkl. Kiosk).
+MUSS
+Sicherheit
+T-006
+Alle Datenbankoperationen über einen ORM oder typsicheren Query-Builder (z. B. sqlc, GORM).
+SOLL
+Qualität
+T-007
+Datenbankmigrationen werden mit einem Migration-Tool verwaltet (z. B. golang-migrate).
+MUSS
+Infrastruktur
+T-008
+Alle Konfigurationsparameter werden über Umgebungsvariablen und .env-Dateien gesteuert.
+MUSS
+Konfiguration
+T-009
+Strukturiertes Logging (JSON-Format) mit konfigurierbaren Log-Levels.
+MUSS
+Observability
+T-010
+Health-Check-Endpunkt für Monitoring (/health, /readyz).
+MUSS
+Infrastruktur
+T-011
+Hintergrundtasks (E-Mail-Versand, Reservierungsablauf, Jahresabrechnung) laufen als eigene Go-Goroutinen.
+MUSS
+Architektur
+T-012
+Alle kritischen Aktionen werden in einem Audit-Log protokolliert (Wer hat was wann geändert).
+MUSS
+Compliance
+
+5.3  Frontend (React)
+ID
+Anforderung
+Priorität
+Kategorie
+F-001
+Das Frontend ist eine Single-Page-Application (SPA) mit React 18+ und TypeScript.
+MUSS
+Frontend
+F-002
+State-Management über Zustand, Redux Toolkit oder React Query (für Server-State).
+SOLL
+Frontend
+F-003
+Das Design ist vollständig responsiv und mobilfreundlich (Mobile-First).
+MUSS
+UX
+F-004
+Der Kiosk-Modus ist eine eigenständige Route mit vereinfachtem, großflächigem Touch-UI.
+MUSS
+Kiosk
+F-005
+Schichten werden in einem interaktiven Zeitplan (Gantt-ähnlich) dargestellt.
+MUSS
+UX
+F-006
+Mehrtägige Veranstaltungen werden tageweise untereinander dargestellt; jeder Tag zeigt seinen eigenen Schicht-Track.
+MUSS
+UX
+F-007
+Farbcodierung: Primärfarbe = genügend Helfer, Warnfarbe = teilweise besetzt, Fehlerfarbe = kritisch unbesetzt.
+SOLL
+UX
+F-008
+Das Frontend ist WCAG 2.1 AA-konform (Barrierefreiheit).
+SOLL
+Barrierefreiheit
+F-009
+Ladezeiten unter 2 Sekunden für alle Hauptansichten (bei normaler Internetverbindung).
+SOLL
+Performance
+F-010
+Browser-Support: Aktuelle Versionen von Chrome, Firefox, Safari und Edge.
+MUSS
+Kompatibilität
+
+5.4  Branding und Erscheinungsbild
+Das System ist für den Einsatz durch verschiedene Vereine ausgelegt. Primärfarbe, Akzentfarbe und Logo sind vollständig konfigurierbar, sodass jeder Verein das System in seinen Vereinsfarben betreiben kann.
+ID
+Anforderung
+Priorität
+Kategorie
+B-001
+Administratoren können über die Verwaltungsoberfläche eine Primärfarbe und eine Akzentfarbe für das gesamte Frontend konfigurieren.
+MUSS
+Branding
+B-002
+Die konfigurierten Farben werden als CSS-Custom-Properties angewendet und betreffen Navigation, Buttons, Balken und Badges systemweit.
+MUSS
+Branding
+B-003
+Das Farbkontrast-Verhältnis muss auch nach Farbkonfiguration WCAG AA-konform bleiben (mind. 4,5:1); bei Unterschreitung wird eine Warnung angezeigt.
+SOLL
+Barrierefreiheit
+B-004
+Administratoren können ein Vereinslogo hochladen (PNG, SVG; empfohlen: mind. 200×200 px).
+MUSS
+Branding
+B-005
+Das Logo wird in der Seitennavigation (Desktop) und im Kiosk-Modus-Header angezeigt.
+MUSS
+Branding
+B-006
+Der Vereinsname ist separat als Text konfigurierbar und wird als Fallback angezeigt, falls kein Logo hinterlegt ist.
+MUSS
+Branding
+B-007
+Im Kiosk-Modus kann zusätzlich ein Hintergrundbild oder eine Hintergrundfarbe konfiguriert werden.
+KANN
+Branding
+B-008
+Farb- und Logo-Konfigurationen werden versioniert gespeichert und können zurückgesetzt werden.
+SOLL
+Branding
+
+  6  Datenschutz und Sicherheit
+ID
+Anforderung
+Priorität
+Kategorie
+DS-001
+Die Anwendung muss DSGVO-konform betrieben werden können.
+MUSS
+Datenschutz
+DS-002
+Personenbezogene Daten werden verschlüsselt übertragen (HTTPS/TLS).
+MUSS
+Sicherheit
+DS-003
+Mitglieder können die über sie gespeicherten Daten abrufen (Auskunftsrecht).
+MUSS
+DSGVO
+DS-004
+Mitglieder können die Löschung ihrer Daten beantragen (Recht auf Vergessen, mit Ausnahmen).
+MUSS
+DSGVO
+DS-005
+Passwörter werden nicht im System gespeichert (Auslagerung an OIDC-Provider).
+MUSS
+Sicherheit
+DS-006
+JWT-Tokens haben eine kurze Lebensdauer (Standard: 15 Minuten Access-Token).
+MUSS
+Sicherheit
+DS-007
+SQL-Injection, XSS und CSRF-Angriffe müssen durch Framework-Features verhindert werden.
+MUSS
+Sicherheit
+DS-008
+Kiosk-Bestätigungslinks sind kryptografisch zufällig und einmalig verwendbar.
+MUSS
+Sicherheit
+DS-009
+Audit-Logs werden mindestens 2 Jahre aufbewahrt und sind vor Veränderung geschützt.
+SOLL
+Compliance
+
+  7  Nicht-funktionale Anforderungen
+Verfügbarkeit & Skalierbarkeit
+Angestrebte Verfügbarkeit: 99,5 % (exkl. geplante Wartungen)
+Wartungsfenster werden 24 h im Voraus angekündigt
+Ausgelegt für bis zu 2.000 aktive Mitglieder
+Bis zu 500 gleichzeitige Verbindungen (inkl. Kiosk)
+Horizontale Skalierung des Backends möglich
+
+Wartbarkeit & Backup
+Code-Coverage der Unit-Tests: mind. 70 %
+Dependency-Updates monatlich überprüfen
+README und Entwicklerdokumentation vorhanden
+Datenbankbackup täglich, Aufbewahrung 30 Tage
+RTO (Recovery Time Objective): 4 Stunden
+
+  8  Abgrenzungen (Out-of-Scope)
+Folgende Themen sind explizit nicht Teil des Projekts (Version 1.0):
+Buchhaltungsintegration (z. B. SEPA-Lastschrift, automatische Überweisung der Abgeltungsbeträge)
+Mobile-App (iOS/Android) — nur responsive Webapplikation
+Eigenes Chatmodul oder Instant-Messaging
+Inventar- oder Ressourcenverwaltung
+Vollständige Mitgliederverwaltung (Beitragsverwaltung, Eintritte/Austritte mit Satzungslogik)
+Gamification oder Punkte-/Prämiensystem
+
+  9  Glossar
+Begriff
+Definition
+Helferschicht
+Zeitlich definierter Aufgabenblock im Rahmen einer Veranstaltung, für den Mitglieder als Helfer eingetragen werden.
+Stundenziel
+Anzahl der Stunden, die ein Mitglied im Vereinsjahr als Helfer leisten muss.
+Bestätigte Stunden
+Stunden, die nach Schichtabschluss durch den Veranstaltungsleiter individuell abgenommen wurden.
+Reservierung
+Schicht-Eintragung, die noch nicht per E-Mail bestätigt oder vom Organisator abgenommen wurde.
+Kiosk-Modus
+Spezieller Zugang ohne Anmeldung, gedacht für einen fest installierten PC im Vereinsheim.
+OIDC
+OpenID Connect — standardisiertes Authentifizierungsprotokoll auf Basis von OAuth 2.0.
+JWT
+JSON Web Token — kompaktes, selbstenthaltendes Token für die sichere Übertragung von Claims.
+Audit-Log
+Unverfälschbares Protokoll aller sicherheitsrelevanten und datenschutzrelevanten Aktionen.
+Vereinsjahr
+Das für die Stundenziele maßgebliche Abrechnungsjahr (Standard: 01.01.–31.12.).
+Abgeltungsbetrag
+Monetarisierter Ausgleich für nicht geleistete Pflichtstunden; pro Fehlstunde konfigurierbar.
+Veranstaltungsleiter
+Vereinsrolle mit Berechtigung zum Erstellen und Verwalten von Veranstaltungen und Schichten.
+
+  10  Versionsgeschichte
+Version
+Datum
+Autor
+Beschreibung
+1.0
+Mai 2026
+Vereinsvorstand
+Erstversion des Anforderungsdokuments
+1.1
+Mai 2026
+Vereinsvorstand
+Datenschutz-Erweiterungen: konfigurierbarer Mitgliedersuche-Modus, E-Mail-Identifikationsfluss, Namensanzeige-Konfiguration. Abgeltungsbeträge durch Vorstand änderbar.
+1.2
+Mai 2026
+Vereinsvorstand
+Terminologie: Strafgebühr → Abgeltungsbetrag. Mehrtägige Veranstaltungen (V-003, V-004, F-006). Branding: Farbkonfiguration und Logo (B-001–B-008).
+1.3
+Mai 2026
+Vereinsvorstand
+Mitgliederverwaltung unabhängig vom OIDC-System. Stunden-Bestätigung individuell pro Person. Manuelle Stundenbuchung durch Vorstand. Reservierungsdauer konfigurierbar. Abrechnungsmodus konfigurierbar.
+1.4
+Mai 2026
+Vereinsvorstand
+Mitgliederverwaltung vereinfacht (nur Vorname, Nachname, E-Mail, Eintritts-/Austrittsdatum; ML-001–ML-009). CSV-Import/-Export ergänzt. Kommentarfeld an Schicht-Eintragungen (SA-008, SA-009).
