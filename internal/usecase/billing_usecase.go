@@ -5,8 +5,10 @@ import (
 	"context"
 	"encoding/csv"
 	"fmt"
+	"strings"
 	"time"
 
+	"github.com/jung-kurt/gofpdf"
 	"github.com/google/uuid"
 	"github.com/yoadey/shiftmanager/internal/domain"
 	"github.com/yoadey/shiftmanager/internal/port"
@@ -152,19 +154,102 @@ func (uc *BillingUsecase) ExportBillingCSV(ctx context.Context, actorID uuid.UUI
 	return buf.Bytes(), nil
 }
 
-// ExportBillingPDF returns the billing data as a CSV file.
-// NOTE: PDF generation requires an external library (e.g. gofpdf or chromedp).
-// This stub returns CSV-formatted data with a note indicating PDF is not yet implemented.
-// Replace the body of this function with actual PDF rendering when a PDF library is added.
+// ExportBillingPDF renders the year billing report into a PDF document. It returns
+// the PDF bytes and a suggested download filename (ending in .pdf).
 func (uc *BillingUsecase) ExportBillingPDF(ctx context.Context, actorID uuid.UUID, clubYearID uuid.UUID) ([]byte, string, error) {
-	// STUB: PDF generation not implemented. Returns CSV instead.
-	// To implement: add a PDF library such as github.com/jung-kurt/gofpdf
-	// and render the YearBillingReport into a properly formatted PDF.
-	data, err := uc.ExportBillingCSV(ctx, actorID, clubYearID)
+	report, err := uc.ComputeYearBilling(ctx, actorID, clubYearID)
 	if err != nil {
 		return nil, "", err
 	}
-	return data, "text/csv; charset=utf-8", nil
+
+	data, err := renderBillingPDF(report)
+	if err != nil {
+		return nil, "", fmt.Errorf("render billing pdf: %w", err)
+	}
+
+	filename := fmt.Sprintf("billing-%s.pdf", sanitizeFilename(report.ClubYear.Label))
+
+	aid := actorID
+	_ = uc.writeAudit(ctx, &aid, domain.AuditActionExport, domain.AuditEntityClubYear, clubYearID.String(), nil, map[string]string{"format": "pdf"})
+
+	return data, filename, nil
+}
+
+// renderBillingPDF builds the PDF document for a year billing report.
+func renderBillingPDF(report *domain.YearBillingReport) ([]byte, error) {
+	pdf := gofpdf.New("P", "mm", "A4", "")
+	pdf.SetTitle("Beitragsabrechnung "+report.ClubYear.Label, false)
+	pdf.AddPage()
+
+	// Title.
+	pdf.SetFont("Helvetica", "B", 16)
+	pdf.CellFormat(0, 10, fmt.Sprintf("Beitragsabrechnung %s", report.ClubYear.Label), "", 1, "L", false, 0, "")
+	pdf.SetFont("Helvetica", "", 10)
+	pdf.CellFormat(0, 6, fmt.Sprintf("Erstellt: %s", report.ComputedAt), "", 1, "L", false, 0, "")
+	pdf.Ln(4)
+
+	// Table header.
+	header := []string{"Mitglied", "Soll-Std.", "Best. Std.", "Fehl-Std.", "Betrag (EUR)"}
+	widths := []float64{70, 28, 28, 28, 30}
+	aligns := []string{"L", "R", "R", "R", "R"}
+
+	pdf.SetFont("Helvetica", "B", 10)
+	pdf.SetFillColor(230, 230, 230)
+	for i, h := range header {
+		pdf.CellFormat(widths[i], 8, h, "1", 0, aligns[i], true, 0, "")
+	}
+	pdf.Ln(-1)
+
+	// Table rows.
+	pdf.SetFont("Helvetica", "", 10)
+	for _, r := range report.Results {
+		cells := []string{
+			r.Member.FullName(),
+			fmt.Sprintf("%.2f", r.TargetHours),
+			fmt.Sprintf("%.2f", r.ConfirmedHours),
+			fmt.Sprintf("%.2f", r.MissingHours),
+			formatCentsEUR(r.TotalCents),
+		}
+		for i, c := range cells {
+			pdf.CellFormat(widths[i], 7, c, "1", 0, aligns[i], false, 0, "")
+		}
+		pdf.Ln(-1)
+	}
+
+	// Total row.
+	pdf.SetFont("Helvetica", "B", 10)
+	labelWidth := widths[0] + widths[1] + widths[2] + widths[3]
+	pdf.CellFormat(labelWidth, 8, "Gesamt", "1", 0, "R", false, 0, "")
+	pdf.CellFormat(widths[4], 8, formatCentsEUR(report.TotalCents), "1", 0, "R", false, 0, "")
+	pdf.Ln(-1)
+
+	var buf bytes.Buffer
+	if err := pdf.Output(&buf); err != nil {
+		return nil, err
+	}
+	return buf.Bytes(), nil
+}
+
+// formatCentsEUR formats an integer cent amount as a EUR string, e.g. 1234 -> "12.34 EUR".
+func formatCentsEUR(cents int) string {
+	return fmt.Sprintf("%.2f EUR", float64(cents)/100.0)
+}
+
+// sanitizeFilename replaces characters that are unsafe in filenames with hyphens.
+func sanitizeFilename(s string) string {
+	if s == "" {
+		return "report"
+	}
+	var b strings.Builder
+	for _, r := range s {
+		switch {
+		case r >= 'a' && r <= 'z', r >= 'A' && r <= 'Z', r >= '0' && r <= '9':
+			b.WriteRune(r)
+		default:
+			b.WriteRune('-')
+		}
+	}
+	return b.String()
 }
 
 func (uc *BillingUsecase) writeAudit(ctx context.Context, actorID *uuid.UUID, action, entity, entityID string, before, after interface{}) error {

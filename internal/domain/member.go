@@ -80,17 +80,41 @@ func (m *Member) DisplayName(mode NameMode) string {
 	}
 }
 
+// DisplayNameFor returns the member's name as it should be shown to the given viewer.
+// Per NM-002 the full name is always returned when:
+//   - the viewer is looking at their own name (viewerID == member.ID), or
+//   - the viewer is a board member or higher (vorstand/admin),
+//   - or the configured name mode is "full".
+// Otherwise the abbreviated form ("Maximilian M.") is returned.
+func (m *Member) DisplayNameFor(mode NameMode, viewerID uuid.UUID, viewerRole string) string {
+	if mode == NameModeFull {
+		return m.FullName()
+	}
+	if viewerID == m.ID {
+		return m.FullName()
+	}
+	if HasRole(viewerRole, RoleVorstand) {
+		return m.FullName()
+	}
+	return m.Abbreviate()
+}
+
 // FullName returns "FirstName LastName".
 func (m *Member) FullName() string {
 	return fmt.Sprintf("%s %s", m.FirstName, m.LastName)
 }
 
-// Abbreviate returns "F. LastName" where F is the first letter of the first name.
+// Abbreviate returns "FirstName L." where L is the first letter of the last name
+// (NM-002). For example "Maximilian Müller" becomes "Maximilian M.".
 func (m *Member) Abbreviate() string {
-	if len(m.FirstName) == 0 {
-		return m.LastName
+	if len(m.LastName) == 0 {
+		return m.FirstName
 	}
-	return fmt.Sprintf("%s. %s", strings.ToUpper(string([]rune(m.FirstName)[0])), m.LastName)
+	initial := strings.ToUpper(string([]rune(m.LastName)[0]))
+	if len(m.FirstName) == 0 {
+		return fmt.Sprintf("%s.", initial)
+	}
+	return fmt.Sprintf("%s %s.", m.FirstName, initial)
 }
 
 // Activate marks the member as active.

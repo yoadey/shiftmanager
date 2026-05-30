@@ -108,6 +108,20 @@ func (r *Registration) IsExpired(now time.Time) bool {
 	return now.After(*r.ReservedUntil)
 }
 
+// OccupancyStatus is the human-facing fill state of a shift.
+type OccupancyStatus string
+
+const (
+	// OccupancyOffen: no helpers registered yet.
+	OccupancyOffen OccupancyStatus = "offen"
+	// OccupancyTeilweise: at least one helper but below the minimum.
+	OccupancyTeilweise OccupancyStatus = "teilweise"
+	// OccupancyBesetzt: minimum reached but capacity not yet exhausted.
+	OccupancyBesetzt OccupancyStatus = "besetzt"
+	// OccupancyAusgebucht: capacity (max helpers) reached.
+	OccupancyAusgebucht OccupancyStatus = "ausgebucht"
+)
+
 // ShiftOccupancy describes the current fill state of a shift.
 type ShiftOccupancy struct {
 	ShiftID    uuid.UUID `json:"shiftId"`
@@ -117,6 +131,43 @@ type ShiftOccupancy struct {
 	MaxHelpers int       `json:"maxHelpers"`
 	IsFull     bool      `json:"isFull"`
 	IsUnder    bool      `json:"isUnder"`
+}
+
+// FreeSlots returns how many more helpers fit before the shift is full.
+// When MaxHelpers is 0 (unbounded) it returns -1 to signal "unlimited".
+func (o ShiftOccupancy) FreeSlots() int {
+	if o.MaxHelpers <= 0 {
+		return -1
+	}
+	free := o.MaxHelpers - o.Registered
+	if free < 0 {
+		return 0
+	}
+	return free
+}
+
+// NeedsMore returns how many more helpers are required to reach the minimum.
+// It is 0 once the minimum is satisfied.
+func (o ShiftOccupancy) NeedsMore() int {
+	need := o.MinHelpers - o.Registered
+	if need < 0 {
+		return 0
+	}
+	return need
+}
+
+// Status classifies the shift fill state into offen/teilweise/besetzt/ausgebucht.
+func (o ShiftOccupancy) Status() OccupancyStatus {
+	if o.MaxHelpers > 0 && o.Registered >= o.MaxHelpers {
+		return OccupancyAusgebucht
+	}
+	if o.Registered == 0 {
+		return OccupancyOffen
+	}
+	if o.Registered < o.MinHelpers {
+		return OccupancyTeilweise
+	}
+	return OccupancyBesetzt
 }
 
 // TimelineDay groups shifts for a single calendar day.

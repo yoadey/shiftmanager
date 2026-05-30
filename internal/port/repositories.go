@@ -55,6 +55,7 @@ type ShiftRepository interface {
 	Create(ctx context.Context, s *domain.Shift) error
 	GetByID(ctx context.Context, id uuid.UUID) (*domain.Shift, error)
 	FindByEventID(ctx context.Context, eventID uuid.UUID) ([]*domain.Shift, error)
+	FindShiftsStartingBetween(ctx context.Context, from, to time.Time) ([]*domain.Shift, error)
 	Update(ctx context.Context, s *domain.Shift) error
 	Delete(ctx context.Context, id uuid.UUID) error
 }

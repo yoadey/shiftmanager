@@ -226,6 +226,26 @@ func (r *ShiftRepo) FindByEventID(ctx context.Context, eventID uuid.UUID) ([]*do
 	return shifts, rows.Err()
 }
 
+const sqlFindShiftsStartingBetween = `SELECT ` + shiftColumns + ` FROM shifts WHERE start_at >= $1 AND start_at < $2 ORDER BY start_at`
+
+func (r *ShiftRepo) FindShiftsStartingBetween(ctx context.Context, from, to time.Time) ([]*domain.Shift, error) {
+	rows, err := r.pool.Query(ctx, sqlFindShiftsStartingBetween, from, to)
+	if err != nil {
+		return nil, fmt.Errorf("find shifts starting between: %w", err)
+	}
+	defer rows.Close()
+
+	var shifts []*domain.Shift
+	for rows.Next() {
+		s, err := scanShift(rows)
+		if err != nil {
+			return nil, err
+		}
+		shifts = append(shifts, s)
+	}
+	return shifts, rows.Err()
+}
+
 const sqlUpdateShift = `
 UPDATE shifts
 SET name = $2, start_at = $3, end_at = $4, min_helpers = $5, max_helpers = $6,

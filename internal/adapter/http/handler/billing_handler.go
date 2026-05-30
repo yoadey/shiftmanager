@@ -1,6 +1,7 @@
 package handler
 
 import (
+	"fmt"
 	"net/http"
 
 	"github.com/google/uuid"
@@ -68,14 +69,14 @@ func (h *BillingHandler) ExportPDF(w http.ResponseWriter, r *http.Request) {
 	}
 
 	actorID := middleware.GetUserID(r.Context())
-	data, contentType, err := h.uc.ExportBillingPDF(r.Context(), actorID, clubYearID)
+	data, filename, err := h.uc.ExportBillingPDF(r.Context(), actorID, clubYearID)
 	if err != nil {
 		writeError(w, http.StatusBadRequest, err.Error())
 		return
 	}
 
-	w.Header().Set("Content-Type", contentType)
-	w.Header().Set("Content-Disposition", "attachment; filename=\"billing.pdf\"")
+	w.Header().Set("Content-Type", "application/pdf")
+	w.Header().Set("Content-Disposition", fmt.Sprintf("attachment; filename=%q", filename))
 	w.WriteHeader(http.StatusOK)
 	_, _ = w.Write(data)
 }

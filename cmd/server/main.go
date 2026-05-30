@@ -151,6 +151,7 @@ func run() error {
 	hourUC := usecase.NewHourUsecase(hourRepo, memberRepo, shiftRepo, auditRepo)
 	billingUC := usecase.NewBillingUsecase(hourRepo, memberRepo, settingsRepo, auditRepo)
 	settingsUC := usecase.NewSettingsUsecase(settingsRepo, auditRepo, memCache)
+	reminderUC := usecase.NewReminderUsecase(shiftRepo, regRepo, eventRepo, memberRepo, emailSvc, auditRepo)
 
 	// --- Handlers ---
 	handlers := httpadapter.Handlers{
@@ -177,7 +178,7 @@ func run() error {
 	})
 
 	// --- Scheduler ---
-	sched := scheduler.New(pool, regUC, nil, log)
+	sched := scheduler.New(pool, regUC, reminderUC, log)
 	sched.Start(rootCtx)
 	defer sched.Stop()
 
