@@ -1,4 +1,4 @@
-import React, { useEffect, useState, lazy, Suspense } from 'react';
+import { useEffect, useState, lazy, Suspense } from 'react';
 import { DesktopShell } from '@/components/layout/DesktopShell';
 import { MobileShell } from '@/components/layout/MobileShell';
 import { Toast } from '@/components/ui/Toast';

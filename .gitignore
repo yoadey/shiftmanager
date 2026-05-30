@@ -11,6 +11,7 @@
 *.dylib
 /shiftmanager
 /cmd/server/server
+/server
 
 # Test binary, built with `go test -c`
 *.test
@@ -36,7 +37,10 @@ frontend/node_modules/
 frontend/dist/
 frontend/.vite/
 node_modules/
-dist/
+# NOTE: do not add an unanchored `dist/` here — it would also match
+# internal/infrastructure/static/dist/, which holds the committed SPA
+# placeholder that //go:embed needs to compile. Build-output dist dirs
+# are already covered by `/dist/` (root) and `frontend/dist/` above.
 
 # npm / yarn / pnpm
 npm-debug.log*

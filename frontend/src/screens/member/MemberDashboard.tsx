@@ -6,7 +6,6 @@ import { Button } from '@/components/ui/Button';
 import { HourBar } from '@/components/ui/HourBar';
 import { useAppStore } from '@/store/app.store';
 import { useAuthStore } from '@/store/auth.store';
-import { calcOccupancy } from '@/hooks/useOccupancy';
 import type { Event, Shift, ShiftDay, Signup } from '@/types';
 
 // ── Demo data (until API is connected) ───────────────────────────────────────
@@ -249,4 +248,5 @@ export function MemberDashboard() {
   );
 }
 
-export { collectMy, DateChip, MyShiftCard, EmptyState, TextLink, Section, fmtDate, durH, hrs };
+export { collectMy, DateChip, MyShiftCard, EmptyState, TextLink, Section, Legend, fmtDate, durH, hrs };
+export type { ShiftRec };

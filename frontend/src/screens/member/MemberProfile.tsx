@@ -1,0 +1,103 @@
+import { useState } from 'react';
+import { Icon } from '@/components/ui/Icon';
+import { Avatar } from '@/components/ui/Avatar';
+import { Button } from '@/components/ui/Button';
+import { Toggle } from '@/components/ui/Toggle';
+import { useAppStore } from '@/store/app.store';
+import { useAuthStore } from '@/store/auth.store';
+import { DEMO_STATE, fmtDate, memberMap } from '@/screens/_demo';
+import { Section } from '@/screens/member/MemberDashboard';
+
+function PrefRow({ label, sub, on, set }: { label: string; sub: string; on: boolean; set: () => void }) {
+  return (
+    <div style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '13px 15px' }}>
+      <div style={{ flex: 1 }}>
+        <div style={{ fontWeight: 700, fontSize: 14.5 }}>{label}</div>
+        <div style={{ color: 'var(--muted)', fontSize: 12, fontWeight: 600 }}>{sub}</div>
+      </div>
+      <Toggle on={on} onClick={set} />
+    </div>
+  );
+}
+
+function LinkRow({ icon, label, sub, onClick }: { icon: string; label: string; sub?: string; onClick?: () => void }) {
+  return (
+    <div
+      className="pressable"
+      onClick={onClick}
+      style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '13px 15px', cursor: 'pointer' }}
+    >
+      <div style={{ width: 36, height: 36, borderRadius: 10, background: 'var(--surface-2)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+        <Icon name={icon} size={18} color="var(--ink-2)" />
+      </div>
+      <div style={{ flex: 1 }}>
+        <div style={{ fontWeight: 700, fontSize: 14.5 }}>{label}</div>
+        {sub && <div style={{ color: 'var(--muted)', fontSize: 12, fontWeight: 600 }}>{sub}</div>}
+      </div>
+      <Icon name="chevR" size={18} color="var(--line-2)" stroke={2.4} />
+    </div>
+  );
+}
+
+interface Prefs {
+  week: boolean;
+  day: boolean;
+  news: boolean;
+}
+
+export function MemberProfile() {
+  const { setRole, showToast } = useAppStore();
+  const { user } = useAuthStore();
+  const uid = user?.id ?? DEMO_STATE.currentUserId;
+  const me = memberMap[uid] ?? DEMO_STATE.members[0];
+  const [prefs, setPrefs] = useState<Prefs>({ week: true, day: true, news: false });
+
+  return (
+    <div className="fade-in">
+      <div className="sm-header">
+        <div>
+          <div className="sm-eyebrow">Konto</div>
+          <div className="sm-title">Profil</div>
+        </div>
+      </div>
+      <div className="sm-pad" style={{ paddingTop: 8 }}>
+        <div className="sm-card pad" style={{ display: 'flex', alignItems: 'center', gap: 14 }}>
+          <Avatar memberId={me.id} members={memberMap} size={56} />
+          <div>
+            <div style={{ fontFamily: 'Bricolage Grotesque', fontWeight: 800, fontSize: 19 }}>{me.first} {me.last}</div>
+            <div style={{ color: 'var(--muted)', fontSize: 13, fontWeight: 600 }}>{me.email}</div>
+            <div style={{ color: 'var(--muted)', fontSize: 12.5, fontWeight: 600, marginTop: 2 }}>Mitglied seit {fmtDate(me.since, 'short')}</div>
+          </div>
+        </div>
+
+        <Section title="Erinnerungen" />
+        <div className="sm-card">
+          <PrefRow label="Erinnerung 1 Woche vorher" sub="7 Tage vor Schichtbeginn" on={prefs.week} set={() => setPrefs((p) => ({ ...p, week: !p.week }))} />
+          <hr className="sm-divider" />
+          <PrefRow label="Erinnerung 1 Tag vorher" sub="24 h vor Schichtbeginn" on={prefs.day} set={() => setPrefs((p) => ({ ...p, day: !p.day }))} />
+          <hr className="sm-divider" />
+          <PrefRow label="Neue Veranstaltungen" sub="Bei Veröffentlichung benachrichtigen" on={prefs.news} set={() => setPrefs((p) => ({ ...p, news: !p.news }))} />
+        </div>
+        <div className="sm-hint" style={{ padding: '0 4px' }}>Pflicht-Mails (z. B. Absage einer Schicht) können nicht deaktiviert werden.</div>
+
+        <Section title="Datenschutz" />
+        <div className="sm-card">
+          <LinkRow icon="download" label="Meine Daten exportieren" sub="Auskunftsrecht (DSGVO)" onClick={() => showToast('Datenexport wird vorbereitet …')} />
+          <hr className="sm-divider" />
+          <LinkRow icon="shield" label="Löschung beantragen" sub="Recht auf Vergessen" onClick={() => showToast('Antrag an den Vorstand gesendet.', 'warn')} />
+        </div>
+
+        <Section title="Demo" />
+        <div className="sm-card pad" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+          <div>
+            <div style={{ fontWeight: 700, fontSize: 14.5 }}>Vorstands-Ansicht testen</div>
+            <div style={{ color: 'var(--muted)', fontSize: 12.5, fontWeight: 600 }}>Wechselt in die Admin-Oberfläche</div>
+          </div>
+          <Button variant="dark" size="sm" icon="arrowR" onClick={() => setRole('vorstand')}>Wechseln</Button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+export { PrefRow, LinkRow };

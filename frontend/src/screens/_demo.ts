@@ -1,0 +1,227 @@
+// ── Demo state ────────────────────────────────────────────────────────────────
+// Mirrors project/app/data.js — used by the screens until the API is wired up.
+// The real API hooks (src/api/*) provide the same shapes for production.
+
+import type {
+  Member,
+  Event,
+  AppSettings,
+  AuditEntry,
+} from '@/types';
+
+export interface ManualBooking {
+  id: string;
+  memberId: string;
+  date: string;
+  hours: number;
+  desc: string;
+  by?: string;
+}
+
+export interface DemoState {
+  members: Member[];
+  currentUserId: string;
+  events: Event[];
+  manualBookings: ManualBooking[];
+  settings: AppSettings;
+  audit: AuditEntry[];
+}
+
+const members: Member[] = [
+  { id: 'm-jonas', first: 'Jonas', last: 'Berger', email: 'jonas.berger@example.de', since: '2021-09-01', goal: null },
+  { id: 'm-maxi', first: 'Maximilian', last: 'Müller', email: 'm.mueller@example.de', since: '2019-03-12', goal: null },
+  { id: 'm-lena', first: 'Lena', last: 'Brandt', email: 'lena.brandt@example.de', since: '2022-01-20', goal: 12 },
+  { id: 'm-sophie', first: 'Sophie', last: 'Klein', email: 's.klein@example.de', since: '2020-11-04', goal: null },
+  { id: 'm-tobi', first: 'Tobias', last: 'Hofmann', email: 'tobias.h@example.de', since: '2023-06-15', goal: null },
+  { id: 'm-aylin', first: 'Aylin', last: 'Demir', email: 'aylin.demir@example.de', since: '2018-08-30', goal: null },
+  { id: 'm-mark', first: 'Mark', last: 'Petersen', email: 'mark.p@example.de', since: '2024-02-01', goal: null },
+  { id: 'm-carla', first: 'Carla', last: 'Vogt', email: 'carla.vogt@example.de', since: '2021-04-18', goal: 25 },
+  { id: 'm-finn', first: 'Finn', last: 'Schäfer', email: 'finn.s@example.de', since: '2023-10-09', goal: null },
+  { id: 'm-nina', first: 'Nina', last: 'Roth', email: 'nina.roth@example.de', since: '2017-05-22', goal: null },
+];
+
+const currentUserId = 'm-jonas';
+
+const events: Event[] = [
+  {
+    id: 'ev-turnier',
+    name: 'Frühjahrsturnier Standard & Latein',
+    category: 'Turnier',
+    location: 'Sporthalle Aachen-Brand',
+    status: 'veröffentlicht',
+    description: 'Zweitägiges Ranglistenturnier mit Paaren aus ganz NRW. Helfer für Auf-/Abbau, Einlass, Catering und Garderobe gesucht.',
+    days: [
+      {
+        date: '2026-06-13',
+        shifts: [
+          { id: 's1', name: 'Aufbau Parkett & Technik', start: '08:00', end: '10:00', min: 2, max: 4, qual: 'Tanzfläche-Aufbau', desc: 'Schwingboden verlegen, Technik & Banden stellen.', signups: [{ memberId: 'm-maxi', status: 'angemeldet' }] },
+          { id: 's2', name: 'Einlass & Kasse', start: '10:00', end: '14:00', min: 2, max: 3, desc: 'Tickets, Tageskasse, Startnummern ausgeben.', signups: [{ memberId: 'm-jonas', status: 'angemeldet', comment: 'Bin etwas später, gegen 10:15 da.' }, { memberId: 'm-lena', status: 'angemeldet' }] },
+          { id: 's3', name: 'Cateringtheke Mittag', start: '11:00', end: '15:00', min: 3, max: 5, desc: 'Getränke- und Kuchenverkauf während der Vorrunden.', signups: [{ memberId: 'm-sophie', status: 'angemeldet' }] },
+          { id: 's4', name: 'Garderobe', start: '12:00', end: '18:00', min: 1, max: 2, desc: 'Garderobenannahme für Gäste.', signups: [] },
+        ],
+      },
+      {
+        date: '2026-06-14',
+        shifts: [
+          { id: 's5', name: 'Cateringtheke Finaltag', start: '11:00', end: '16:00', min: 3, max: 5, desc: 'Verkauf während der Endrunden.', signups: [{ memberId: 'm-aylin', status: 'angemeldet' }, { memberId: 'm-carla', status: 'angemeldet' }] },
+          { id: 's6', name: 'Siegerehrung & Abbau', start: '16:00', end: '20:00', min: 4, max: 6, qual: 'Tanzfläche-Aufbau', desc: 'Pokale stellen, Saal & Parkett abbauen.', signups: [{ memberId: 'm-maxi', status: 'angemeldet' }] },
+        ],
+      },
+    ],
+  },
+  {
+    id: 'ev-cafe',
+    name: 'Tanzcafé für Senioren',
+    category: 'Vereinsleben',
+    location: 'Vereinsheim, Saal 1',
+    status: 'veröffentlicht',
+    description: 'Gemütlicher Tanznachmittag mit Kaffee und Kuchen für unsere Seniorengruppe.',
+    days: [
+      {
+        date: '2026-06-28',
+        shifts: [
+          { id: 's7', name: 'Empfang & Kasse', start: '14:00', end: '15:00', min: 1, max: 2, desc: 'Gäste begrüßen, Eintritt einsammeln.', signups: [{ memberId: 'm-nina', status: 'angemeldet' }, { memberId: 'm-tobi', status: 'angemeldet' }] },
+          { id: 's8', name: 'Kuchentheke', start: '14:00', end: '17:00', min: 2, max: 3, desc: 'Kuchen schneiden und ausgeben, Kaffee kochen.', signups: [{ memberId: 'm-jonas', status: 'angemeldet' }] },
+          { id: 's9', name: 'Aufräumen & Spülen', start: '17:00', end: '18:30', min: 2, max: 4, desc: 'Saal aufräumen, Geschirr spülen.', signups: [] },
+        ],
+      },
+    ],
+  },
+  {
+    id: 'ev-tdot',
+    name: 'Tag der offenen Tür',
+    category: 'Mitgliederwerbung',
+    location: 'Vereinsheim & Außengelände',
+    status: 'veröffentlicht',
+    description: 'Schnupperkurse, Showtanz und Infostände – wir öffnen unsere Türen für alle Tanzbegeisterten.',
+    days: [
+      {
+        date: '2026-07-11',
+        shifts: [
+          { id: 's10', name: 'Infostand Mitgliedschaft', start: '11:00', end: '16:00', min: 2, max: 3, desc: 'Interessierte beraten, Flyer verteilen.', signups: [] },
+          { id: 's11', name: 'Schnupperkurs-Betreuung', start: '13:00', end: '15:00', min: 2, max: 4, desc: 'Trainer beim Schnupperkurs unterstützen.', signups: [{ memberId: 'm-finn', status: 'angemeldet' }] },
+          { id: 's12', name: 'Getränke & Grill', start: '12:00', end: '17:00', min: 2, max: 3, desc: 'Außenbewirtung am Grillstand.', signups: [] },
+        ],
+      },
+    ],
+  },
+  {
+    id: 'ev-mv',
+    name: 'Jahres-Mitgliederversammlung',
+    category: 'Vereinsleben',
+    location: 'Vereinsheim, Saal 1',
+    status: 'entwurf',
+    description: 'Ordentliche Mitgliederversammlung mit Vorstandswahl.',
+    days: [
+      {
+        date: '2026-07-18',
+        shifts: [
+          { id: 's13', name: 'Bestuhlung & Technik', start: '17:00', end: '19:00', min: 2, max: 3, desc: 'Stuhlreihen stellen, Mikro & Beamer.', signups: [] },
+          { id: 's14', name: 'Getränkeausgabe', start: '18:30', end: '22:00', min: 1, max: 2, desc: '', signups: [] },
+        ],
+      },
+    ],
+  },
+  {
+    id: 'ev-neujahr',
+    name: 'Neujahrsball 2026',
+    category: 'Turnier',
+    location: 'Altes Kurhaus Aachen',
+    status: 'abgeschlossen',
+    description: 'Festlicher Gesellschaftsball zum Jahresauftakt.',
+    days: [
+      {
+        date: '2026-01-11',
+        shifts: [
+          { id: 's15', name: 'Garderobe', start: '18:00', end: '23:00', min: 2, max: 3, desc: '', signups: [{ memberId: 'm-jonas', status: 'bestätigt', hours: 5 }, { memberId: 'm-sophie', status: 'bestätigt', hours: 5 }] },
+        ],
+      },
+    ],
+  },
+  {
+    id: 'ev-putz',
+    name: 'Vereinsheim-Frühjahrsputz',
+    category: 'Vereinsleben',
+    location: 'Vereinsheim',
+    status: 'abgeschlossen',
+    description: 'Großreinemachen vor Saisonstart.',
+    days: [
+      {
+        date: '2026-03-21',
+        shifts: [
+          { id: 's16', name: 'Saal & Küche', start: '09:00', end: '13:00', min: 3, max: 6, desc: '', signups: [{ memberId: 'm-jonas', status: 'bestätigt', hours: 4 }, { memberId: 'm-lena', status: 'bestätigt', hours: 4 }, { memberId: 'm-mark', status: 'nichterschienen', hours: 0 }] },
+        ],
+      },
+    ],
+  },
+];
+
+const manualBookings: ManualBooking[] = [
+  { id: 'mb1', memberId: 'm-jonas', date: '2026-02-09', hours: 2.5, desc: 'Protokoll Vorstandssitzung', by: 'Vorstand' },
+];
+
+const settings: AppSettings = {
+  clubName: 'TSC Schwarz-Gelb Aachen',
+  yearGoal: 20,
+  clubYear: '2026',
+  nameMode: 'abbrev',
+  reservationHours: 48,
+  billingMode: 'manuell',
+  kioskSearch: false,
+  feeSchedule: [5, 7, 10, 15],
+  deregisterDeadlineH: 24,
+};
+
+const audit: AuditEntry[] = [
+  { ts: '2026-05-28 14:02', who: 'Sophie K. (Vorstand)', what: 'Stundenziel global auf 20 h geändert', cat: 'Stunden' },
+  { ts: '2026-05-26 09:41', who: 'Sophie K. (Vorstand)', what: 'Manuelle Buchung +2,5 h für Jonas Berger', cat: 'Stunden' },
+  { ts: '2026-05-20 18:15', who: 'Mark P. (Admin)', what: 'Namensmodus auf „Abgekürzt" gesetzt', cat: 'Datenschutz' },
+  { ts: '2026-05-12 11:30', who: 'Sophie K. (Vorstand)', what: 'Abgeltungsliste geändert (3. Fehlstunde 8→10 €)', cat: 'Abrechnung' },
+];
+
+export const DEMO_STATE: DemoState = {
+  members,
+  currentUserId,
+  events,
+  manualBookings,
+  settings,
+  audit,
+};
+
+// ── Shared helpers ──────────────────────────────────────────────────────────
+
+export function fmtDate(iso: string, style?: string): string {
+  const d = new Date(iso + 'T12:00:00');
+  if (style === 'weekday-long') return new Intl.DateTimeFormat('de-DE', { weekday: 'long', day: 'numeric', month: 'long' }).format(d);
+  if (style === 'weekday') return new Intl.DateTimeFormat('de-DE', { weekday: 'short', day: 'numeric', month: 'long' }).format(d);
+  if (style === 'short') return new Intl.DateTimeFormat('de-DE', { day: '2-digit', month: '2-digit', year: 'numeric' }).format(d);
+  if (style === 'daymon') return new Intl.DateTimeFormat('de-DE', { day: 'numeric', month: 'short' }).format(d);
+  return new Intl.DateTimeFormat('de-DE', { day: 'numeric', month: 'long', year: 'numeric' }).format(d);
+}
+
+export function durH(start: string, end: string): number {
+  const [sh, sm] = start.split(':').map(Number);
+  const [eh, em] = end.split(':').map(Number);
+  return ((eh * 60 + em) - (sh * 60 + sm)) / 60;
+}
+
+export function hrs(n: number): string {
+  return (Number.isInteger(n) ? n : n.toLocaleString('de-DE', { minimumFractionDigits: 1 })) + ' h';
+}
+
+export function eur(n: number): string {
+  return n.toLocaleString('de-DE', { style: 'currency', currency: 'EUR' });
+}
+
+export function catGradient(cat: string): string {
+  const map: Record<string, string> = {
+    Turnier: 'linear-gradient(120deg, #2A2722 0%, #4a4336 100%)',
+    Vereinsleben: 'linear-gradient(120deg, #6b5a1f 0%, #b89436 100%)',
+    Mitgliederwerbung: 'linear-gradient(120deg, #3a4a3f 0%, #5f7a64 100%)',
+  };
+  return map[cat] || 'linear-gradient(120deg,#444,#666)';
+}
+
+export const memberMap: Record<string, Member> = Object.fromEntries(
+  members.map((m) => [m.id, m]),
+);

@@ -1,0 +1,11 @@
+# This directory holds the compiled frontend bundle that is embedded into the
+# Go binary via //go:embed (see ../embed.go).
+#
+# The real assets are produced by building the SPA in ../../../../frontend:
+#
+#     cd frontend && npm ci && npm run build
+#     cp -r frontend/dist/* internal/infrastructure/static/dist/
+#
+# A minimal index.html placeholder is committed alongside this file so that
+# `go build` succeeds before the frontend has been built. CI/CD should replace
+# the contents of this directory with the real production build.
