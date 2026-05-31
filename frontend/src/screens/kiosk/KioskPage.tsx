@@ -147,7 +147,7 @@ export function KioskPage() {
                     <div style={{ padding: 20, display: 'flex', alignItems: 'center', gap: 14 }}>
                       <div style={{ flex: 1 }}>
                         <div style={{ fontFamily: 'Bricolage Grotesque', fontWeight: 700, fontSize: 20 }}>{ev.name}</div>
-                        <div style={{ color: 'var(--muted)', fontSize: 14, fontWeight: 600, marginTop: 4 }}>{fmtDate(ev.days[0].date, 'weekday')} · {ev.location}</div>
+                        <div style={{ color: 'var(--muted)', fontSize: 14, fontWeight: 600, marginTop: 4 }}>{ev.days[0] ? `${fmtDate(ev.days[0].date, 'weekday')} · ` : ''}{ev.location}</div>
                       </div>
                       <Badge kind={free > 0 ? 'ok' : 'full'}>{free} frei</Badge>
                       <Icon name="chevR" size={24} color="var(--line-2)" stroke={2.4} />

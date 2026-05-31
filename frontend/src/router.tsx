@@ -2,6 +2,7 @@ import { lazy, Suspense, type ReactNode } from 'react';
 import { Routes, Route, Navigate } from 'react-router-dom';
 import App from './App';
 import { useAuthStore } from '@/store/auth.store';
+import { ErrorBoundary } from '@/components/ui/ErrorBoundary';
 
 // RequireAuth gates the main application behind a session token. Public routes
 // (kiosk, login, callback, shift confirmation) stay outside this guard.
@@ -26,14 +27,16 @@ function RouteFallback() {
 
 export default function AppRouter() {
   return (
-    <Suspense fallback={<RouteFallback />}>
-      <Routes>
-        <Route path="/" element={<RequireAuth><App /></RequireAuth>} />
-        <Route path="/kiosk" element={<KioskPage />} />
-        <Route path="/auth/login" element={<LoginPage />} />
-        <Route path="/auth/callback" element={<CallbackPage />} />
-        <Route path="/shifts/confirm/:token" element={<ConfirmPage />} />
-      </Routes>
-    </Suspense>
+    <ErrorBoundary>
+      <Suspense fallback={<RouteFallback />}>
+        <Routes>
+          <Route path="/" element={<RequireAuth><App /></RequireAuth>} />
+          <Route path="/kiosk" element={<ErrorBoundary label="dem Kiosk"><KioskPage /></ErrorBoundary>} />
+          <Route path="/auth/login" element={<ErrorBoundary><LoginPage /></ErrorBoundary>} />
+          <Route path="/auth/callback" element={<ErrorBoundary><CallbackPage /></ErrorBoundary>} />
+          <Route path="/shifts/confirm/:token" element={<ErrorBoundary><ConfirmPage /></ErrorBoundary>} />
+        </Routes>
+      </Suspense>
+    </ErrorBoundary>
   );
 }

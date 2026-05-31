@@ -2,6 +2,7 @@ import { useEffect, useState, useRef, lazy, Suspense } from 'react';
 import { DesktopShell } from '@/components/layout/DesktopShell';
 import { MobileShell } from '@/components/layout/MobileShell';
 import { Toast } from '@/components/ui/Toast';
+import { ErrorBoundary } from '@/components/ui/ErrorBoundary';
 import { TweaksPanel } from '@/components/tweaks/TweaksPanel';
 import { useAppStore } from '@/store/app.store';
 import { useBranding, useSettings } from '@/api/settings';
@@ -82,7 +83,10 @@ function ScreenRouter() {
 }
 
 export default function App() {
-  const { role, tweaks, setTweak, setNameMode } = useAppStore();
+  const { role, tab, navStack, tweaks, setTweak, setNameMode } = useAppStore();
+  // Reset the screen error boundary whenever the user navigates, so a crash on
+  // one screen never sticks after switching tabs or drilling into a detail.
+  const navKey = `${role}:${tab}:${navStack.map((n) => `${n.name}/${n.params?.id ?? ''}`).join('>')}`;
   const [isDesktop, setIsDesktop] = useState(() => window.innerWidth >= 900);
   const [createOpen, setCreateOpen] = useState(false);
 
@@ -147,11 +151,17 @@ export default function App() {
 
   const screenContent = (
     <Suspense fallback={<LoadingFallback />}>
-      <ScreenRouter />
+      <ErrorBoundary key={navKey} label="diesem Bereich">
+        <ScreenRouter />
+      </ErrorBoundary>
       {createOpen && (
-        <CreateEventFlow onClose={() => setCreateOpen(false)} />
+        <ErrorBoundary label="der Termin-Erstellung">
+          <CreateEventFlow onClose={() => setCreateOpen(false)} />
+        </ErrorBoundary>
       )}
-      <Toast />
+      <ErrorBoundary>
+        <Toast />
+      </ErrorBoundary>
     </Suspense>
   );
 
@@ -163,7 +173,9 @@ export default function App() {
             {screenContent}
           </div>
         </DesktopShell>
-        <TweaksPanel />
+        <ErrorBoundary>
+          <TweaksPanel />
+        </ErrorBoundary>
       </>
     );
   }
@@ -173,7 +185,9 @@ export default function App() {
       <MobileShell tabs={tabs}>
         {screenContent}
       </MobileShell>
-      <TweaksPanel />
+      <ErrorBoundary>
+        <TweaksPanel />
+      </ErrorBoundary>
     </>
   );
 }

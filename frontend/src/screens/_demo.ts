@@ -191,7 +191,9 @@ export const DEMO_STATE: DemoState = {
 // ── Shared helpers ──────────────────────────────────────────────────────────
 
 export function fmtDate(iso: string, style?: string): string {
+  if (!iso) return '';
   const d = new Date(iso + 'T12:00:00');
+  if (Number.isNaN(d.getTime())) return '';
   if (style === 'weekday-long') return new Intl.DateTimeFormat('de-DE', { weekday: 'long', day: 'numeric', month: 'long' }).format(d);
   if (style === 'weekday') return new Intl.DateTimeFormat('de-DE', { weekday: 'short', day: 'numeric', month: 'long' }).format(d);
   if (style === 'short') return new Intl.DateTimeFormat('de-DE', { day: '2-digit', month: '2-digit', year: 'numeric' }).format(d);
