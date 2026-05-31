@@ -105,6 +105,12 @@ func (uc *MemberUsecase) UpdateMember(ctx context.Context, actorID uuid.UUID, id
 	if input.Role != "" {
 		m.Role = input.Role
 	}
+	if input.IsActive != nil {
+		m.IsActive = *input.IsActive
+		if *input.IsActive {
+			m.LeftAt = nil
+		}
+	}
 
 	if err := uc.members.Update(ctx, m); err != nil {
 		return nil, fmt.Errorf("update member: %w", err)
@@ -369,4 +375,8 @@ type UpdateMemberInput struct {
 	Email               string
 	IndividualGoalHours *float64
 	Role                string
+	// IsActive, when non-nil, activates or deactivates the member. Activating
+	// (true) also clears any recorded leave date — used by admins to approve
+	// auto-registered members pending activation.
+	IsActive *bool
 }

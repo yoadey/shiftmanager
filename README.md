@@ -137,7 +137,9 @@ Alle Konfigurationsparameter werden ueber Umgebungsvariablen gesteuert. Kopiere 
 | `OIDC_ISSUER` | Issuer-URL des OIDC-Providers | _(erforderlich)_ |
 | `OIDC_CLIENT_ID` | OIDC Client ID | _(erforderlich)_ |
 | `OIDC_CLIENT_SECRET` | OIDC Client Secret | _(erforderlich)_ |
-| `OIDC_REDIRECT_URL` | Callback-URL nach OIDC-Login | _(erforderlich)_ |
+| `OIDC_REDIRECT_URL` | Backend-Callback-URL; muss beim IdP **verbatim** als Redirect-URI registriert sein (inkl. `/api/v1`-Prefix), z. B. `http://localhost:8080/api/v1/auth/callback` | _(erforderlich)_ |
+| `LOGIN_REDIRECT_URL` | SPA-Route, auf die der Callback nach erfolgreichem Login weiterleitet (Token im URL-Fragment) | `/auth/callback` |
+| `BOOTSTRAP_ADMIN_EMAIL` | Mitglied mit dieser E-Mail wird beim Login automatisch angelegt/verknuepft und als aktiver Administrator freigeschaltet (Erst-Admin-Bootstrap) | `""` |
 | `JWT_SECRET` | Signierungsgeheimnis fuer interne JWTs (min. 32 Zeichen) | _(erforderlich)_ |
 | `SMTP_HOST` | SMTP-Servername | _(erforderlich fuer E-Mail)_ |
 | `SMTP_PORT` | SMTP-Port (587 fuer STARTTLS) | `587` |
@@ -148,6 +150,14 @@ Alle Konfigurationsparameter werden ueber Umgebungsvariablen gesteuert. Kopiere 
 | `LOG_LEVEL` | Loglevel: `trace` `debug` `info` `warn` `error` | `info` |
 | `GOMEMLIMIT` | Go Runtime Memory Limit | `200MiB` |
 | `CLUB_NAME` | Vereinsname als Fallback vor DB-Branding | `TSC Schwarz-Gelb Aachen` |
+
+### Erster Login & Mitglieder-Onboarding
+
+Die Anmeldung laeuft ausschliesslich ueber OIDC. Der Ablauf:
+
+1. **OIDC-Redirect korrekt setzen:** `OIDC_REDIRECT_URL` muss auf den Backend-Callback `…/api/v1/auth/callback` zeigen und exakt so beim IdP registriert sein. Nach erfolgreichem Code-Tausch leitet das Backend mit dem JWT im URL-Fragment auf `LOGIN_REDIRECT_URL` (Standard `/auth/callback`) weiter; die SPA speichert das Token und meldet den Nutzer an.
+2. **Ersten Admin anlegen (Bootstrap):** `BOOTSTRAP_ADMIN_EMAIL` auf die E-Mail des Vorstands setzen. Beim ersten Login mit dieser Identitaet wird das Mitglied automatisch angelegt (bzw. ein bestehendes verknuepft), als `admin` gesetzt und sofort freigeschaltet. Danach kann der Wert wieder entfernt werden.
+3. **Weitere Mitglieder:** Unbekannte OIDC-Nutzer werden beim Login automatisch als Mitglied **registriert, aber nicht freigeschaltet** (`is_active = false`). Sie sehen einen Hinweis „Warten auf Freischaltung“. Ein Administrator/Vorstand aktiviert sie anschliessend in der Mitgliederverwaltung. Alternativ koennen Mitglieder vorab per CSV-Import oder manuell angelegt werden; die OIDC-Verknuepfung erfolgt dann beim ersten Login automatisch per E-Mail-Abgleich.
 
 ## Deployment (Kubernetes)
 

@@ -24,6 +24,13 @@ type Config struct {
 	OIDCClientID     string
 	OIDCClientSecret string
 	OIDCRedirectURL  string
+	// LoginRedirectURL is the SPA route the backend redirects to after the
+	// OIDC callback, carrying the JWT (or an error code) in the URL fragment.
+	// Relative paths resolve against the server's own origin.
+	LoginRedirectURL string
+	// BootstrapAdminEmail, when set, auto-provisions/promotes the member with
+	// this e-mail to an active administrator on login (first-admin bootstrap).
+	BootstrapAdminEmail string
 
 	// SMTP
 	SMTPHost string
@@ -61,6 +68,8 @@ func Load() (*Config, error) {
 		OIDCClientID:        getEnv("OIDC_CLIENT_ID", ""),
 		OIDCClientSecret:    getEnv("OIDC_CLIENT_SECRET", ""),
 		OIDCRedirectURL:     getEnv("OIDC_REDIRECT_URL", ""),
+		LoginRedirectURL:    getEnv("LOGIN_REDIRECT_URL", "/auth/callback"),
+		BootstrapAdminEmail: getEnv("BOOTSTRAP_ADMIN_EMAIL", ""),
 		SMTPHost:            getEnv("SMTP_HOST", "localhost"),
 		SMTPUser:            getEnv("SMTP_USER", ""),
 		SMTPPass:            getEnv("SMTP_PASS", ""),

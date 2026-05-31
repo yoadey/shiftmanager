@@ -113,6 +113,7 @@ func (h *MemberHandler) Update(w http.ResponseWriter, r *http.Request) {
 		Email               string   `json:"email"`
 		IndividualGoalHours *float64 `json:"individualGoalHours"`
 		Role                string   `json:"role"`
+		IsActive            *bool    `json:"isActive"`
 	}
 	if err := decodeJSON(r, &body); err != nil {
 		writeError(w, http.StatusBadRequest, "invalid request body")
@@ -126,6 +127,7 @@ func (h *MemberHandler) Update(w http.ResponseWriter, r *http.Request) {
 		Email:               body.Email,
 		IndividualGoalHours: body.IndividualGoalHours,
 		Role:                body.Role,
+		IsActive:            body.IsActive,
 	})
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error())

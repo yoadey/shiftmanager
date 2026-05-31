@@ -20,13 +20,17 @@ func BuildAuthHandler(
 	audit port.AuditRepository,
 	jwtSecret string,
 	jwtExpiry time.Duration,
+	loginRedirect string,
+	bootstrapAdminEmail string,
 ) *AuthHandler {
 	return &AuthHandler{
-		oidc:      oidc,
-		members:   memberGetterAdapter{repo: members},
-		audit:     auditWriterAdapter{repo: audit},
-		jwtSecret: jwtSecret,
-		jwtExpiry: jwtExpiry,
+		oidc:                oidc,
+		members:             memberGetterAdapter{repo: members},
+		audit:               auditWriterAdapter{repo: audit},
+		jwtSecret:           jwtSecret,
+		jwtExpiry:           jwtExpiry,
+		loginRedirect:       loginRedirect,
+		bootstrapAdminEmail: bootstrapAdminEmail,
 	}
 }
 
@@ -42,6 +46,18 @@ func (a memberGetterAdapter) GetByEmail(r *http.Request, email string) (*domain.
 
 func (a memberGetterAdapter) GetByOIDCSubject(r *http.Request, provider, subject string) (*domain.Member, error) {
 	return a.repo.GetByOIDCSubject(reqCtx(r), provider, subject)
+}
+
+func (a memberGetterAdapter) Create(r *http.Request, m *domain.Member) error {
+	return a.repo.Create(reqCtx(r), m)
+}
+
+func (a memberGetterAdapter) Update(r *http.Request, m *domain.Member) error {
+	return a.repo.Update(reqCtx(r), m)
+}
+
+func (a memberGetterAdapter) LinkOIDC(r *http.Request, link *domain.OIDCLink) error {
+	return a.repo.LinkOIDC(reqCtx(r), link)
 }
 
 // auditWriterAdapter adapts a port.AuditRepository to the handler's auditWriter.

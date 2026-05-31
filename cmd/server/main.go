@@ -162,7 +162,7 @@ func run() error {
 
 	// --- Handlers ---
 	handlers := httpadapter.Handlers{
-		Auth:     handler.BuildAuthHandler(oidcSvc, memberRepo, auditRepo, cfg.JWTSecret, cfg.JWTExpiration),
+		Auth:     handler.BuildAuthHandler(oidcSvc, memberRepo, auditRepo, cfg.JWTSecret, cfg.JWTExpiration, cfg.LoginRedirectURL, cfg.BootstrapAdminEmail),
 		Member:   handler.NewMemberHandler(memberUC),
 		Event:    handler.NewEventHandler(eventUC),
 		Shift:    handler.NewShiftHandler(eventUC, regUC),

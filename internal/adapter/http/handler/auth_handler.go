@@ -4,6 +4,8 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"net/url"
+	"strings"
 	"time"
 
 	"github.com/golang-jwt/jwt/v5"
@@ -16,36 +18,32 @@ import (
 // AuthHandler handles OIDC-based authentication flows.
 type AuthHandler struct {
 	oidc      port.OIDCService
-	members   memberGetter
+	members   memberStore
 	audit     auditWriter
 	jwtSecret string
 	jwtExpiry time.Duration
+	// loginRedirect is the SPA route to which the callback redirects after a
+	// successful (or failed) exchange, passing the result in the URL fragment.
+	loginRedirect string
+	// bootstrapAdminEmail, when configured (BOOTSTRAP_ADMIN_EMAIL), causes the
+	// member with this e-mail to be auto-provisioned and/or promoted to an
+	// active administrator on login. This solves the first-admin bootstrap
+	// problem without manual database access.
+	bootstrapAdminEmail string
 }
 
-type memberGetter interface {
+// memberStore is the subset of member persistence the auth flow needs: looking
+// up members and auto-registering / linking OIDC identities on first login.
+type memberStore interface {
 	GetByEmail(r *http.Request, email string) (*domain.Member, error)
 	GetByOIDCSubject(r *http.Request, provider, subject string) (*domain.Member, error)
+	Create(r *http.Request, m *domain.Member) error
+	Update(r *http.Request, m *domain.Member) error
+	LinkOIDC(r *http.Request, link *domain.OIDCLink) error
 }
 
 type auditWriter interface {
 	WriteAudit(r *http.Request, actorID *uuid.UUID, action, entity, entityID string, before, after interface{}) error
-}
-
-// NewAuthHandler creates a new AuthHandler.
-func NewAuthHandler(
-	oidc port.OIDCService,
-	members memberRepoAdapter,
-	audit auditRepoAdapter,
-	jwtSecret string,
-	jwtExpiry time.Duration,
-) *AuthHandler {
-	return &AuthHandler{
-		oidc:      oidc,
-		members:   members,
-		audit:     audit,
-		jwtSecret: jwtSecret,
-		jwtExpiry: jwtExpiry,
-	}
 }
 
 // Login initiates the OIDC authorization code flow.
@@ -68,55 +66,8 @@ func (h *AuthHandler) Login(w http.ResponseWriter, r *http.Request) {
 // Callback handles the OIDC provider redirect with an authorization code.
 // GET /api/v1/auth/callback
 func (h *AuthHandler) Callback(w http.ResponseWriter, r *http.Request) {
-	stateCookie, err := r.Cookie("oidc_state")
-	if err != nil || stateCookie.Value != r.URL.Query().Get("state") {
-		http.Error(w, `{"error":"invalid state parameter"}`, http.StatusBadRequest)
-		return
-	}
-
-	code := r.URL.Query().Get("code")
-	if code == "" {
-		http.Error(w, `{"error":"missing code parameter"}`, http.StatusBadRequest)
-		return
-	}
-
-	tokens, err := h.oidc.Exchange(r.Context(), code)
-	if err != nil {
-		http.Error(w, `{"error":"token exchange failed"}`, http.StatusUnauthorized)
-		return
-	}
-
-	claims, err := h.oidc.VerifyIDToken(r.Context(), tokens.IDToken)
-	if err != nil {
-		http.Error(w, `{"error":"id token verification failed"}`, http.StatusUnauthorized)
-		return
-	}
-
-	// Look up member by OIDC subject, then fall back to email.
-	var member *domain.Member
-	member, err = h.members.GetByOIDCSubject(r, claims.Provider, claims.Subject)
-	if err != nil || member == nil {
-		member, err = h.members.GetByEmail(r, claims.Email)
-		if err != nil || member == nil {
-			// Auto-provision a basic member record for first-time OIDC users.
-			// A real implementation might redirect to a registration page instead.
-			http.Error(w, `{"error":"no member account found"}`, http.StatusForbidden)
-			return
-		}
-	}
-
-	if !member.IsActive {
-		http.Error(w, `{"error":"account is inactive"}`, http.StatusForbidden)
-		return
-	}
-
-	jwtToken, err := h.issueJWT(member)
-	if err != nil {
-		http.Error(w, `{"error":"token issuance failed"}`, http.StatusInternalServerError)
-		return
-	}
-
-	http.SetCookie(w, &http.Cookie{
+	// Clear the short-lived state cookie regardless of outcome.
+	defer http.SetCookie(w, &http.Cookie{
 		Name:     "oidc_state",
 		Value:    "",
 		MaxAge:   -1,
@@ -124,15 +75,186 @@ func (h *AuthHandler) Callback(w http.ResponseWriter, r *http.Request) {
 		Path:     "/",
 	})
 
-	writeJSON(w, http.StatusOK, map[string]interface{}{
-		"token":     jwtToken,
-		"expiresIn": int(h.jwtExpiry.Seconds()),
-		"member": map[string]interface{}{
-			"id":    member.ID,
-			"email": member.Email,
-			"role":  member.Role,
-		},
+	stateCookie, err := r.Cookie("oidc_state")
+	if err != nil || stateCookie.Value != r.URL.Query().Get("state") {
+		h.redirectError(w, r, "invalid_state")
+		return
+	}
+
+	code := r.URL.Query().Get("code")
+	if code == "" {
+		h.redirectError(w, r, "missing_code")
+		return
+	}
+
+	tokens, err := h.oidc.Exchange(r.Context(), code)
+	if err != nil {
+		h.redirectError(w, r, "exchange_failed")
+		return
+	}
+
+	claims, err := h.oidc.VerifyIDToken(r.Context(), tokens.IDToken)
+	if err != nil {
+		h.redirectError(w, r, "token_invalid")
+		return
+	}
+
+	isBootstrapAdmin := h.bootstrapAdminEmail != "" &&
+		strings.EqualFold(strings.TrimSpace(claims.Email), strings.TrimSpace(h.bootstrapAdminEmail))
+
+	// Resolve the member: match by OIDC subject (oidc_links), then fall back to
+	// e-mail. The members list is maintained independently of the IdP (ML-004),
+	// so a known member's first login is matched by their e-mail address.
+	member, _ := h.members.GetByOIDCSubject(r, claims.Provider, claims.Subject)
+	matchedBySubject := member != nil
+	if member == nil {
+		member, _ = h.members.GetByEmail(r, claims.Email)
+	}
+
+	justRegistered := false
+	switch {
+	case member == nil:
+		// Unknown identity: auto-register a new member. Per policy they remain
+		// INACTIVE (pending admin activation) — except the configured bootstrap
+		// admin, who is created as an active administrator.
+		member, err = h.provisionMember(r, claims, isBootstrapAdmin)
+		if err != nil {
+			h.redirectError(w, r, "server_error")
+			return
+		}
+		justRegistered = true
+
+	default:
+		// Known member: ensure the OIDC subject is linked for future logins and
+		// apply bootstrap-admin promotion if applicable.
+		changed := false
+		if !matchedBySubject {
+			// Matched by e-mail; no link for this subject exists yet (otherwise
+			// GetByOIDCSubject would have found it), so linking is safe.
+			h.linkOIDC(r, member.ID, claims)
+			if member.OIDCSubject == nil {
+				member.OIDCSubject = &claims.Subject
+				changed = true
+			}
+		}
+		if isBootstrapAdmin && (member.Role != domain.RoleAdmin || !member.IsActive) {
+			before := *member
+			member.Role = domain.RoleAdmin
+			member.IsActive = true
+			changed = true
+			_ = h.audit.WriteAudit(r, &member.ID, "member.bootstrap_admin", "member", member.ID.String(), before, *member)
+		}
+		if changed {
+			if err := h.members.Update(r, member); err != nil {
+				h.redirectError(w, r, "server_error")
+				return
+			}
+		}
+	}
+
+	if !member.IsActive {
+		// Newly self-registered accounts wait for admin activation; existing
+		// inactive accounts have been deactivated.
+		if justRegistered {
+			h.redirectError(w, r, "registered")
+		} else {
+			h.redirectError(w, r, "inactive")
+		}
+		return
+	}
+
+	jwtToken, err := h.issueJWT(member)
+	if err != nil {
+		h.redirectError(w, r, "server_error")
+		return
+	}
+
+	h.redirectSuccess(w, r, jwtToken)
+}
+
+// provisionMember creates a member record for a first-time OIDC user. Regular
+// users are created inactive (pending admin activation); the configured
+// bootstrap admin is created as an active administrator.
+func (h *AuthHandler) provisionMember(r *http.Request, claims *port.OIDCClaims, bootstrapAdmin bool) (*domain.Member, error) {
+	first, last := splitName(claims.Name, claims.Email)
+	member := &domain.Member{
+		ID:          uuid.New(),
+		FirstName:   first,
+		LastName:    last,
+		Email:       claims.Email,
+		JoinedAt:    time.Now().UTC(),
+		IsActive:    bootstrapAdmin,
+		Role:        domain.RoleMitglied,
+		OIDCSubject: &claims.Subject,
+	}
+	if bootstrapAdmin {
+		member.Role = domain.RoleAdmin
+	}
+	if err := h.members.Create(r, member); err != nil {
+		return nil, err
+	}
+	// Best-effort link so subsequent logins match by subject; e-mail fallback
+	// still works if this fails.
+	h.linkOIDC(r, member.ID, claims)
+
+	action := "member.autoregister"
+	if bootstrapAdmin {
+		action = "member.bootstrap_admin"
+	}
+	_ = h.audit.WriteAudit(r, &member.ID, action, "member", member.ID.String(), nil, *member)
+	return member, nil
+}
+
+// linkOIDC records an oidc_links row, ignoring errors (the e-mail fallback
+// keeps login working even if the link cannot be written).
+func (h *AuthHandler) linkOIDC(r *http.Request, memberID uuid.UUID, claims *port.OIDCClaims) {
+	_ = h.members.LinkOIDC(r, &domain.OIDCLink{
+		ID:       uuid.New(),
+		MemberID: memberID,
+		Provider: claims.Provider,
+		Subject:  claims.Subject,
+		LinkedAt: time.Now().UTC(),
 	})
+}
+
+// splitName derives a first/last name from the OIDC "name" claim, falling back
+// to the local part of the e-mail address when no name is provided.
+func splitName(name, email string) (first, last string) {
+	name = strings.TrimSpace(name)
+	if name == "" {
+		local := email
+		if at := strings.IndexByte(email, '@'); at > 0 {
+			local = email[:at]
+		}
+		return local, ""
+	}
+	parts := strings.Fields(name)
+	if len(parts) == 1 {
+		return parts[0], ""
+	}
+	return parts[0], strings.Join(parts[1:], " ")
+}
+
+// redirectToSPA sends the browser back to the single-page app's callback
+// route, passing the result in the URL fragment. The fragment is never sent
+// to the server, so the token stays out of access logs and the Referer header;
+// the SPA reads it client-side and then strips it from the URL.
+func (h *AuthHandler) redirectToSPA(w http.ResponseWriter, r *http.Request, fragment string) {
+	target := h.loginRedirect
+	if target == "" {
+		target = "/auth/callback"
+	}
+	http.Redirect(w, r, target+"#"+fragment, http.StatusFound)
+}
+
+// redirectError redirects to the SPA with a machine-readable error code.
+func (h *AuthHandler) redirectError(w http.ResponseWriter, r *http.Request, code string) {
+	h.redirectToSPA(w, r, "error="+url.QueryEscape(code))
+}
+
+// redirectSuccess redirects to the SPA with the freshly issued JWT.
+func (h *AuthHandler) redirectSuccess(w http.ResponseWriter, r *http.Request, token string) {
+	h.redirectToSPA(w, r, fmt.Sprintf("token=%s&expiresIn=%d", url.QueryEscape(token), int(h.jwtExpiry.Seconds())))
 }
 
 // Me returns the currently authenticated user's profile.
@@ -177,37 +299,6 @@ func (h *AuthHandler) issueJWT(member *domain.Member) (string, error) {
 		return "", fmt.Errorf("sign jwt: %w", err)
 	}
 	return signed, nil
-}
-
-// memberRepoAdapter and auditRepoAdapter provide thin adapter shims for the
-// handler's dependencies so that the handler only depends on its own interface.
-type memberRepoAdapter struct {
-	repo interface {
-		GetByEmail(ctx interface{}, email string) (*domain.Member, error)
-		GetByOIDCSubject(ctx interface{}, provider, subject string) (*domain.Member, error)
-	}
-}
-
-func (a memberRepoAdapter) GetByEmail(r *http.Request, email string) (*domain.Member, error) {
-	return a.repo.GetByEmail(r.Context(), email)
-}
-
-func (a memberRepoAdapter) GetByOIDCSubject(r *http.Request, provider, subject string) (*domain.Member, error) {
-	return a.repo.GetByOIDCSubject(r.Context(), provider, subject)
-}
-
-type auditRepoAdapter struct {
-	repo interface {
-		Insert(ctx interface{}, e *domain.AuditEntry) error
-	}
-}
-
-func (a auditRepoAdapter) WriteAudit(r *http.Request, actorID *uuid.UUID, action, entity, entityID string, before, after interface{}) error {
-	entry, err := domain.NewAuditEntry(actorID, action, entity, entityID, before, after)
-	if err != nil {
-		return err
-	}
-	return a.repo.Insert(r.Context(), entry)
 }
 
 // writeJSON encodes v as JSON and writes it to w with the given status code.
