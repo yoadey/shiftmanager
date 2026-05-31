@@ -20,6 +20,7 @@ type Member struct {
 	IndividualGoalHours *float64   `json:"individualGoalHours,omitempty"`
 	OIDCSubject         *string    `json:"oidcSubject,omitempty"`
 	Role                string     `json:"role"`
+	ReminderOptOut      bool       `json:"reminderOptOut"`
 }
 
 // OIDCLink stores the link between a member and an OIDC provider subject.
@@ -41,20 +42,20 @@ const (
 
 // Roles defines RBAC roles in ascending privilege order.
 const (
-	RoleKiosk               = "kiosk"
-	RoleMitglied            = "mitglied"
+	RoleKiosk                = "kiosk"
+	RoleMitglied             = "mitglied"
 	RoleVeranstaltungsleiter = "veranstaltungsleiter"
-	RoleVorstand            = "vorstand"
-	RoleAdmin               = "admin"
+	RoleVorstand             = "vorstand"
+	RoleAdmin                = "admin"
 )
 
 // RoleLevel maps roles to numeric levels for comparison.
 var RoleLevel = map[string]int{
-	RoleKiosk:               0,
-	RoleMitglied:            1,
+	RoleKiosk:                0,
+	RoleMitglied:             1,
 	RoleVeranstaltungsleiter: 2,
-	RoleVorstand:            3,
-	RoleAdmin:               4,
+	RoleVorstand:             3,
+	RoleAdmin:                4,
 }
 
 // HasRole returns true when the given role meets the minimum required role.
@@ -85,6 +86,7 @@ func (m *Member) DisplayName(mode NameMode) string {
 //   - the viewer is looking at their own name (viewerID == member.ID), or
 //   - the viewer is a board member or higher (vorstand/admin),
 //   - or the configured name mode is "full".
+//
 // Otherwise the abbreviated form ("Maximilian M.") is returned.
 func (m *Member) DisplayNameFor(mode NameMode, viewerID uuid.UUID, viewerRole string) string {
 	if mode == NameModeFull {

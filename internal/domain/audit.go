@@ -37,20 +37,26 @@ const (
 	AuditActionManualBook = "manual_booking"
 	AuditActionCorrect    = "correct"
 	AuditActionCompute    = "compute_billing"
+	AuditActionGDPRExport = "gdpr_export"
+	AuditActionGDPRDelete = "gdpr_delete"
+	AuditActionResend     = "resend"
 )
 
 // Common audit entity constants.
 const (
-	AuditEntityMember       = "member"
-	AuditEntityEvent        = "event"
-	AuditEntityShift        = "shift"
-	AuditEntityRegistration = "registration"
-	AuditEntityHourEntry    = "hour_entry"
-	AuditEntitySettings     = "settings"
-	AuditEntityBranding     = "branding"
-	AuditEntityFeeTier      = "fee_tier"
-	AuditEntityClubYear     = "club_year"
-	AuditEntityAuth         = "auth"
+	AuditEntityMember        = "member"
+	AuditEntityEvent         = "event"
+	AuditEntityShift         = "shift"
+	AuditEntityRegistration  = "registration"
+	AuditEntityHourEntry     = "hour_entry"
+	AuditEntitySettings      = "settings"
+	AuditEntityBranding      = "branding"
+	AuditEntityFeeTier       = "fee_tier"
+	AuditEntityClubYear      = "club_year"
+	AuditEntityAuth          = "auth"
+	AuditEntityEmailTemplate = "email_template"
+	AuditEntityEmailLog      = "email_log"
+	AuditEntityLogo          = "logo"
 )
 
 // NewAuditEntry creates an audit entry with a new UUID and current timestamp.

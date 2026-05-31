@@ -11,19 +11,34 @@ import (
 
 // KioskHandler handles unauthenticated public kiosk registration flows.
 type KioskHandler struct {
-	regUC    *usecase.RegistrationUsecase
-	eventUC  *usecase.EventUsecase
-	memberUC *usecase.MemberUsecase
+	regUC      *usecase.RegistrationUsecase
+	eventUC    *usecase.EventUsecase
+	memberUC   *usecase.MemberUsecase
+	settingsUC *usecase.SettingsUsecase
 }
 
-// NewKioskHandler creates a new KioskHandler.
-func NewKioskHandler(regUC *usecase.RegistrationUsecase, eventUC *usecase.EventUsecase, memberUC *usecase.MemberUsecase) *KioskHandler {
-	return &KioskHandler{regUC: regUC, eventUC: eventUC, memberUC: memberUC}
+// NewKioskHandler creates a new KioskHandler. settingsUC may be nil to disable
+// the kiosk-lock check.
+func NewKioskHandler(regUC *usecase.RegistrationUsecase, eventUC *usecase.EventUsecase, memberUC *usecase.MemberUsecase, settingsUC *usecase.SettingsUsecase) *KioskHandler {
+	return &KioskHandler{regUC: regUC, eventUC: eventUC, memberUC: memberUC, settingsUC: settingsUC}
+}
+
+// locked reports whether the public kiosk is currently locked (K-012). When
+// locked it writes a 403 response and returns true.
+func (h *KioskHandler) locked(w http.ResponseWriter, r *http.Request) bool {
+	if h.settingsUC != nil && h.settingsUC.IsKioskLocked(r.Context()) {
+		writeError(w, http.StatusForbidden, "kiosk is locked")
+		return true
+	}
+	return false
 }
 
 // PublicTimeline returns the timeline of a published event for the kiosk view.
 // GET /api/v1/kiosk/events/:id
 func (h *KioskHandler) PublicTimeline(w http.ResponseWriter, r *http.Request) {
+	if h.locked(w, r) {
+		return
+	}
 	id, err := parseUUIDParam(r, "id")
 	if err != nil {
 		writeError(w, http.StatusBadRequest, "invalid event id")
@@ -42,6 +57,9 @@ func (h *KioskHandler) PublicTimeline(w http.ResponseWriter, r *http.Request) {
 // with a double-opt-in link is sent to the supplied address.
 // POST /api/v1/kiosk/shifts/:id/register
 func (h *KioskHandler) Register(w http.ResponseWriter, r *http.Request) {
+	if h.locked(w, r) {
+		return
+	}
 	shiftID, err := parseUUIDParam(r, "id")
 	if err != nil {
 		writeError(w, http.StatusBadRequest, "invalid shift id")

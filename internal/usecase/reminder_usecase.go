@@ -19,10 +19,12 @@ type ReminderUsecase struct {
 	members       port.MemberRepository
 	email         port.EmailService
 	audit         port.AuditRepository
+	settings      port.SettingsRepository
 	now           func() time.Time
 }
 
-// NewReminderUsecase creates a new ReminderUsecase.
+// NewReminderUsecase creates a new ReminderUsecase. settings may be nil, in which
+// case the default reminder lead time is used.
 func NewReminderUsecase(
 	shifts port.ShiftRepository,
 	registrations port.RegistrationRepository,
@@ -30,6 +32,7 @@ func NewReminderUsecase(
 	members port.MemberRepository,
 	email port.EmailService,
 	audit port.AuditRepository,
+	settings port.SettingsRepository,
 ) *ReminderUsecase {
 	return &ReminderUsecase{
 		shifts:        shifts,
@@ -38,6 +41,7 @@ func NewReminderUsecase(
 		members:       members,
 		email:         email,
 		audit:         audit,
+		settings:      settings,
 		now:           func() time.Time { return time.Now().UTC() },
 	}
 }
@@ -59,9 +63,18 @@ type reminderWindow struct {
 func (uc *ReminderUsecase) SendDueReminders(ctx context.Context) (int, error) {
 	now := uc.now()
 
+	// N-002: the early reminder lead time is configurable (in weeks); default 1 week.
+	leadWeeks := 1
+	if uc.settings != nil {
+		if v, err := getSettingInt(ctx, uc.settings, domain.SettingKeyReminderLeadWeeks, 1); err == nil && v > 0 {
+			leadWeeks = v
+		}
+	}
+	earlyLead := time.Duration(leadWeeks) * 7 * 24 * time.Hour
+
 	windows := []reminderWindow{
-		// One-week reminder: shifts starting in [7d, 7d+1h).
-		{from: 7 * 24 * time.Hour, to: 7*24*time.Hour + time.Hour, daysUntil: 7},
+		// Early reminder: shifts starting in [lead, lead+1h).
+		{from: earlyLead, to: earlyLead + time.Hour, daysUntil: leadWeeks * 7},
 		// One-day reminder: shifts starting in [24h, 25h).
 		{from: 24 * time.Hour, to: 25 * time.Hour, daysUntil: 1},
 	}
@@ -109,6 +122,14 @@ func (uc *ReminderUsecase) remindShift(ctx context.Context, shift *domain.Shift,
 		// Only remind active registrants (registered or confirmed).
 		if reg.State != domain.RegistrationStateRegistered && reg.State != domain.RegistrationStateConfirmed {
 			continue
+		}
+
+		// N-001: skip members who opted out of reminders. Mandatory mails
+		// (confirmation/cancellation) are sent elsewhere and are unaffected.
+		if reg.MemberID != nil {
+			if m, err := uc.members.GetByID(ctx, *reg.MemberID); err == nil && m != nil && m.ReminderOptOut {
+				continue
+			}
 		}
 
 		to := uc.recipientEmail(ctx, reg)

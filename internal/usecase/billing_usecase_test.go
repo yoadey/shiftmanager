@@ -54,6 +54,19 @@ func TestComputeYearBilling(t *testing.T) {
 	assert.True(t, audit.has(domain.AuditActionCompute, domain.AuditEntityClubYear))
 }
 
+func TestComputeYearBilling_MemberOverrideTiers(t *testing.T) {
+	uc, _, _, settings, _, year, memberID := seedBilling(t)
+	// Per-member override: single flat tier of 1000 cents applied to all 4 missing hours.
+	_ = settings.ReplaceMemberFeeTiers(context.Background(), memberID, year.ID, []*domain.FeeTier{
+		{ID: uuid.New(), ClubYearID: year.ID, Position: 1, AmountCents: 1000},
+	})
+	report, err := uc.ComputeYearBilling(context.Background(), uuid.New(), year.ID)
+	require.NoError(t, err)
+	require.Len(t, report.Results, 1)
+	// Single last tier covers all 4 missing hours: 4 * 1000 = 4000.
+	assert.Equal(t, 4000, report.Results[0].TotalCents)
+}
+
 func TestComputeYearBilling_NoFeeTiers(t *testing.T) {
 	uc, hours, members, _, _ := newBillingUC()
 	year := &domain.ClubYear{ID: uuid.New(), Label: "2026", DefaultTargetHours: 10}

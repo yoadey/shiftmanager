@@ -26,16 +26,16 @@ func NewMemberRepo(pool *pgxpool.Pool) *MemberRepo {
 	return &MemberRepo{pool: pool}
 }
 
-const memberColumns = `id, first_name, last_name, email, joined_at, left_at, is_active, individual_goal_hours, oidc_subject, role`
+const memberColumns = `id, first_name, last_name, email, joined_at, left_at, is_active, individual_goal_hours, oidc_subject, role, reminder_opt_out`
 
 const sqlInsertMember = `
-INSERT INTO members (id, first_name, last_name, email, joined_at, left_at, is_active, individual_goal_hours, oidc_subject, role)
-VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)`
+INSERT INTO members (id, first_name, last_name, email, joined_at, left_at, is_active, individual_goal_hours, oidc_subject, role, reminder_opt_out)
+VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)`
 
 func (r *MemberRepo) Create(ctx context.Context, m *domain.Member) error {
 	_, err := r.pool.Exec(ctx, sqlInsertMember,
 		m.ID, m.FirstName, m.LastName, m.Email, m.JoinedAt, m.LeftAt,
-		m.IsActive, m.IndividualGoalHours, m.OIDCSubject, m.Role,
+		m.IsActive, m.IndividualGoalHours, m.OIDCSubject, m.Role, m.ReminderOptOut,
 	)
 	if err != nil {
 		return fmt.Errorf("insert member: %w", err)
@@ -118,13 +118,14 @@ func (r *MemberRepo) List(ctx context.Context, filter port.MemberFilter) ([]*dom
 const sqlUpdateMember = `
 UPDATE members
 SET first_name = $2, last_name = $3, email = $4, joined_at = $5, left_at = $6,
-    is_active = $7, individual_goal_hours = $8, oidc_subject = $9, role = $10
+    is_active = $7, individual_goal_hours = $8, oidc_subject = $9, role = $10,
+    reminder_opt_out = $11
 WHERE id = $1`
 
 func (r *MemberRepo) Update(ctx context.Context, m *domain.Member) error {
 	tag, err := r.pool.Exec(ctx, sqlUpdateMember,
 		m.ID, m.FirstName, m.LastName, m.Email, m.JoinedAt, m.LeftAt,
-		m.IsActive, m.IndividualGoalHours, m.OIDCSubject, m.Role,
+		m.IsActive, m.IndividualGoalHours, m.OIDCSubject, m.Role, m.ReminderOptOut,
 	)
 	if err != nil {
 		return fmt.Errorf("update member: %w", err)
@@ -194,13 +195,68 @@ func (r *MemberRepo) Count(ctx context.Context) (int, error) {
 	return n, nil
 }
 
+const sqlCountActiveMembers = `SELECT count(*) FROM members WHERE is_active = true`
+
+func (r *MemberRepo) CountActive(ctx context.Context) (int, error) {
+	var n int
+	if err := r.pool.QueryRow(ctx, sqlCountActiveMembers).Scan(&n); err != nil {
+		return 0, fmt.Errorf("count active members: %w", err)
+	}
+	return n, nil
+}
+
+const sqlSetReminderOptOut = `UPDATE members SET reminder_opt_out = $2 WHERE id = $1`
+
+func (r *MemberRepo) SetReminderOptOut(ctx context.Context, id uuid.UUID, optOut bool) error {
+	tag, err := r.pool.Exec(ctx, sqlSetReminderOptOut, id, optOut)
+	if err != nil {
+		return fmt.Errorf("set reminder opt-out: %w", err)
+	}
+	if tag.RowsAffected() == 0 {
+		return domain.ErrMemberNotFound
+	}
+	return nil
+}
+
+// sqlAnonymizeMember redacts personally identifiable information for GDPR
+// deletion (DS-004). It deliberately keeps the row (and its foreign keys from
+// hour_entries / audit_log) intact so financial and audit history is retained;
+// only PII is overwritten. OIDC links are removed separately.
+const sqlAnonymizeMember = `
+UPDATE members
+SET first_name = 'Geloeschtes', last_name = 'Mitglied',
+    email = 'deleted+' || id::text || '@invalid.local',
+    oidc_subject = NULL, is_active = false, left_at = $2
+WHERE id = $1`
+
+func (r *MemberRepo) Anonymize(ctx context.Context, id uuid.UUID, leftAt time.Time) error {
+	tx, err := r.pool.Begin(ctx)
+	if err != nil {
+		return fmt.Errorf("begin tx: %w", err)
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+
+	tag, err := tx.Exec(ctx, sqlAnonymizeMember, id, leftAt)
+	if err != nil {
+		return fmt.Errorf("anonymize member: %w", err)
+	}
+	if tag.RowsAffected() == 0 {
+		return domain.ErrMemberNotFound
+	}
+	// Remove the OIDC link so the deleted account can no longer be logged into.
+	if _, err := tx.Exec(ctx, `DELETE FROM oidc_links WHERE member_id = $1`, id); err != nil {
+		return fmt.Errorf("delete oidc links: %w", err)
+	}
+	return tx.Commit(ctx)
+}
+
 // scanMember scans a single member row. notFound, when non-nil, is returned in
 // place of pgx.ErrNoRows.
 func scanMember(row pgx.Row, notFound error) (*domain.Member, error) {
 	var m domain.Member
 	err := row.Scan(
 		&m.ID, &m.FirstName, &m.LastName, &m.Email, &m.JoinedAt, &m.LeftAt,
-		&m.IsActive, &m.IndividualGoalHours, &m.OIDCSubject, &m.Role,
+		&m.IsActive, &m.IndividualGoalHours, &m.OIDCSubject, &m.Role, &m.ReminderOptOut,
 	)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) && notFound != nil {

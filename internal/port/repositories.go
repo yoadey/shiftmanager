@@ -20,6 +20,12 @@ type MemberRepository interface {
 	LinkOIDC(ctx context.Context, link *domain.OIDCLink) error
 	GetOIDCLinks(ctx context.Context, memberID uuid.UUID) ([]*domain.OIDCLink, error)
 	Count(ctx context.Context) (int, error)
+	// CountActive returns the number of active members.
+	CountActive(ctx context.Context) (int, error)
+	// SetReminderOptOut updates a member's reminder opt-out preference (N-001).
+	SetReminderOptOut(ctx context.Context, id uuid.UUID, optOut bool) error
+	// Anonymize replaces PII with redacted placeholders for GDPR deletion (DS-004).
+	Anonymize(ctx context.Context, id uuid.UUID, leftAt time.Time) error
 }
 
 // MemberFilter holds optional filters when listing members.
@@ -56,6 +62,9 @@ type ShiftRepository interface {
 	GetByID(ctx context.Context, id uuid.UUID) (*domain.Shift, error)
 	FindByEventID(ctx context.Context, eventID uuid.UUID) ([]*domain.Shift, error)
 	FindShiftsStartingBetween(ctx context.Context, from, to time.Time) ([]*domain.Shift, error)
+	// FindUpcomingShifts returns shifts whose start time is at or after the given
+	// instant, ordered by start time.
+	FindUpcomingShifts(ctx context.Context, after time.Time) ([]*domain.Shift, error)
 	Update(ctx context.Context, s *domain.Shift) error
 	Delete(ctx context.Context, id uuid.UUID) error
 }
@@ -122,4 +131,23 @@ type SettingsRepository interface {
 
 	GetFeeTiers(ctx context.Context, clubYearID uuid.UUID) ([]*domain.FeeTier, error)
 	ReplaceFeeTiers(ctx context.Context, clubYearID uuid.UUID, tiers []*domain.FeeTier) error
+
+	// Per-member fee tier overrides (G-004).
+	GetMemberFeeTiers(ctx context.Context, memberID, clubYearID uuid.UUID) ([]*domain.FeeTier, error)
+	ReplaceMemberFeeTiers(ctx context.Context, memberID, clubYearID uuid.UUID, tiers []*domain.FeeTier) error
+}
+
+// EmailTemplateRepository defines persistence operations for overridable email
+// templates (Section 4 admin CRUD).
+type EmailTemplateRepository interface {
+	ListTemplates(ctx context.Context) ([]*domain.EmailTemplate, error)
+	GetTemplate(ctx context.Context, name string) (*domain.EmailTemplate, error)
+	UpsertTemplate(ctx context.Context, t *domain.EmailTemplate) error
+}
+
+// EmailLogRepository defines persistence operations for the email send log (N-004).
+type EmailLogRepository interface {
+	Insert(ctx context.Context, e *domain.EmailLogEntry) error
+	List(ctx context.Context, limit, offset int) ([]*domain.EmailLogEntry, error)
+	GetByID(ctx context.Context, id uuid.UUID) (*domain.EmailLogEntry, error)
 }

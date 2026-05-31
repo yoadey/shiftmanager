@@ -32,7 +32,7 @@ func newReminderFixture() *reminderFixture {
 		audit:   newFakeAuditRepo(),
 		now:     time.Date(2026, 6, 1, 12, 0, 0, 0, time.UTC),
 	}
-	f.uc = NewReminderUsecase(f.shifts, f.regs, f.events, f.members, f.email, f.audit)
+	f.uc = NewReminderUsecase(f.shifts, f.regs, f.events, f.members, f.email, f.audit, newFakeSettingsRepo())
 	f.uc.now = func() time.Time { return f.now }
 	return f
 }
@@ -121,6 +121,22 @@ func TestSendDueReminders_WritesAudit(t *testing.T) {
 	_, err := f.uc.SendDueReminders(context.Background())
 	require.NoError(t, err)
 	assert.True(t, f.audit.has(domain.AuditActionRegister, domain.AuditEntityRegistration))
+}
+
+func TestSendDueReminders_SkipsOptedOutMembers(t *testing.T) {
+	f := newReminderFixture()
+	eventID := uuid.New()
+	f.events.add(&domain.Event{ID: eventID, Status: domain.EventStatusPublished})
+	shiftID := uuid.New()
+	f.shifts.add(&domain.Shift{ID: shiftID, EventID: eventID, StartAt: f.now.Add(24 * time.Hour), EndAt: f.now.Add(26 * time.Hour)})
+
+	optedOut := uuid.New()
+	f.members.add(&domain.Member{ID: optedOut, Email: "opt@b.de", IsActive: true, ReminderOptOut: true})
+	f.regs.add(&domain.Registration{ID: uuid.New(), ShiftID: shiftID, MemberID: &optedOut, State: domain.RegistrationStateRegistered})
+
+	n, err := f.uc.SendDueReminders(context.Background())
+	require.NoError(t, err)
+	assert.Equal(t, 0, n)
 }
 
 func TestSendDueReminders_NoShifts(t *testing.T) {

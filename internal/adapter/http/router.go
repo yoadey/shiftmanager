@@ -25,6 +25,9 @@ type Handlers struct {
 	Kiosk    *handler.KioskHandler
 	Settings *handler.SettingsHandler
 	Billing  *handler.BillingHandler
+	Stats    *handler.StatsHandler
+	Privacy  *handler.PrivacyHandler
+	OpenAPI  *handler.OpenAPIHandler
 }
 
 // RouterConfig holds the cross-cutting configuration for the router.
@@ -38,6 +41,9 @@ type RouterConfig struct {
 	Ready func() bool
 	// Static serves the embedded SPA. May be nil to disable static serving.
 	Static http.Handler
+	// UploadDir is the directory uploaded files (logos) are served from at
+	// /uploads/*. Empty disables the uploads route.
+	UploadDir string
 }
 
 // NewRouter builds the chi router with the full middleware stack and all routes.
@@ -79,8 +85,19 @@ func NewRouter(h Handlers, cfg RouterConfig) http.Handler {
 		_, _ = w.Write([]byte(`{"status":"ready"}`))
 	})
 
+	// --- Uploaded files (logos etc.), served publicly. ---
+	if cfg.UploadDir != "" {
+		r.Handle("/uploads/*", http.StripPrefix("/uploads/", http.FileServer(http.Dir(cfg.UploadDir))))
+	}
+
 	// --- API ---
 	r.Route("/api/v1", func(api chi.Router) {
+		// OpenAPI docs (no auth).
+		if h.OpenAPI != nil {
+			api.Get("/openapi.json", h.OpenAPI.Spec)
+			api.Get("/docs", h.OpenAPI.Docs)
+		}
+
 		// Public auth routes (rate-limited, no JWT).
 		api.Group(func(pub chi.Router) {
 			pub.Use(middleware.RateLimit(cfg.RateLimitRPM))
@@ -108,6 +125,13 @@ func NewRouter(h Handlers, cfg RouterConfig) http.Handler {
 			auth.Route("/members", func(m chi.Router) {
 				m.Get("/", h.Member.List)
 				m.Get("/export", h.Member.Export)
+				// Member self-service preferences (N-001).
+				if h.Privacy != nil {
+					m.Put("/me/preferences", h.Privacy.UpdatePreferences)
+					// GDPR export: own data for any member, any member for Vorstand+
+					// (the handler enforces ownership / role).
+					m.Get("/{id}/export-data", h.Privacy.ExportData)
+				}
 				m.Get("/{id}", h.Member.Get)
 				m.Group(func(w chi.Router) {
 					w.Use(middleware.RequireRole(domain.RoleVorstand))
@@ -115,8 +139,17 @@ func NewRouter(h Handlers, cfg RouterConfig) http.Handler {
 					w.Post("/import", h.Member.Import)
 					w.Put("/{id}", h.Member.Update)
 					w.Delete("/{id}", h.Member.Deactivate)
+					if h.Privacy != nil {
+						w.Post("/{id}/gdpr-delete", h.Privacy.GDPRDelete)
+					}
 				})
 			})
+
+			// Admin statistics (D-004): Veranstaltungsleiter+ (matches other admin reads).
+			if h.Stats != nil {
+				auth.With(middleware.RequireRole(domain.RoleVeranstaltungsleiter)).
+					Get("/stats", h.Stats.GetStats)
+			}
 
 			// Events and shifts.
 			auth.Route("/events", func(e chi.Router) {
@@ -171,6 +204,18 @@ func NewRouter(h Handlers, cfg RouterConfig) http.Handler {
 					w.Put("/branding", h.Settings.UpdateBranding)
 					w.Put("/fee-tiers", h.Settings.UpdateFeeTiers)
 					w.Get("/audit", h.Settings.GetAuditLog)
+					// Logo upload (B-004).
+					w.Post("/logo", h.Settings.UploadLogo)
+					// Email template admin CRUD (Section 4).
+					w.Get("/email-templates", h.Settings.ListEmailTemplates)
+					w.Get("/email-templates/{name}", h.Settings.GetEmailTemplate)
+					w.Put("/email-templates/{name}", h.Settings.UpdateEmailTemplate)
+					// Email send log + resend (N-004).
+					w.Get("/email-log", h.Settings.GetEmailLog)
+					w.Post("/email-log/{id}/resend", h.Settings.ResendEmail)
+					// Per-member fee tier overrides (G-004).
+					w.Get("/members/{id}/fee-tiers", h.Settings.GetMemberFeeTiers)
+					w.Put("/members/{id}/fee-tiers", h.Settings.UpdateMemberFeeTiers)
 				})
 			})
 

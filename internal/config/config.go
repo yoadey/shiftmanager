@@ -43,8 +43,11 @@ type Config struct {
 	LogLevel string
 
 	// Business rules
-	ReservationHours     int
-	DeregisterDeadlineH  int
+	ReservationHours    int
+	DeregisterDeadlineH int
+
+	// Uploads (logo storage, B-004)
+	UploadDir string
 }
 
 // Load reads configuration from environment variables with sensible defaults.
@@ -68,6 +71,7 @@ func Load() (*Config, error) {
 		KioskEnabled:        getEnvBool("KIOSK_ENABLED", true),
 		ReservationHours:    getEnvInt("RESERVATION_HOURS", 48),
 		DeregisterDeadlineH: getEnvInt("DEREGISTER_DEADLINE_H", 24),
+		UploadDir:           getEnv("UPLOAD_DIR", "./uploads"),
 	}
 
 	var err error

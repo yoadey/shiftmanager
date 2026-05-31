@@ -112,6 +112,8 @@ func run() error {
 	hourRepo := postgres.NewHourRepo(pool)
 	auditRepo := postgres.NewAuditRepo(pool)
 	settingsRepo := postgres.NewSettingsRepo(pool)
+	templateRepo := postgres.NewEmailTemplateRepo(pool)
+	emailLogRepo := postgres.NewEmailLogRepo(pool)
 
 	// --- Services ---
 	memCache := cache.NewMemoryCache()
@@ -124,7 +126,7 @@ func run() error {
 		Password: cfg.SMTPPass,
 		From:     cfg.SMTPFrom,
 		BaseURL:  cfg.BaseURL,
-	})
+	}, templateRepo, emailLogRepo)
 	if err != nil {
 		return fmt.Errorf("init email service: %w", err)
 	}
@@ -151,7 +153,12 @@ func run() error {
 	hourUC := usecase.NewHourUsecase(hourRepo, memberRepo, shiftRepo, auditRepo)
 	billingUC := usecase.NewBillingUsecase(hourRepo, memberRepo, settingsRepo, auditRepo)
 	settingsUC := usecase.NewSettingsUsecase(settingsRepo, auditRepo, memCache)
-	reminderUC := usecase.NewReminderUsecase(shiftRepo, regRepo, eventRepo, memberRepo, emailSvc, auditRepo)
+	reminderUC := usecase.NewReminderUsecase(shiftRepo, regRepo, eventRepo, memberRepo, emailSvc, auditRepo, settingsRepo)
+	templateUC := usecase.NewEmailTemplateUsecase(templateRepo, emailLogRepo, emailSvc, auditRepo)
+	statsUC := usecase.NewStatsUsecase(hourRepo, memberRepo, shiftRepo, regRepo)
+	privacyUC := usecase.NewMemberPrivacyUsecase(memberRepo, regRepo, hourRepo, auditRepo)
+	notificationUC := usecase.NewNotificationUsecase(hourRepo, memberRepo, shiftRepo, eventRepo, regRepo, settingsRepo, emailSvc, auditRepo, cfg.SMTPFrom)
+	regUC.SetUnderstaffedNotifier(notificationUC)
 
 	// --- Handlers ---
 	handlers := httpadapter.Handlers{
@@ -160,9 +167,12 @@ func run() error {
 		Event:    handler.NewEventHandler(eventUC),
 		Shift:    handler.NewShiftHandler(eventUC, regUC),
 		Hour:     handler.NewHourHandler(hourUC),
-		Kiosk:    handler.NewKioskHandler(regUC, eventUC, memberUC),
-		Settings: handler.NewSettingsHandler(settingsUC),
+		Kiosk:    handler.NewKioskHandler(regUC, eventUC, memberUC, settingsUC),
+		Settings: handler.NewSettingsHandler(settingsUC, templateUC, cfg.UploadDir, cfg.BaseURL),
 		Billing:  handler.NewBillingHandler(billingUC),
+		Stats:    handler.NewStatsHandler(statsUC),
+		Privacy:  handler.NewPrivacyHandler(privacyUC),
+		OpenAPI:  handler.NewOpenAPIHandler(),
 	}
 
 	router := httpadapter.NewRouter(handlers, httpadapter.RouterConfig{
@@ -174,11 +184,12 @@ func run() error {
 			defer cancel()
 			return pool.Ping(ctx) == nil
 		},
-		Static: static.Handler(),
+		Static:    static.Handler(),
+		UploadDir: cfg.UploadDir,
 	})
 
 	// --- Scheduler ---
-	sched := scheduler.New(pool, regUC, reminderUC, log)
+	sched := scheduler.New(pool, regUC, reminderUC, notificationUC, log)
 	sched.Start(rootCtx)
 	defer sched.Stop()
 

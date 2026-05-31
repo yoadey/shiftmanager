@@ -246,6 +246,26 @@ func (r *ShiftRepo) FindShiftsStartingBetween(ctx context.Context, from, to time
 	return shifts, rows.Err()
 }
 
+const sqlFindUpcomingShifts = `SELECT ` + shiftColumns + ` FROM shifts WHERE start_at >= $1 ORDER BY start_at`
+
+func (r *ShiftRepo) FindUpcomingShifts(ctx context.Context, after time.Time) ([]*domain.Shift, error) {
+	rows, err := r.pool.Query(ctx, sqlFindUpcomingShifts, after)
+	if err != nil {
+		return nil, fmt.Errorf("find upcoming shifts: %w", err)
+	}
+	defer rows.Close()
+
+	var shifts []*domain.Shift
+	for rows.Next() {
+		s, err := scanShift(rows)
+		if err != nil {
+			return nil, err
+		}
+		shifts = append(shifts, s)
+	}
+	return shifts, rows.Err()
+}
+
 const sqlUpdateShift = `
 UPDATE shifts
 SET name = $2, start_at = $3, end_at = $4, min_helpers = $5, max_helpers = $6,

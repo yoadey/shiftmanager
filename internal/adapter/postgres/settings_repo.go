@@ -160,3 +160,58 @@ func (r *SettingsRepo) ReplaceFeeTiers(ctx context.Context, clubYearID uuid.UUID
 
 	return tx.Commit(ctx)
 }
+
+// --- Per-member fee tier overrides (G-004) ---
+
+const sqlGetMemberFeeTiers = `
+SELECT id, member_id, club_year_id, position, amount_cents
+FROM member_fee_tiers WHERE member_id = $1 AND club_year_id = $2 ORDER BY position`
+
+func (r *SettingsRepo) GetMemberFeeTiers(ctx context.Context, memberID, clubYearID uuid.UUID) ([]*domain.FeeTier, error) {
+	rows, err := r.pool.Query(ctx, sqlGetMemberFeeTiers, memberID, clubYearID)
+	if err != nil {
+		return nil, fmt.Errorf("get member fee tiers: %w", err)
+	}
+	defer rows.Close()
+
+	var tiers []*domain.FeeTier
+	for rows.Next() {
+		var t domain.FeeTier
+		var mid uuid.UUID
+		if err := rows.Scan(&t.ID, &mid, &t.ClubYearID, &t.Position, &t.AmountCents); err != nil {
+			return nil, err
+		}
+		tiers = append(tiers, &t)
+	}
+	return tiers, rows.Err()
+}
+
+func (r *SettingsRepo) ReplaceMemberFeeTiers(ctx context.Context, memberID, clubYearID uuid.UUID, tiers []*domain.FeeTier) error {
+	tx, err := r.pool.Begin(ctx)
+	if err != nil {
+		return fmt.Errorf("begin tx: %w", err)
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+
+	if _, err := tx.Exec(ctx,
+		`DELETE FROM member_fee_tiers WHERE member_id = $1 AND club_year_id = $2`,
+		memberID, clubYearID,
+	); err != nil {
+		return fmt.Errorf("delete member fee tiers: %w", err)
+	}
+
+	for _, t := range tiers {
+		if t.ID == uuid.Nil {
+			t.ID = uuid.New()
+		}
+		t.ClubYearID = clubYearID
+		if _, err := tx.Exec(ctx,
+			`INSERT INTO member_fee_tiers (id, member_id, club_year_id, position, amount_cents) VALUES ($1, $2, $3, $4, $5)`,
+			t.ID, memberID, t.ClubYearID, t.Position, t.AmountCents,
+		); err != nil {
+			return fmt.Errorf("insert member fee tier: %w", err)
+		}
+	}
+
+	return tx.Commit(ctx)
+}

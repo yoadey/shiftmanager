@@ -58,7 +58,7 @@ func TestUpdateBranding_WritesAudit(t *testing.T) {
 	uc, _, audit, _ := newSettingsUC()
 	out, err := uc.UpdateBranding(context.Background(), uuid.New(), domain.BrandingConfig{ClubName: "New Club"})
 	require.NoError(t, err)
-	assert.Equal(t, "New Club", out.ClubName)
+	assert.Equal(t, "New Club", out.Branding.ClubName)
 	assert.True(t, audit.has(domain.AuditActionUpdate, domain.AuditEntityBranding))
 }
 

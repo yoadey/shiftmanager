@@ -25,153 +25,230 @@ type Config struct {
 	BaseURL  string
 }
 
-// SMTPService implements port.EmailService over net/smtp with STARTTLS.
+// templateStore is the subset of port.EmailTemplateRepository the email service
+// needs to look up overridable templates. It is optional; when nil the built-in
+// defaults are always used.
+type templateStore interface {
+	GetTemplate(ctx context.Context, name string) (*domain.EmailTemplate, error)
+}
+
+// SMTPService implements port.EmailService over net/smtp with STARTTLS. It renders
+// email bodies from templates stored in the database (Section 4), falling back to
+// built-in defaults when a template row is missing.
 type SMTPService struct {
-	cfg       Config
-	templates *template.Template
+	cfg   Config
+	store templateStore
+	log   port.EmailLogRepository // optional; logs every send attempt (N-004)
 }
 
 // compile-time assertion that SMTPService satisfies the port interface.
 var _ port.EmailService = (*SMTPService)(nil)
 
-// NewSMTPService creates a new SMTPService and parses the email templates.
-func NewSMTPService(cfg Config) (*SMTPService, error) {
-	tmpl, err := template.New("email").Parse("")
-	if err != nil {
-		return nil, err
-	}
-	for name, body := range templateBodies {
-		if _, err := tmpl.New(name).Parse(body); err != nil {
-			return nil, fmt.Errorf("parse template %s: %w", name, err)
-		}
-	}
-	return &SMTPService{cfg: cfg, templates: tmpl}, nil
+// NewSMTPService creates a new SMTPService. store may be nil to always use the
+// built-in default templates; log may be nil to disable send logging.
+func NewSMTPService(cfg Config, store templateStore, log port.EmailLogRepository) (*SMTPService, error) {
+	return &SMTPService{cfg: cfg, store: store, log: log}, nil
 }
 
-// templateData is the value passed to every email template.
-type templateData struct {
-	Shift        *domain.Shift
-	Event        *domain.Event
-	Registration *domain.Registration
-	Member       *domain.Member
-	Year         *domain.ClubYear
-	ConfirmURL   string
-	DaysUntil    int
-	MissingHours float64
+// defaultTemplates are the built-in fallback subject/body pairs keyed by template
+// name. They use the same flattened placeholders as the seeded DB rows.
+var defaultTemplates = map[string]struct{ Subject, Body string }{
+	domain.EmailTemplateKioskConfirmation: {
+		"Bitte bestaetige deine Anmeldung: {{.EventName}}",
+		"Hallo {{.MemberName}},\n\nvielen Dank fuer deine Anmeldung zur Schicht \"{{.ShiftName}}\" bei \"{{.EventName}}\".\nBitte bestaetige ueber:\n{{.ConfirmURL}}\n\nBeginn: {{.StartAt}}\n\nViele Gruesse\nTSC Schwarz-Gelb Aachen",
+	},
+	domain.EmailTemplateShiftConfirmation: {
+		"Anmeldung bestaetigt: {{.EventName}}",
+		"Hallo {{.MemberName}},\n\ndeine Anmeldung zur Schicht \"{{.ShiftName}}\" bei \"{{.EventName}}\" ist bestaetigt.\nOrt: {{.Location}}\nBeginn: {{.StartAt}}\nEnde: {{.EndAt}}\n\nViele Gruesse\nTSC Schwarz-Gelb Aachen",
+	},
+	domain.EmailTemplateShiftDeregister: {
+		"Abmeldung bestaetigt: {{.EventName}}",
+		"Hallo {{.MemberName}},\n\ndeine Abmeldung von \"{{.ShiftName}}\" bei \"{{.EventName}}\" wurde verarbeitet.\n\nViele Gruesse\nTSC Schwarz-Gelb Aachen",
+	},
+	domain.EmailTemplateReminder1W: {
+		"Erinnerung: deine Schicht in einer Woche",
+		"Hallo {{.MemberName}},\n\nErinnerung an deine Schicht \"{{.ShiftName}}\" bei \"{{.EventName}}\" in {{.DaysUntil}} Tag(en) am {{.StartAt}}.\nOrt: {{.Location}}\n\nViele Gruesse\nTSC Schwarz-Gelb Aachen",
+	},
+	domain.EmailTemplateReminder1D: {
+		"Erinnerung: deine Schicht morgen",
+		"Hallo {{.MemberName}},\n\nErinnerung an deine Schicht \"{{.ShiftName}}\" bei \"{{.EventName}}\" in {{.DaysUntil}} Tag(en) am {{.StartAt}}.\nOrt: {{.Location}}\n\nViele Gruesse\nTSC Schwarz-Gelb Aachen",
+	},
+	domain.EmailTemplateShiftCancelled: {
+		"Schicht abgesagt: {{.EventName}}",
+		"Hallo {{.MemberName}},\n\ndie Schicht \"{{.ShiftName}}\" bei \"{{.EventName}}\" wurde abgesagt.\n\nViele Gruesse\nTSC Schwarz-Gelb Aachen",
+	},
+	domain.EmailTemplateYearBilling: {
+		"Beitragsabrechnung Vereinsjahr {{.YearLabel}}",
+		"Hallo {{.MemberName}},\n\nim Vereinsjahr \"{{.YearLabel}}\" fehlen {{.MissingHours}} Stunden. Beitrag: {{.AmountEUR}} EUR.\n\nViele Gruesse\nTSC Schwarz-Gelb Aachen",
+	},
+	domain.EmailTemplateMissingHours: {
+		"Offene Stunden im Vereinsjahr {{.YearLabel}}",
+		"Hallo {{.MemberName}},\n\ndu hast im Vereinsjahr \"{{.YearLabel}}\" noch {{.MissingHours}} offene Stunden.\n\nViele Gruesse\nTSC Schwarz-Gelb Aachen",
+	},
+	domain.EmailTemplateUnderstaffed: {
+		"Schicht unterbesetzt: {{.EventName}}",
+		"Hallo,\n\ndie Schicht \"{{.ShiftName}}\" bei \"{{.EventName}}\" am {{.StartAt}} ist unterbesetzt.\n\nViele Gruesse\nTSC Schwarz-Gelb Aachen",
+	},
 }
 
-const (
-	tmplKioskConfirmation = "kiosk-confirmation"
-	tmplShiftConfirmation = "shift-confirmation"
-	tmplShiftCancellation = "shift-cancellation"
-	tmplReminder          = "reminder"
-	tmplMissingHours      = "missing-hours"
-)
+const dateLayout = "02.01.2006 15:04"
 
-var templateBodies = map[string]string{
-	tmplKioskConfirmation: `Hallo,
-
-vielen Dank fuer deine Anmeldung zur Schicht "{{.Shift.Name}}" bei der Veranstaltung "{{.Event.Name}}".
-
-Bitte bestaetige deine Anmeldung ueber folgenden Link:
-{{.ConfirmURL}}
-
-Schichtbeginn: {{.Shift.StartAt.Format "02.01.2006 15:04"}} Uhr
-
-Viele Gruesse
-TSC Schwarz-Gelb Aachen`,
-
-	tmplShiftConfirmation: `Hallo,
-
-deine Anmeldung zur Schicht "{{.Shift.Name}}" bei "{{.Event.Name}}" ist bestaetigt.
-
-Ort: {{.Event.Location}}
-Beginn: {{.Shift.StartAt.Format "02.01.2006 15:04"}} Uhr
-Ende: {{.Shift.EndAt.Format "02.01.2006 15:04"}} Uhr
-
-Viele Gruesse
-TSC Schwarz-Gelb Aachen`,
-
-	tmplShiftCancellation: `Hallo,
-
-deine Anmeldung zur Schicht "{{.Shift.Name}}" bei "{{.Event.Name}}" wurde storniert.
-
-Falls dies ein Versehen war, kannst du dich erneut anmelden.
-
-Viele Gruesse
-TSC Schwarz-Gelb Aachen`,
-
-	tmplReminder: `Hallo,
-
-dies ist eine Erinnerung an deine Schicht "{{.Shift.Name}}" bei "{{.Event.Name}}".
-
-Die Schicht beginnt in {{.DaysUntil}} Tag(en) am {{.Shift.StartAt.Format "02.01.2006 15:04"}} Uhr.
-Ort: {{.Event.Location}}
-
-Viele Gruesse
-TSC Schwarz-Gelb Aachen`,
-
-	tmplMissingHours: `Hallo {{.Member.FirstName}},
-
-du hast im Vereinsjahr "{{.Year.Label}}" noch {{printf "%.1f" .MissingHours}} offene Stunden.
-
-Bitte melde dich rechtzeitig fuer weitere Schichten an, um deine Stunden zu erfuellen.
-
-Viele Gruesse
-TSC Schwarz-Gelb Aachen`,
+// shiftData builds the flattened placeholder map for shift/event emails.
+func shiftData(member *domain.Member, shift *domain.Shift, event *domain.Event, extra map[string]any) map[string]any {
+	d := map[string]any{
+		"MemberName": "",
+		"ShiftName":  "",
+		"EventName":  "",
+		"Location":   "",
+		"StartAt":    "",
+		"EndAt":      "",
+		"ConfirmURL": "",
+		"DaysUntil":  0,
+	}
+	if member != nil {
+		d["MemberName"] = member.FirstName
+	}
+	if shift != nil {
+		d["ShiftName"] = shift.Name
+		d["StartAt"] = shift.StartAt.Format(dateLayout)
+		d["EndAt"] = shift.EndAt.Format(dateLayout)
+	}
+	if event != nil {
+		d["EventName"] = event.Name
+		d["Location"] = event.Location
+	}
+	for k, v := range extra {
+		d[k] = v
+	}
+	return d
 }
 
 // SendConfirmation sends a registration confirmation email.
 func (s *SMTPService) SendConfirmation(ctx context.Context, to string, reg *domain.Registration, shift *domain.Shift, event *domain.Event) error {
-	return s.send(ctx, to, subjectFor(event, "Anmeldung bestaetigt"), tmplShiftConfirmation, templateData{
-		Registration: reg, Shift: shift, Event: event,
-	})
+	return s.sendTemplate(ctx, to, domain.EmailTemplateShiftConfirmation, shiftData(nil, shift, event, nil))
 }
 
-// SendReminder sends a shift reminder email.
+// SendReminder sends a shift reminder email. The one-week reminder uses the
+// reminder-1w template, all other lead times use reminder-1d.
 func (s *SMTPService) SendReminder(ctx context.Context, to string, reg *domain.Registration, shift *domain.Shift, event *domain.Event, daysUntil int) error {
-	return s.send(ctx, to, subjectFor(event, "Erinnerung an deine Schicht"), tmplReminder, templateData{
-		Registration: reg, Shift: shift, Event: event, DaysUntil: daysUntil,
-	})
+	name := domain.EmailTemplateReminder1D
+	if daysUntil >= 7 {
+		name = domain.EmailTemplateReminder1W
+	}
+	return s.sendTemplate(ctx, to, name, shiftData(nil, shift, event, map[string]any{"DaysUntil": daysUntil}))
 }
 
-// SendCancellation sends a cancellation notification email.
+// SendCancellation sends a deregistration notification email.
 func (s *SMTPService) SendCancellation(ctx context.Context, to string, reg *domain.Registration, shift *domain.Shift, event *domain.Event) error {
-	return s.send(ctx, to, subjectFor(event, "Anmeldung storniert"), tmplShiftCancellation, templateData{
-		Registration: reg, Shift: shift, Event: event,
-	})
+	return s.sendTemplate(ctx, to, domain.EmailTemplateShiftDeregister, shiftData(nil, shift, event, nil))
 }
 
 // SendKioskConfirmation sends a kiosk double-opt-in confirmation email.
 func (s *SMTPService) SendKioskConfirmation(ctx context.Context, to string, confirmURL string, shift *domain.Shift, event *domain.Event) error {
-	return s.send(ctx, to, subjectFor(event, "Bitte bestaetige deine Anmeldung"), tmplKioskConfirmation, templateData{
-		Shift: shift, Event: event, ConfirmURL: confirmURL,
-	})
+	return s.sendTemplate(ctx, to, domain.EmailTemplateKioskConfirmation, shiftData(nil, shift, event, map[string]any{"ConfirmURL": confirmURL}))
 }
 
 // SendMissingHoursWarning sends a warning about unfulfilled hours.
 func (s *SMTPService) SendMissingHoursWarning(ctx context.Context, to string, member *domain.Member, missingHours float64, year *domain.ClubYear) error {
-	return s.send(ctx, to, "Offene Stunden im Vereinsjahr", tmplMissingHours, templateData{
-		Member: member, MissingHours: missingHours, Year: year,
-	})
+	data := map[string]any{"MissingHours": fmt.Sprintf("%.1f", missingHours), "YearLabel": ""}
+	if member != nil {
+		data["MemberName"] = member.FirstName
+	}
+	if year != nil {
+		data["YearLabel"] = year.Label
+	}
+	return s.sendTemplate(ctx, to, domain.EmailTemplateMissingHours, data)
 }
 
-func subjectFor(event *domain.Event, prefix string) string {
-	if event != nil && event.Name != "" {
-		return fmt.Sprintf("%s: %s", prefix, event.Name)
+// SendYearBilling sends the year-end billing email.
+func (s *SMTPService) SendYearBilling(ctx context.Context, to string, member *domain.Member, missingHours float64, amountCents int, year *domain.ClubYear) error {
+	data := map[string]any{
+		"MissingHours": fmt.Sprintf("%.1f", missingHours),
+		"AmountEUR":    fmt.Sprintf("%.2f", float64(amountCents)/100.0),
+		"YearLabel":    "",
 	}
-	return prefix
+	if member != nil {
+		data["MemberName"] = member.FirstName
+	}
+	if year != nil {
+		data["YearLabel"] = year.Label
+	}
+	return s.sendTemplate(ctx, to, domain.EmailTemplateYearBilling, data)
 }
 
-// send renders the named template and delivers the message via SMTP+STARTTLS.
-func (s *SMTPService) send(ctx context.Context, to, subject, templateName string, data templateData) error {
-	var body bytes.Buffer
-	if err := s.templates.ExecuteTemplate(&body, templateName, data); err != nil {
-		return fmt.Errorf("render email template %s: %w", templateName, err)
+// SendUnderstaffedNotice notifies an organizer that a shift is understaffed.
+func (s *SMTPService) SendUnderstaffedNotice(ctx context.Context, to string, shift *domain.Shift, event *domain.Event) error {
+	return s.sendTemplate(ctx, to, domain.EmailTemplateUnderstaffed, shiftData(nil, shift, event, nil))
+}
+
+// SendByTemplate renders an arbitrary stored template by name and sends it.
+func (s *SMTPService) SendByTemplate(ctx context.Context, to, templateName string, data map[string]any) error {
+	return s.sendTemplate(ctx, to, templateName, data)
+}
+
+// resolveTemplate returns the subject and body sources for a template name,
+// preferring a stored DB row and falling back to the built-in default.
+func (s *SMTPService) resolveTemplate(ctx context.Context, name string) (subject, body string) {
+	if s.store != nil {
+		if t, err := s.store.GetTemplate(ctx, name); err == nil && t != nil {
+			return t.Subject, t.Body
+		}
+	}
+	if d, ok := defaultTemplates[name]; ok {
+		return d.Subject, d.Body
+	}
+	return name, ""
+}
+
+// sendTemplate resolves, renders, delivers and logs a single email.
+func (s *SMTPService) sendTemplate(ctx context.Context, to, templateName string, data map[string]any) error {
+	subjectSrc, bodySrc := s.resolveTemplate(ctx, templateName)
+
+	subject, err := renderString("subject:"+templateName, subjectSrc, data)
+	if err != nil {
+		return s.record(ctx, to, templateName, subjectSrc, "", err)
+	}
+	body, err := renderString("body:"+templateName, bodySrc, data)
+	if err != nil {
+		return s.record(ctx, to, templateName, subject, "", err)
 	}
 
-	msg := s.buildMessage(to, subject, body.String())
-	return s.deliver(ctx, to, msg)
+	msg := s.buildMessage(to, subject, body)
+	deliverErr := s.deliver(ctx, to, msg)
+	return s.record(ctx, to, templateName, subject, body, deliverErr)
+}
+
+// record logs the send attempt (when a log repo is configured) and returns err.
+func (s *SMTPService) record(ctx context.Context, to, templateName, subject, body string, err error) error {
+	if s.log != nil {
+		entry := &domain.EmailLogEntry{
+			To:        to,
+			Template:  templateName,
+			Subject:   subject,
+			Body:      body,
+			Status:    domain.EmailLogStatusSent,
+			CreatedAt: time.Now().UTC(),
+		}
+		if err != nil {
+			entry.Status = domain.EmailLogStatusFailed
+			entry.Error = err.Error()
+		}
+		_ = s.log.Insert(ctx, entry)
+	}
+	return err
+}
+
+// renderString renders a text/template source against data.
+func renderString(name, src string, data map[string]any) (string, error) {
+	t, err := template.New(name).Parse(src)
+	if err != nil {
+		return "", fmt.Errorf("parse template %s: %w", name, err)
+	}
+	var buf bytes.Buffer
+	if err := t.Execute(&buf, data); err != nil {
+		return "", fmt.Errorf("render template %s: %w", name, err)
+	}
+	return buf.String(), nil
 }
 
 func (s *SMTPService) buildMessage(to, subject, body string) []byte {

@@ -14,6 +14,7 @@ import (
 const (
 	lockKeyExpireReservations int64 = 4711001
 	lockKeySendReminders      int64 = 4711002
+	lockKeyNotifications      int64 = 4711003
 )
 
 // ReservationExpirer is the subset of the registration usecase needed to expire
@@ -28,26 +29,35 @@ type ReminderSender interface {
 	SendDueReminders(ctx context.Context) (int, error)
 }
 
+// NotificationRunner runs the daily notification jobs (year-end billing/warning
+// mails and understaffed-shift notices). Optional; when nil it is skipped.
+type NotificationRunner interface {
+	RunDailyNotifications(ctx context.Context) (int, error)
+}
+
 // Scheduler runs background maintenance jobs on fixed intervals. Each job
 // acquires a PostgreSQL advisory lock before executing so that exactly one
 // application instance performs the work at any given time.
 type Scheduler struct {
-	pool      *pgxpool.Pool
-	expirer   ReservationExpirer
-	reminders ReminderSender
-	log       zerolog.Logger
+	pool          *pgxpool.Pool
+	expirer       ReservationExpirer
+	reminders     ReminderSender
+	notifications NotificationRunner
+	log           zerolog.Logger
 
 	cancel context.CancelFunc
 	wg     sync.WaitGroup
 }
 
-// New creates a new Scheduler. reminders may be nil to disable the reminder job.
-func New(pool *pgxpool.Pool, expirer ReservationExpirer, reminders ReminderSender, log zerolog.Logger) *Scheduler {
+// New creates a new Scheduler. reminders and notifications may be nil to disable
+// the respective jobs.
+func New(pool *pgxpool.Pool, expirer ReservationExpirer, reminders ReminderSender, notifications NotificationRunner, log zerolog.Logger) *Scheduler {
 	return &Scheduler{
-		pool:      pool,
-		expirer:   expirer,
-		reminders: reminders,
-		log:       log.With().Str("component", "scheduler").Logger(),
+		pool:          pool,
+		expirer:       expirer,
+		reminders:     reminders,
+		notifications: notifications,
+		log:           log.With().Str("component", "scheduler").Logger(),
 	}
 }
 
@@ -59,6 +69,9 @@ func (s *Scheduler) Start(ctx context.Context) {
 
 	s.run(ctx, "expire-reservations", 15*time.Minute, lockKeyExpireReservations, s.expireReservations)
 	s.run(ctx, "send-reminders", time.Hour, lockKeySendReminders, s.sendReminders)
+	// Year-end billing/warning mails and understaffed-shift notices run once per
+	// day; the time-window guards inside the usecase keep them from re-sending.
+	s.run(ctx, "notifications", 24*time.Hour, lockKeyNotifications, s.runNotifications)
 
 	s.log.Info().Msg("scheduler started")
 }
@@ -133,4 +146,11 @@ func (s *Scheduler) sendReminders(ctx context.Context) (int, error) {
 		return 0, nil
 	}
 	return s.reminders.SendDueReminders(ctx)
+}
+
+func (s *Scheduler) runNotifications(ctx context.Context) (int, error) {
+	if s.notifications == nil {
+		return 0, nil
+	}
+	return s.notifications.RunDailyNotifications(ctx)
 }

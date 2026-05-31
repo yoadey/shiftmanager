@@ -10,15 +10,28 @@ import (
 	"github.com/yoadey/shiftmanager/internal/port"
 )
 
+// ShiftUnderstaffedNotifier is notified when a shift may have dropped below its
+// minimum helper count (SC-007). Optional.
+type ShiftUnderstaffedNotifier interface {
+	NotifyShiftUnderstaffed(ctx context.Context, shiftID uuid.UUID) error
+}
+
 // RegistrationUsecase handles shift registration business logic.
 type RegistrationUsecase struct {
-	registrations   port.RegistrationRepository
-	shifts          port.ShiftRepository
-	events          port.EventRepository
-	members         port.MemberRepository
-	email           port.EmailService
-	audit           port.AuditRepository
-	settings        port.SettingsRepository
+	registrations port.RegistrationRepository
+	shifts        port.ShiftRepository
+	events        port.EventRepository
+	members       port.MemberRepository
+	email         port.EmailService
+	audit         port.AuditRepository
+	settings      port.SettingsRepository
+	understaffed  ShiftUnderstaffedNotifier
+}
+
+// SetUnderstaffedNotifier wires the understaffed-shift notifier (SC-007). It is
+// optional and set after construction to avoid a circular usecase dependency.
+func (uc *RegistrationUsecase) SetUnderstaffedNotifier(n ShiftUnderstaffedNotifier) {
+	uc.understaffed = n
 }
 
 // NewRegistrationUsecase creates a new RegistrationUsecase.
@@ -179,6 +192,12 @@ func (uc *RegistrationUsecase) Deregister(ctx context.Context, actorID *uuid.UUI
 	}
 
 	_ = uc.writeAudit(ctx, actorID, domain.AuditActionDeregister, domain.AuditEntityRegistration, registrationID.String(), reg, nil)
+
+	// SC-007: a deregistration may push the shift below its minimum; notify the
+	// organizer. Best-effort and non-blocking on the caller's behalf.
+	if uc.understaffed != nil {
+		_ = uc.understaffed.NotifyShiftUnderstaffed(ctx, shift.ID)
+	}
 
 	return nil
 }

@@ -113,6 +113,39 @@ func (f *fakeMemberRepo) Count(ctx context.Context) (int, error) {
 	return len(f.members), nil
 }
 
+func (f *fakeMemberRepo) CountActive(ctx context.Context) (int, error) {
+	n := 0
+	for _, m := range f.members {
+		if m.IsActive {
+			n++
+		}
+	}
+	return n, nil
+}
+
+func (f *fakeMemberRepo) SetReminderOptOut(ctx context.Context, id uuid.UUID, optOut bool) error {
+	m, ok := f.members[id]
+	if !ok {
+		return domain.ErrMemberNotFound
+	}
+	m.ReminderOptOut = optOut
+	return nil
+}
+
+func (f *fakeMemberRepo) Anonymize(ctx context.Context, id uuid.UUID, leftAt time.Time) error {
+	m, ok := f.members[id]
+	if !ok {
+		return domain.ErrMemberNotFound
+	}
+	m.FirstName = "Geloeschtes"
+	m.LastName = "Mitglied"
+	m.Email = "deleted+" + id.String() + "@invalid.local"
+	m.OIDCSubject = nil
+	m.IsActive = false
+	m.LeftAt = &leftAt
+	return nil
+}
+
 // --- EventRepo fake ---
 
 type fakeEventRepo struct {
@@ -227,6 +260,17 @@ func (f *fakeShiftRepo) FindShiftsStartingBetween(ctx context.Context, from, to 
 	var out []*domain.Shift
 	for _, s := range f.shifts {
 		if !s.StartAt.Before(from) && s.StartAt.Before(to) {
+			cp := *s
+			out = append(out, &cp)
+		}
+	}
+	return out, nil
+}
+
+func (f *fakeShiftRepo) FindUpcomingShifts(ctx context.Context, after time.Time) ([]*domain.Shift, error) {
+	var out []*domain.Shift
+	for _, s := range f.shifts {
+		if !s.StartAt.Before(after) {
 			cp := *s
 			out = append(out, &cp)
 		}
@@ -558,17 +602,19 @@ func (f *fakeAuditRepo) has(action, entity string) bool {
 // --- SettingsRepo fake ---
 
 type fakeSettingsRepo struct {
-	kv       map[string]string
-	branding *domain.BrandingConfig
-	tiers    map[uuid.UUID][]*domain.FeeTier
+	kv          map[string]string
+	branding    *domain.BrandingConfig
+	tiers       map[uuid.UUID][]*domain.FeeTier
+	memberTiers map[string][]*domain.FeeTier // key memberID|yearID
 }
 
 var _ port.SettingsRepository = (*fakeSettingsRepo)(nil)
 
 func newFakeSettingsRepo() *fakeSettingsRepo {
 	return &fakeSettingsRepo{
-		kv:    map[string]string{},
-		tiers: map[uuid.UUID][]*domain.FeeTier{},
+		kv:          map[string]string{},
+		tiers:       map[uuid.UUID][]*domain.FeeTier{},
+		memberTiers: map[string][]*domain.FeeTier{},
 	}
 }
 
@@ -617,6 +663,15 @@ func (f *fakeSettingsRepo) ReplaceFeeTiers(ctx context.Context, clubYearID uuid.
 	return nil
 }
 
+func (f *fakeSettingsRepo) GetMemberFeeTiers(ctx context.Context, memberID, clubYearID uuid.UUID) ([]*domain.FeeTier, error) {
+	return f.memberTiers[memberID.String()+"|"+clubYearID.String()], nil
+}
+
+func (f *fakeSettingsRepo) ReplaceMemberFeeTiers(ctx context.Context, memberID, clubYearID uuid.UUID, tiers []*domain.FeeTier) error {
+	f.memberTiers[memberID.String()+"|"+clubYearID.String()] = tiers
+	return nil
+}
+
 // --- EmailService fake ---
 
 type sentEmail struct {
@@ -654,6 +709,95 @@ func (f *fakeEmailService) SendKioskConfirmation(ctx context.Context, to string,
 func (f *fakeEmailService) SendMissingHoursWarning(ctx context.Context, to string, member *domain.Member, missingHours float64, year *domain.ClubYear) error {
 	f.sent = append(f.sent, sentEmail{kind: "missing_hours", to: to})
 	return nil
+}
+
+func (f *fakeEmailService) SendYearBilling(ctx context.Context, to string, member *domain.Member, missingHours float64, amountCents int, year *domain.ClubYear) error {
+	f.sent = append(f.sent, sentEmail{kind: "year_billing", to: to})
+	return nil
+}
+
+func (f *fakeEmailService) SendUnderstaffedNotice(ctx context.Context, to string, shift *domain.Shift, event *domain.Event) error {
+	f.sent = append(f.sent, sentEmail{kind: "understaffed", to: to})
+	return nil
+}
+
+func (f *fakeEmailService) SendByTemplate(ctx context.Context, to, templateName string, data map[string]any) error {
+	f.sent = append(f.sent, sentEmail{kind: "template:" + templateName, to: to})
+	return nil
+}
+
+// --- EmailTemplateRepo fake ---
+
+type fakeEmailTemplateRepo struct {
+	templates map[string]*domain.EmailTemplate
+}
+
+var _ port.EmailTemplateRepository = (*fakeEmailTemplateRepo)(nil)
+
+func newFakeEmailTemplateRepo() *fakeEmailTemplateRepo {
+	return &fakeEmailTemplateRepo{templates: map[string]*domain.EmailTemplate{}}
+}
+
+func (f *fakeEmailTemplateRepo) ListTemplates(ctx context.Context) ([]*domain.EmailTemplate, error) {
+	var out []*domain.EmailTemplate
+	for _, t := range f.templates {
+		cp := *t
+		out = append(out, &cp)
+	}
+	return out, nil
+}
+
+func (f *fakeEmailTemplateRepo) GetTemplate(ctx context.Context, name string) (*domain.EmailTemplate, error) {
+	t, ok := f.templates[name]
+	if !ok {
+		return nil, domain.ErrMemberNotFound
+	}
+	cp := *t
+	return &cp, nil
+}
+
+func (f *fakeEmailTemplateRepo) UpsertTemplate(ctx context.Context, t *domain.EmailTemplate) error {
+	if t.ID == uuid.Nil {
+		t.ID = uuid.New()
+	}
+	cp := *t
+	f.templates[t.Name] = &cp
+	return nil
+}
+
+// --- EmailLogRepo fake ---
+
+type fakeEmailLogRepo struct {
+	entries []*domain.EmailLogEntry
+}
+
+var _ port.EmailLogRepository = (*fakeEmailLogRepo)(nil)
+
+func newFakeEmailLogRepo() *fakeEmailLogRepo {
+	return &fakeEmailLogRepo{}
+}
+
+func (f *fakeEmailLogRepo) Insert(ctx context.Context, e *domain.EmailLogEntry) error {
+	if e.ID == uuid.Nil {
+		e.ID = uuid.New()
+	}
+	cp := *e
+	f.entries = append(f.entries, &cp)
+	return nil
+}
+
+func (f *fakeEmailLogRepo) List(ctx context.Context, limit, offset int) ([]*domain.EmailLogEntry, error) {
+	return f.entries, nil
+}
+
+func (f *fakeEmailLogRepo) GetByID(ctx context.Context, id uuid.UUID) (*domain.EmailLogEntry, error) {
+	for _, e := range f.entries {
+		if e.ID == id {
+			cp := *e
+			return &cp, nil
+		}
+	}
+	return nil, domain.ErrMemberNotFound
 }
 
 func (f *fakeEmailService) countKind(kind string) int {

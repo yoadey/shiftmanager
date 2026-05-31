@@ -14,6 +14,13 @@ type EmailService interface {
 	SendCancellation(ctx context.Context, to string, reg *domain.Registration, shift *domain.Shift, event *domain.Event) error
 	SendKioskConfirmation(ctx context.Context, to string, confirmURL string, shift *domain.Shift, event *domain.Event) error
 	SendMissingHoursWarning(ctx context.Context, to string, member *domain.Member, missingHours float64, year *domain.ClubYear) error
+	// SendYearBilling notifies a member of their year-end billing amount.
+	SendYearBilling(ctx context.Context, to string, member *domain.Member, missingHours float64, amountCents int, year *domain.ClubYear) error
+	// SendUnderstaffedNotice notifies an organizer that a shift is below minimum (SC-007).
+	SendUnderstaffedNotice(ctx context.Context, to string, shift *domain.Shift, event *domain.Event) error
+	// SendByTemplate renders an arbitrary stored template by name with the given
+	// flattened placeholder data and sends it. Used for resends and ad-hoc sends.
+	SendByTemplate(ctx context.Context, to, templateName string, data map[string]any) error
 }
 
 // OIDCService defines the contract for OIDC provider interactions.

@@ -8,8 +8,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/jung-kurt/gofpdf"
 	"github.com/google/uuid"
+	"github.com/jung-kurt/gofpdf"
 	"github.com/yoadey/shiftmanager/internal/domain"
 	"github.com/yoadey/shiftmanager/internal/port"
 )
@@ -104,7 +104,17 @@ func (uc *BillingUsecase) ComputeYearBilling(ctx context.Context, actorID uuid.U
 			MissingHours:   missing,
 		}
 
-		result := domain.ComputeBilling(*m, account, tierValues)
+		// G-004: a member's per-member fee tier override takes precedence over the
+		// club-year-wide tier list when present.
+		memberTiers := tierValues
+		if override, err := uc.settings.GetMemberFeeTiers(ctx, m.ID, clubYearID); err == nil && len(override) > 0 {
+			memberTiers = make([]domain.FeeTier, len(override))
+			for i, t := range override {
+				memberTiers[i] = *t
+			}
+		}
+
+		result := domain.ComputeBilling(*m, account, memberTiers)
 		report.Results = append(report.Results, result)
 		report.TotalCents += result.TotalCents
 	}
