@@ -1,11 +1,12 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { Icon } from '@/components/ui/Icon';
 import { Avatar } from '@/components/ui/Avatar';
 import { Button } from '@/components/ui/Button';
 import { Toggle } from '@/components/ui/Toggle';
+import { Sheet } from '@/components/ui/Sheet';
 import { useAppStore } from '@/store/app.store';
 import { useAuthStore } from '@/store/auth.store';
-import { useMember } from '@/api/members';
+import { useMember, useUpdatePreferences, useExportMemberData } from '@/api/members';
 import { fmtDate } from '@/screens/_demo';
 import { Section } from '@/screens/member/MemberDashboard';
 import type { Member } from '@/types';
@@ -52,6 +53,9 @@ export function MemberProfile() {
   const { user } = useAuthStore();
   const uid = user?.id ?? '';
   const { data: profile } = useMember(uid);
+  const updatePrefs = useUpdatePreferences();
+  const exportData = useExportMemberData();
+  const [deleteOpen, setDeleteOpen] = useState(false);
 
   // Prefer the live profile; fall back to the auth user while it loads.
   const me: Member = profile ?? {
@@ -64,6 +68,30 @@ export function MemberProfile() {
   };
   const memberMap = { [me.id]: { first: me.first, last: me.last } };
   const [prefs, setPrefs] = useState<Prefs>({ week: true, day: true, news: false });
+
+  // N-001: reminder opt-out is persisted; the local toggle reflects the inverse
+  // ("Erinnerungen aktiv" = !reminderOptOut). Hydrate from the live profile.
+  const [remindersOn, setRemindersOn] = useState(true);
+  useEffect(() => {
+    if (profile) setRemindersOn(!profile.reminderOptOut);
+  }, [profile]);
+
+  const toggleReminders = () => {
+    const next = !remindersOn;
+    setRemindersOn(next);
+    // optOut is the inverse of "reminders on".
+    updatePrefs.mutate(!next, {
+      onSuccess: () => showToast(next ? 'Erinnerungen aktiviert.' : 'Erinnerungen deaktiviert.'),
+      onError: () => { setRemindersOn(!next); showToast('Einstellung konnte nicht gespeichert werden.', 'crit'); },
+    });
+  };
+
+  const onExport = () => {
+    exportData.mutate(uid, {
+      onSuccess: () => showToast('Datenexport heruntergeladen.'),
+      onError: () => showToast('Export fehlgeschlagen.', 'crit'),
+    });
+  };
 
   return (
     <div className="fade-in">
@@ -85,7 +113,7 @@ export function MemberProfile() {
 
         <Section title="Erinnerungen" />
         <div className="sm-card">
-          <PrefRow label="Erinnerung 1 Woche vorher" sub="7 Tage vor Schichtbeginn" on={prefs.week} set={() => setPrefs((p) => ({ ...p, week: !p.week }))} />
+          <PrefRow label="Schicht-Erinnerungen" sub="Erinnerungs-Mails vor Schichtbeginn" on={remindersOn} set={toggleReminders} />
           <hr className="sm-divider" />
           <PrefRow label="Erinnerung 1 Tag vorher" sub="24 h vor Schichtbeginn" on={prefs.day} set={() => setPrefs((p) => ({ ...p, day: !p.day }))} />
           <hr className="sm-divider" />
@@ -95,9 +123,9 @@ export function MemberProfile() {
 
         <Section title="Datenschutz" />
         <div className="sm-card">
-          <LinkRow icon="download" label="Meine Daten exportieren" sub="Auskunftsrecht (DSGVO)" onClick={() => showToast('Datenexport wird vorbereitet …')} />
+          <LinkRow icon="download" label="Meine Daten exportieren" sub="Auskunftsrecht (DSGVO)" onClick={onExport} />
           <hr className="sm-divider" />
-          <LinkRow icon="shield" label="Löschung beantragen" sub="Recht auf Vergessen" onClick={() => showToast('Antrag an den Vorstand gesendet.', 'warn')} />
+          <LinkRow icon="shield" label="Löschung beantragen" sub="Recht auf Vergessen" onClick={() => setDeleteOpen(true)} />
         </div>
 
         <Section title="Demo" />
@@ -109,6 +137,34 @@ export function MemberProfile() {
           <Button variant="dark" size="sm" icon="arrowR" onClick={() => setRole('vorstand')}>Wechseln</Button>
         </div>
       </div>
+
+      {deleteOpen && (
+        <Sheet
+          onClose={() => setDeleteOpen(false)}
+          variant="dialog"
+          title="Löschung beantragen"
+          foot={
+            <Button
+              icon="mail"
+              onClick={() => {
+                // Self-service deletion is not permitted: the gdpr-delete route is
+                // Vorstand+ only. Members request anonymization from the board.
+                showToast('Antrag an den Vorstand gesendet.', 'warn');
+                setDeleteOpen(false);
+              }}
+            >
+              Antrag senden
+            </Button>
+          }
+        >
+          <div style={{ fontSize: 14, fontWeight: 600, color: 'var(--ink-2)', lineHeight: 1.5 }}>
+            Aus rechtlichen Gründen (Aufbewahrungspflicht für Abrechnungs- und Audit-Daten)
+            kann dein Konto nur durch den Vorstand anonymisiert werden. Wir leiten deinen
+            Antrag an den Vorstand weiter; dieser bestätigt die Anonymisierung deiner
+            persönlichen Daten.
+          </div>
+        </Sheet>
+      )}
     </div>
   );
 }

@@ -18,6 +18,8 @@ export interface Member {
   since: string; // ISO date
   goal: number | null;
   active?: boolean;
+  // N-001: when true, the member has opted out of (non-mandatory) reminder mails.
+  reminderOptOut?: boolean;
 }
 
 export interface Signup {
@@ -101,6 +103,8 @@ export interface AppSettings {
   kioskSearch: boolean;
   feeSchedule: number[];
   deregisterDeadlineH: number;
+  // K-012: when true the public kiosk routes are disabled.
+  kioskLocked?: boolean;
 }
 
 export interface BrandingConfig {
@@ -148,6 +152,68 @@ export interface AuthUser {
   role: UserRole;
   first?: string;
   last?: string;
+}
+
+// ── Admin statistics (D-004) ───────────────────────────────────────────────────
+
+export interface SystemStats {
+  clubYearId: string;
+  clubYearLabel: string;
+  totalConfirmedHours: number;
+  openShifts: number;
+  upcomingShifts: number;
+  activeMembers: number;
+  membersBelowTarget: number;
+}
+
+// ── Branding update result (B-003) ──────────────────────────────────────────────
+
+export interface BrandingUpdateResult {
+  branding: BrandingConfig;
+  warnings?: string[];
+}
+
+// ── Email templates / log (Section 4, N-004) ───────────────────────────────────
+
+export interface EmailTemplate {
+  id: string;
+  name: string;
+  subject: string;
+  body: string;
+}
+
+export type EmailLogStatus = 'sent' | 'failed';
+
+export interface EmailLogEntry {
+  id: string;
+  to: string;
+  template: string;
+  subject: string;
+  body: string;
+  status: EmailLogStatus;
+  error: string;
+  createdAt: string;
+}
+
+// ── Per-member fee-tier overrides (G-004) ───────────────────────────────────────
+// Mirrors the backend domain.FeeTier struct (camelCase JSON).
+
+export interface MemberFeeTier {
+  id: string;
+  clubYearId: string;
+  position: number;
+  amountCents: number;
+}
+
+// ── GDPR data export (DS-003) ───────────────────────────────────────────────────
+// The export is an opaque document; we download it as JSON rather than render it.
+
+export interface MemberDataExport {
+  member: unknown;
+  registrations: unknown[];
+  hourEntries: unknown[];
+  hourTargets: unknown[];
+  exportedAt: string;
 }
 
 // ── Tweaks ────────────────────────────────────────────────────────────────────

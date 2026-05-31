@@ -19,6 +19,8 @@ const MemberDetail = lazy(() => import('@/screens/admin/MemberDetail').then(m =>
 const ManualBooking = lazy(() => import('@/screens/admin/ManualBooking').then(m => ({ default: m.ManualBooking })));
 const AdminSettings = lazy(() => import('@/screens/admin/AdminSettings').then(m => ({ default: m.AdminSettings })));
 const AuditLog = lazy(() => import('@/screens/admin/AuditLog').then(m => ({ default: m.AuditLog })));
+const EmailTemplates = lazy(() => import('@/screens/admin/EmailTemplates').then(m => ({ default: m.EmailTemplates })));
+const EmailLog = lazy(() => import('@/screens/admin/EmailLog').then(m => ({ default: m.EmailLog })));
 const CreateEventFlow = lazy(() => import('@/screens/admin/CreateEventFlow').then(m => ({ default: m.CreateEventFlow })));
 
 function pickOn(hex: string): string {
@@ -61,6 +63,8 @@ function ScreenRouter() {
     if (top.name === 'member') return <MemberDetail id={top.params.id ?? ''} />;
     if (top.name === 'manual') return <ManualBooking id={top.params.id} />;
     if (top.name === 'audit') return <AuditLog />;
+    if (top.name === 'email-templates') return <EmailTemplates />;
+    if (top.name === 'email-log') return <EmailLog />;
   }
 
   if (role === 'mitglied') {

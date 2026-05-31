@@ -76,3 +76,43 @@ export function useExportMembersCSV() {
     },
   });
 }
+
+// ── Privacy / GDPR (DS-003, DS-004, N-001) ──────────────────────────────────
+
+/** Updates the authenticated member's own reminder opt-out (N-001). */
+export function useUpdatePreferences() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (reminderOptOut: boolean) =>
+      apiPut<{ reminderOptOut: boolean }>('/members/me/preferences', { reminderOptOut }),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['members'] }),
+  });
+}
+
+/**
+ * Triggers a browser download of a member's GDPR data export as JSON (DS-003).
+ * A member may export their own data; Vorstand+ may export any member's.
+ */
+export function useExportMemberData() {
+  return useMutation({
+    mutationFn: async (id: string) => {
+      const data = await apiGet<unknown>(`/members/${id}/export-data`);
+      const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
+      const url = window.URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `mitglied-${id}-export.json`;
+      a.click();
+      window.URL.revokeObjectURL(url);
+    },
+  });
+}
+
+/** Anonymizes a member (DS-004, Vorstand+ only). */
+export function useGdprDelete() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (id: string) => apiPost<{ status: string }>(`/members/${id}/gdpr-delete`),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['members'] }),
+  });
+}

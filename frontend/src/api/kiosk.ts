@@ -29,11 +29,14 @@ export interface KioskRegisterPayload {
   memberId?: string;
 }
 
-/** Registers via the kiosk; the backend sends a confirmation e-mail. */
+/**
+ * Registers a single person via the kiosk; the backend sends a confirmation
+ * e-mail. One call per person — POST /kiosk/shifts/{id}/register (K-008).
+ */
 export function useKioskRegister() {
   return useMutation({
-    mutationFn: (data: KioskRegisterPayload) =>
-      apiPost<{ message: string }>('/kiosk/register', data),
+    mutationFn: ({ shiftId, ...body }: KioskRegisterPayload) =>
+      apiPost<{ message: string }>(`/kiosk/shifts/${shiftId}/register`, body),
   });
 }
 

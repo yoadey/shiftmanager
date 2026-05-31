@@ -1,10 +1,12 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
+import { Icon } from '@/components/ui/Icon';
 import { Badge } from '@/components/ui/Badge';
 import { Input } from '@/components/forms/Field';
 import { Stepper } from '@/components/ui/Stepper';
 import { Toggle } from '@/components/ui/Toggle';
 import { useAppStore } from '@/store/app.store';
-import { useSettings, useUpdateSettings, useBranding } from '@/api/settings';
+import { useAuthStore } from '@/store/auth.store';
+import { useSettings, useUpdateSettings, useBranding, useUploadLogo, useUpdateBranding } from '@/api/settings';
 import { LoadingState, ErrorState } from '@/components/ui/States';
 import { DEMO_STATE } from '@/screens/_demo';
 import { Section } from '@/screens/member/MemberDashboard';
@@ -40,11 +42,37 @@ function SegRadio<T extends string>({ value, onChange, options }: { value: T; on
 }
 
 export function AdminSettings() {
-  const { push, setNameMode } = useAppStore();
+  const { push, setNameMode, showToast } = useAppStore();
+  const { user } = useAuthStore();
+  const isAdmin = user?.role === 'admin' || user?.role === 'vorstand';
   const settingsQ = useSettings();
   const { data: branding } = useBranding();
   const updateSettings = useUpdateSettings();
+  const uploadLogo = useUploadLogo();
+  const updateBranding = useUpdateBranding();
+  const fileRef = useRef<HTMLInputElement>(null);
   const remote = settingsQ.data;
+
+  // Branding contrast warnings (B-003) surfaced after the last colour save.
+  const [warnings, setWarnings] = useState<string[]>([]);
+  const [primaryColor, setPrimaryColor] = useState('');
+  useEffect(() => {
+    if (branding?.primaryColor) setPrimaryColor(branding.primaryColor);
+  }, [branding?.primaryColor]);
+
+  const saveColor = (hex: string) => {
+    setPrimaryColor(hex);
+    updateBranding.mutate(
+      { primaryColor: hex },
+      {
+        onSuccess: (res) => {
+          setWarnings(res.warnings ?? []);
+          showToast('Farbe gespeichert.');
+        },
+        onError: () => showToast('Farbe konnte nicht gespeichert werden.', 'crit'),
+      },
+    );
+  };
 
   const [s, setS] = useState<AppSettings>(remote ?? DEMO_STATE.settings);
 
@@ -58,6 +86,16 @@ export function AdminSettings() {
     updateSettings.mutate({ [key]: value } as Partial<AppSettings>);
     // NM-005: keep the global name-display mode in sync so every screen updates immediately.
     if (key === 'nameMode') setNameMode(value as 'abbrev' | 'full');
+  };
+
+  const onPickLogo = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    uploadLogo.mutate(file, {
+      onSuccess: () => showToast('Logo aktualisiert.'),
+      onError: () => showToast('Logo konnte nicht hochgeladen werden.', 'crit'),
+    });
+    e.target.value = '';
   };
 
   if (settingsQ.isLoading) return <LoadingState />;
@@ -141,9 +179,23 @@ export function AdminSettings() {
 
         <Section title="Branding" />
         <div className="sm-card pad">
-          <RowBetween label="Primärfarbe" sub="Über das Tweaks-Panel anpassbar">
-            <div style={{ width: 30, height: 30, borderRadius: 9, background: 'var(--primary)', border: '1px solid var(--line-2)' }} />
+          <RowBetween label="Primärfarbe" sub="WCAG-Kontrast wird beim Speichern geprüft">
+            <input
+              type="color"
+              value={primaryColor || '#000000'}
+              onChange={(e) => saveColor(e.target.value)}
+              aria-label="Primärfarbe"
+              style={{ width: 36, height: 30, border: '1px solid var(--line-2)', borderRadius: 9, background: 'transparent', cursor: 'pointer', padding: 0 }}
+            />
           </RowBetween>
+          {warnings.length > 0 && (
+            <div style={{ display: 'flex', gap: 8, marginTop: 12, background: 'var(--warn-bg, #FFF6E5)', borderRadius: 10, padding: '10px 12px', fontSize: 12.5, color: 'var(--ink-2)', fontWeight: 600, lineHeight: 1.4 }}>
+              <Icon name="info" size={16} color="var(--warn, #C58A00)" style={{ flexShrink: 0, marginTop: 1 }} />
+              <div>
+                {warnings.map((w, i) => <div key={i}>Kontrast unter 4,5:1 — {w}</div>)}
+              </div>
+            </div>
+          )}
           <hr className="sm-divider" style={{ margin: '14px 0' }} />
           <RowBetween label="Vereinslogo" sub="PNG/SVG, min. 200×200 px">
             {branding?.logoUrl ? (
@@ -154,7 +206,41 @@ export function AdminSettings() {
               </div>
             )}
           </RowBetween>
+          <input
+            ref={fileRef}
+            type="file"
+            accept="image/png,image/svg+xml,.png,.svg"
+            onChange={onPickLogo}
+            style={{ display: 'none' }}
+          />
+          <button
+            className="sm-btn soft sm"
+            onClick={() => fileRef.current?.click()}
+            disabled={uploadLogo.isPending}
+            style={{ marginTop: 12, width: '100%' }}
+          >
+            <Icon name="download" size={17} stroke={2.2} />
+            {uploadLogo.isPending ? 'Wird hochgeladen…' : 'Logo hochladen (PNG/SVG)'}
+          </button>
         </div>
+
+        <Section title="Kiosk" />
+        <div className="sm-card pad">
+          <RowBetween label="Kiosk sperren" sub="Deaktiviert die öffentliche Kiosk-Eintragung (K-012)">
+            <Toggle on={!!s.kioskLocked} onClick={() => setSetting('kioskLocked', !s.kioskLocked)} />
+          </RowBetween>
+        </div>
+
+        {isAdmin && (
+          <>
+            <Section title="E-Mail" />
+            <div className="sm-card">
+              <LinkRow icon="mail" label="E-Mail-Vorlagen" sub="Betreff & Text bearbeiten" onClick={() => push('email-templates')} />
+              <hr className="sm-divider" />
+              <LinkRow icon="mail" label="E-Mail-Protokoll" sub="Versand prüfen & erneut senden" onClick={() => push('email-log')} />
+            </div>
+          </>
+        )}
 
         <Section title="System" />
         <div className="sm-card">

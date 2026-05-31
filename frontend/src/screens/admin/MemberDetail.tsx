@@ -8,10 +8,13 @@ import { Stepper } from '@/components/ui/Stepper';
 import { useAppStore } from '@/store/app.store';
 import { useMember, useUpdateMember } from '@/api/members';
 import { useMemberHours } from '@/api/hours';
-import { useSettings } from '@/api/settings';
+import { useSettings, useMemberFeeTiers, useUpdateMemberFeeTiers } from '@/api/settings';
+import { useStats } from '@/api/stats';
 import { LoadingState, ErrorState } from '@/components/ui/States';
+import { Input } from '@/components/forms/Field';
 import { fmtDate, hrs } from '@/screens/_demo';
 import { Section } from '@/screens/member/MemberDashboard';
+import type { MemberFeeTier } from '@/types';
 
 interface HourRec {
   t: string;
@@ -48,9 +51,102 @@ function GoalSheet({ memberId, value, onClose }: { memberId: string; value: numb
   );
 }
 
+/** Draft tier row used in the editor (cents shown to the user as EUR). */
+interface TierDraft {
+  amountEur: string;
+}
+
+function FeeTierSheet({ memberId, clubYearId, onClose }: { memberId: string; clubYearId: string; onClose: () => void }) {
+  const { showToast } = useAppStore();
+  const tiersQ = useMemberFeeTiers(memberId, clubYearId);
+  const update = useUpdateMemberFeeTiers();
+  const [rows, setRows] = useState<TierDraft[] | null>(null);
+
+  // Hydrate the editable rows from the loaded overrides once.
+  const draft: TierDraft[] = rows ?? (tiersQ.data ?? [])
+    .slice()
+    .sort((a, b) => a.position - b.position)
+    .map((t) => ({ amountEur: (t.amountCents / 100).toString().replace('.', ',') }));
+
+  const setRow = (i: number, v: string) => {
+    const next = draft.map((r, j) => (j === i ? { amountEur: v } : r));
+    setRows(next);
+  };
+  const addRow = () => setRows([...draft, { amountEur: '' }]);
+  const removeRow = (i: number) => setRows(draft.filter((_, j) => j !== i));
+
+  const save = () => {
+    // Empty list = inherit the club-year fee schedule.
+    const tiers: MemberFeeTier[] = draft
+      .map((r) => parseFloat(r.amountEur.replace(',', '.')))
+      .filter((eur) => !Number.isNaN(eur))
+      .map((eur, i) => ({
+        id: '00000000-0000-0000-0000-000000000000',
+        clubYearId,
+        position: i + 1,
+        amountCents: Math.round(eur * 100),
+      }));
+    update.mutate(
+      { memberId, clubYearId, tiers },
+      {
+        onSuccess: () => { showToast('Abgeltungsbeträge gespeichert.'); onClose(); },
+        onError: () => showToast('Beträge konnten nicht gespeichert werden.', 'crit'),
+      },
+    );
+  };
+
+  return (
+    <Sheet
+      onClose={onClose}
+      title="Individuelle Abgeltung"
+      foot={<Button icon="check" loading={update.isPending} onClick={save}>Speichern</Button>}
+    >
+      <div className="sm-hint" style={{ marginBottom: 14 }}>
+        Überschreibt die Vereins-Abgeltungsliste für dieses Mitglied. Leer lassen, um die Standardliste zu übernehmen.
+      </div>
+      {tiersQ.isLoading ? (
+        <LoadingState />
+      ) : (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+          {draft.length === 0 && (
+            <div style={{ color: 'var(--muted)', fontWeight: 600, fontSize: 13.5 }}>Keine eigenen Beträge — Vereinsliste gilt.</div>
+          )}
+          {draft.map((r, i) => (
+            <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+              <span style={{ width: 78, fontSize: 13, fontWeight: 700, color: 'var(--ink-2)' }}>{i + 1}. Stunde</span>
+              <div style={{ flex: 1, position: 'relative' }}>
+                <Input
+                  type="number"
+                  inputMode="decimal"
+                  value={r.amountEur}
+                  onChange={(e) => setRow(i, e.target.value)}
+                  style={{ paddingRight: 28 }}
+                />
+                <span style={{ position: 'absolute', right: 12, top: 13, color: 'var(--muted)', fontWeight: 700 }}>€</span>
+              </div>
+              <button
+                onClick={() => removeRow(i)}
+                className="pressable"
+                aria-label="Eintrag entfernen"
+                style={{ width: 34, height: 34, borderRadius: '50%', border: 'none', background: 'var(--surface-2)', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}
+              >
+                <Icon name="x" size={16} stroke={2.4} color="var(--ink-2)" />
+              </button>
+            </div>
+          ))}
+          <Button variant="soft" size="sm" icon="plus" onClick={addRow} style={{ marginTop: 4 }}>Stufe hinzufügen</Button>
+        </div>
+      )}
+    </Sheet>
+  );
+}
+
 export function MemberDetail({ id }: { id: string }) {
   const { back, push } = useAppStore();
   const [goalOpen, setGoalOpen] = useState(false);
+  const [feeOpen, setFeeOpen] = useState(false);
+  const { data: stats } = useStats();
+  const clubYearId = stats?.clubYearId ?? '';
   const memberQ = useMember(id);
   const hoursQ = useMemberHours(id);
   const { data: settings } = useSettings();
@@ -107,9 +203,10 @@ export function MemberDetail({ id }: { id: string }) {
               <div className="occ-fill" style={{ width: Math.min(h / goal * 100, 100) + '%', background: h >= goal ? 'var(--ok)' : 'var(--primary)' }} />
             </div>
           </div>
-          <div style={{ display: 'flex', gap: 9, marginTop: 13 }}>
+          <div style={{ display: 'flex', gap: 9, marginTop: 13, flexWrap: 'wrap' }}>
             <Button variant="soft" size="sm" icon="plus" onClick={() => push('manual', { id })}>Stunden buchen</Button>
             <Button variant="soft" size="sm" icon="edit" onClick={() => setGoalOpen(true)}>Ziel anpassen</Button>
+            <Button variant="soft" size="sm" icon="edit" disabled={!clubYearId} onClick={() => setFeeOpen(true)}>Abgeltung</Button>
           </div>
         </div>
         <Section title="Gebuchte Stunden" />
@@ -132,6 +229,7 @@ export function MemberDetail({ id }: { id: string }) {
       </div>
 
       {goalOpen && <GoalSheet memberId={id} value={goal} onClose={() => setGoalOpen(false)} />}
+      {feeOpen && clubYearId && <FeeTierSheet memberId={id} clubYearId={clubYearId} onClose={() => setFeeOpen(false)} />}
     </div>
   );
 }

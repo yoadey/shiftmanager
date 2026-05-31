@@ -52,15 +52,32 @@ export function KioskPage() {
     [remoteEvents],
   );
 
+  const kioskLocked = settings?.kioskLocked ?? false;
+
   const [step, setStep] = useState<Step>('event');
   const [event, setEvent] = useState<Event | null>(null);
   const [shift, setShift] = useState<Shift | null>(null);
   const [email, setEmail] = useState('');
   const [query, setQuery] = useState('');
 
+  // K-008: running list of people registered in THIS kiosk session.
+  interface SessionEntry { who: string; eventName: string; shiftName: string }
+  const [sessionEntries, setSessionEntries] = useState<SessionEntry[]>([]);
+
   const { data: searchResults } = useKioskMemberSearch(query, kioskSearch);
 
+  // Full reset — back to event selection AND clear the session list (new visitor).
   const reset = () => {
+    setStep('event');
+    setEvent(null);
+    setShift(null);
+    setEmail('');
+    setQuery('');
+    setSessionEntries([]);
+  };
+
+  // K-008: register another person, keeping the session list intact.
+  const registerAnother = () => {
     setStep('event');
     setEvent(null);
     setShift(null);
@@ -70,9 +87,19 @@ export function KioskPage() {
 
   const submit = (member?: Member) => {
     if (!shift) return;
+    const who = member ? `${member.first} ${member.last}` : email.trim();
     register.mutate(
       member ? { shiftId: shift.id, memberId: member.id } : { shiftId: shift.id, email: email.trim() },
-      { onSuccess: () => setStep('done'), onError: () => setStep('done') },
+      {
+        onSuccess: () => {
+          setSessionEntries((prev) => [
+            ...prev,
+            { who, eventName: event?.name ?? '', shiftName: shift.name },
+          ]);
+          setStep('done');
+        },
+        onError: () => setStep('done'),
+      },
     );
   };
 
@@ -91,7 +118,18 @@ export function KioskPage() {
       </div>
 
       <div style={{ flex: 1, width: '100%', maxWidth: 720, margin: '0 auto', padding: '32px 32px 48px' }}>
-        {step === 'event' && (
+        {kioskLocked && (
+          <div className="fade-in" style={{ textAlign: 'center', padding: '60px 20px' }}>
+            <div style={{ width: 88, height: 88, borderRadius: '50%', background: 'var(--surface-2)', display: 'flex', alignItems: 'center', justifyContent: 'center', margin: '0 auto 22px' }}>
+              <Icon name="shield" size={44} stroke={2.2} color="var(--muted)" />
+            </div>
+            <div style={{ fontFamily: 'Bricolage Grotesque', fontWeight: 800, fontSize: 26 }}>Kiosk gesperrt</div>
+            <p style={{ color: 'var(--ink-2)', fontSize: 15, fontWeight: 600, lineHeight: 1.5, margin: '12px auto 0', maxWidth: 420 }}>
+              Die Selbst-Eintragung ist derzeit deaktiviert. Bitte wende dich an den Vorstand.
+            </p>
+          </div>
+        )}
+        {!kioskLocked && step === 'event' && (
           <div className="fade-in">
             <KioskHeader title="Veranstaltung wählen" sub="Schritt 1 von 3" />
             {eventsLoading && !remoteEvents && <LoadingState label="Veranstaltungen werden geladen…" />}
@@ -192,18 +230,37 @@ export function KioskPage() {
         )}
 
         {step === 'done' && (
-          <div className="fade-in" style={{ textAlign: 'center', padding: '60px 20px' }}>
+          <div className="fade-in" style={{ textAlign: 'center', padding: '40px 20px' }}>
             <div style={{ width: 88, height: 88, borderRadius: '50%', background: 'var(--ok-bg)', display: 'flex', alignItems: 'center', justifyContent: 'center', margin: '0 auto 22px' }}>
               <Icon name="check" size={44} stroke={2.4} color="var(--ok)" />
             </div>
-            <div style={{ fontFamily: 'Bricolage Grotesque', fontWeight: 800, fontSize: 28 }}>Bestätigung gesendet</div>
-            <p style={{ color: 'var(--ink-2)', fontSize: 15.5, fontWeight: 600, lineHeight: 1.5, margin: '12px auto 28px', maxWidth: 420 }}>
+            <div style={{ fontFamily: 'Bricolage Grotesque', fontWeight: 800, fontSize: 28 }}>Eintragung gespeichert</div>
+            <p style={{ color: 'var(--ink-2)', fontSize: 15.5, fontWeight: 600, lineHeight: 1.5, margin: '12px auto 24px', maxWidth: 420 }}>
               {kioskSearch
                 ? 'Die Anmeldung wurde gespeichert. Vielen Dank für deine Unterstützung!'
                 : 'Bitte prüfe dein Postfach und bestätige die Anmeldung über den Link in der E-Mail.'}
             </p>
-            <div style={{ maxWidth: 320, margin: '0 auto' }}>
-              <Button icon="plus" onClick={reset}>Weitere Anmeldung</Button>
+
+            {sessionEntries.length > 0 && (
+              <div style={{ maxWidth: 420, margin: '0 auto 24px', textAlign: 'left' }}>
+                <div className="sm-eyebrow" style={{ fontSize: 12, marginBottom: 8 }}>Diese Sitzung · {sessionEntries.length}</div>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                  {sessionEntries.map((e, i) => (
+                    <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 10, border: '1px solid var(--line)', borderRadius: 'var(--radius-sm)', background: 'var(--surface)', padding: '12px 14px' }}>
+                      <Icon name="check" size={16} stroke={2.4} color="var(--ok)" />
+                      <div style={{ flex: 1, minWidth: 0 }}>
+                        <div style={{ fontWeight: 700, fontSize: 14.5 }}>{e.who}</div>
+                        <div style={{ color: 'var(--muted)', fontSize: 12.5, fontWeight: 600 }}>{e.shiftName}{e.eventName ? ` · ${e.eventName}` : ''}</div>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            <div style={{ maxWidth: 320, margin: '0 auto', display: 'flex', flexDirection: 'column', gap: 10 }}>
+              <Button icon="plus" onClick={registerAnother}>Weitere Person eintragen</Button>
+              <Button variant="soft" icon="check" onClick={reset}>Fertig</Button>
             </div>
           </div>
         )}

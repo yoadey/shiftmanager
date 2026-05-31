@@ -6,9 +6,10 @@ import { useAppStore } from '@/store/app.store';
 import { useEvents } from '@/api/events';
 import { useMembers } from '@/api/members';
 import { useSettings, useBranding } from '@/api/settings';
+import { useStats } from '@/api/stats';
 import { calcOccupancy } from '@/hooks/useOccupancy';
 import { LoadingState, ErrorState } from '@/components/ui/States';
-import { DEMO_STATE, fmtDate, hrs } from '@/screens/_demo';
+import { fmtDate, hrs } from '@/screens/_demo';
 import { Section, EmptyState } from '@/screens/member/MemberDashboard';
 import { CreateEventFlow } from '@/screens/admin/CreateEventFlow';
 import type { Event, Shift, ShiftDay, ShiftOccupancy } from '@/types';
@@ -38,15 +39,17 @@ export function AdminDashboard() {
 
   const eventsQ = useEvents();
   const membersQ = useMembers();
+  const statsQ = useStats();
   const { data: settings } = useSettings();
   const { data: branding } = useBranding();
 
   const events = eventsQ.data ?? [];
+  const stats = statsQ.data;
   const clubName = branding?.clubName ?? settings?.clubName ?? '';
-  const clubYear = settings?.clubYear ?? new Date().getFullYear().toString();
+  const clubYear = stats?.clubYearLabel || settings?.clubYear || new Date().getFullYear().toString();
 
-  let totalConfirmed = 0;
-  let openSlots = 0;
+  // The understaffed-shift list is still derived from the events payload so we can
+  // deep-link into the affected event; the headline numbers come from /stats (D-004).
   const understaffed: Understaffed[] = [];
 
   events.forEach((ev) => {
@@ -56,28 +59,22 @@ export function AdminDashboard() {
     if (draftOrCancelled) return;
     (ev.days ?? []).forEach((d) =>
       d.shifts.forEach((sh) => {
-        sh.signups.forEach((s) => { if (s.status === 'bestätigt') totalConfirmed += s.hours ?? 0; });
         const o = calcOccupancy(sh);
-        openSlots += o.free;
         if (o.needsMore && published && d.date >= today) understaffed.push({ ev, d, sh, o });
       }),
     );
   });
 
-  const activeEvents = events.filter((e) => e.status === 'veröffentlicht' || e.status === 'published').length;
-  const memberCount = membersQ.data?.length ?? 0;
+  // Headline stats from the dedicated /stats endpoint (D-004). Guard undefined so
+  // the cards render zeros rather than NaN while the query is in flight.
+  const totalConfirmedHours = stats?.totalConfirmedHours ?? 0;
+  const activeMembers = stats?.activeMembers ?? membersQ.data?.length ?? 0;
+  const openShifts = stats?.openShifts ?? 0;
+  const upcomingShifts = stats?.upcomingShifts ?? 0;
+  const membersBelowTarget = stats?.membersBelowTarget ?? 0;
 
-  // TODO(stats): no system-stats endpoint yet — `totalConfirmed` is summed from the events
-  // payload (only counts hours visible on shifts, not manual bookings). Replace with a
-  // dedicated /stats hook once the backend exposes it. Demo number kept as a last-resort fallback.
-  const totalConfirmedDisplay = totalConfirmed || DEMO_STATE.events.reduce(
-    (sum, ev) => sum + ev.days.flatMap((d) => d.shifts).flatMap((s) => s.signups)
-      .filter((s) => s.status === 'bestätigt').reduce((a, s) => a + (s.hours ?? 0), 0),
-    0,
-  );
-
-  if (eventsQ.isLoading || membersQ.isLoading) return <LoadingState />;
-  if (eventsQ.isError || membersQ.isError) return <ErrorState />;
+  if (eventsQ.isLoading || membersQ.isLoading || statsQ.isLoading) return <LoadingState />;
+  if (eventsQ.isError || membersQ.isError || statsQ.isError) return <ErrorState />;
 
   return (
     <div className="fade-in">
@@ -96,10 +93,10 @@ export function AdminDashboard() {
       </div>
       <div className="sm-pad">
         <div className="sm-stat-grid">
-          <StatCard icon="hours" label="Geleistete Stunden" val={hrs(totalConfirmedDisplay)} sub={`Vereinsjahr ${clubYear}`} />
-          <StatCard icon="users" label="Mitglieder" val={memberCount} sub="aktiv" />
-          <StatCard icon="calendar" label="Veröffentlicht" val={activeEvents} sub="Veranstaltungen" />
-          <StatCard icon="layers" label="Offene Plätze" val={openSlots} sub="über alle Schichten" accent />
+          <StatCard icon="hours" label="Bestätigte Stunden" val={hrs(totalConfirmedHours)} sub={`Vereinsjahr ${clubYear}`} />
+          <StatCard icon="users" label="Aktive Mitglieder" val={activeMembers} sub={`${membersBelowTarget} unter Ziel`} />
+          <StatCard icon="calendar" label="Kommende Schichten" val={upcomingShifts} sub="in der Zukunft" />
+          <StatCard icon="layers" label="Unterbesetzte Schichten" val={openShifts} sub="unter Mindesthelfern" accent />
         </div>
 
         <Button icon="plus" onClick={() => setCreateOpen(true)} style={{ marginTop: 14 }}>Neue Veranstaltung</Button>
