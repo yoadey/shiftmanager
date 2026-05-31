@@ -2,15 +2,14 @@ package scheduler
 
 import (
 	"context"
+	"database/sql"
+	"fmt"
 	"sync"
 	"time"
 
-	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/rs/zerolog"
 )
 
-// Advisory lock keys. Each scheduled job uses a distinct key so that only a
-// single instance across the cluster runs the job at a time.
 const (
 	lockKeyExpireReservations int64 = 4711001
 	lockKeySendReminders      int64 = 4711002
@@ -23,23 +22,21 @@ type ReservationExpirer interface {
 	ExpireReservations(ctx context.Context) (int, error)
 }
 
-// ReminderSender sends shift reminder emails for upcoming shifts. It is optional;
-// when nil the reminder job is skipped.
+// ReminderSender sends shift reminder emails for upcoming shifts.
 type ReminderSender interface {
 	SendDueReminders(ctx context.Context) (int, error)
 }
 
-// NotificationRunner runs the daily notification jobs (year-end billing/warning
-// mails and understaffed-shift notices). Optional; when nil it is skipped.
+// NotificationRunner runs the daily notification jobs.
 type NotificationRunner interface {
 	RunDailyNotifications(ctx context.Context) (int, error)
 }
 
-// Scheduler runs background maintenance jobs on fixed intervals. Each job
-// acquires a PostgreSQL advisory lock before executing so that exactly one
-// application instance performs the work at any given time.
+// Scheduler runs background maintenance jobs on fixed intervals. When connected
+// to PostgreSQL it uses advisory locks so only one replica runs each job at a
+// time. On SQLite (test mode) it runs jobs directly without locking.
 type Scheduler struct {
-	pool          *pgxpool.Pool
+	db            *sql.DB
 	expirer       ReservationExpirer
 	reminders     ReminderSender
 	notifications NotificationRunner
@@ -49,11 +46,12 @@ type Scheduler struct {
 	wg     sync.WaitGroup
 }
 
-// New creates a new Scheduler. reminders and notifications may be nil to disable
-// the respective jobs.
-func New(pool *pgxpool.Pool, expirer ReservationExpirer, reminders ReminderSender, notifications NotificationRunner, log zerolog.Logger) *Scheduler {
+// New creates a new Scheduler. db may be nil to disable advisory locking
+// (jobs still run, but without distributed coordination — suitable for
+// single-instance deployments and test mode).
+func New(db *sql.DB, expirer ReservationExpirer, reminders ReminderSender, notifications NotificationRunner, log zerolog.Logger) *Scheduler {
 	return &Scheduler{
-		pool:          pool,
+		db:            db,
 		expirer:       expirer,
 		reminders:     reminders,
 		notifications: notifications,
@@ -61,22 +59,17 @@ func New(pool *pgxpool.Pool, expirer ReservationExpirer, reminders ReminderSende
 	}
 }
 
-// Start launches the background jobs. It returns immediately; call Stop to
-// terminate them gracefully.
 func (s *Scheduler) Start(ctx context.Context) {
 	ctx, cancel := context.WithCancel(ctx)
 	s.cancel = cancel
 
 	s.run(ctx, "expire-reservations", 15*time.Minute, lockKeyExpireReservations, s.expireReservations)
 	s.run(ctx, "send-reminders", time.Hour, lockKeySendReminders, s.sendReminders)
-	// Year-end billing/warning mails and understaffed-shift notices run once per
-	// day; the time-window guards inside the usecase keep them from re-sending.
 	s.run(ctx, "notifications", 24*time.Hour, lockKeyNotifications, s.runNotifications)
 
 	s.log.Info().Msg("scheduler started")
 }
 
-// Stop signals all jobs to terminate and waits for them to finish.
 func (s *Scheduler) Stop() {
 	if s.cancel != nil {
 		s.cancel()
@@ -85,14 +78,12 @@ func (s *Scheduler) Stop() {
 	s.log.Info().Msg("scheduler stopped")
 }
 
-// run starts a ticker-driven loop for a single job.
 func (s *Scheduler) run(ctx context.Context, name string, interval time.Duration, lockKey int64, job func(context.Context) (int, error)) {
 	s.wg.Add(1)
 	go func() {
 		defer s.wg.Done()
 		ticker := time.NewTicker(interval)
 		defer ticker.Stop()
-
 		for {
 			select {
 			case <-ctx.Done():
@@ -104,27 +95,20 @@ func (s *Scheduler) run(ctx context.Context, name string, interval time.Duration
 	}()
 }
 
-// execute acquires the advisory lock, runs the job, and releases the lock.
 func (s *Scheduler) execute(ctx context.Context, name string, lockKey int64, job func(context.Context) (int, error)) {
-	conn, err := s.pool.Acquire(ctx)
-	if err != nil {
-		s.log.Error().Err(err).Str("job", name).Msg("acquire connection")
-		return
+	// When a *sql.DB is available and supports PostgreSQL advisory locks, use
+	// them to ensure only one replica runs the job. Otherwise run directly.
+	if s.db != nil {
+		locked, err := s.tryAdvisoryLock(ctx, lockKey)
+		if err != nil {
+			// Advisory lock not supported (e.g. SQLite); run without coordination.
+			s.log.Debug().Str("job", name).Msg("advisory lock unavailable, running without lock")
+		} else if !locked {
+			return // another instance holds the lock
+		} else {
+			defer func() { _ = s.releaseAdvisoryLock(context.Background(), lockKey) }()
+		}
 	}
-	defer conn.Release()
-
-	var locked bool
-	if err := conn.QueryRow(ctx, `SELECT pg_try_advisory_lock($1)`, lockKey).Scan(&locked); err != nil {
-		s.log.Error().Err(err).Str("job", name).Msg("acquire advisory lock")
-		return
-	}
-	if !locked {
-		// Another instance holds the lock; skip this run.
-		return
-	}
-	defer func() {
-		_, _ = conn.Exec(context.Background(), `SELECT pg_advisory_unlock($1)`, lockKey)
-	}()
 
 	n, err := job(ctx)
 	if err != nil {
@@ -132,6 +116,20 @@ func (s *Scheduler) execute(ctx context.Context, name string, lockKey int64, job
 		return
 	}
 	s.log.Info().Str("job", name).Int("affected", n).Msg("job completed")
+}
+
+func (s *Scheduler) tryAdvisoryLock(ctx context.Context, key int64) (bool, error) {
+	var locked bool
+	err := s.db.QueryRowContext(ctx, `SELECT pg_try_advisory_lock($1)`, key).Scan(&locked)
+	if err != nil {
+		return false, fmt.Errorf("advisory lock: %w", err)
+	}
+	return locked, nil
+}
+
+func (s *Scheduler) releaseAdvisoryLock(ctx context.Context, key int64) error {
+	_, err := s.db.ExecContext(ctx, `SELECT pg_advisory_unlock($1)`, key)
+	return err
 }
 
 func (s *Scheduler) expireReservations(ctx context.Context) (int, error) {

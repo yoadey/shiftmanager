@@ -1,52 +1,58 @@
-// Package testmode provides a self-contained HTTP server wired with in-memory
-// repositories and an auto-auth token endpoint. It is used by integration tests
-// to exercise the full request→usecase→repo round-trip without a real database
-// or OIDC provider.
+// Package testmode provides a self-contained HTTP server backed by a SQLite
+// in-memory database via GORM. It is used exclusively for integration tests —
+// no PostgreSQL or OIDC provider required.
 package testmode
 
 import (
 	"context"
 	"net/http/httptest"
 
+	"github.com/rs/zerolog"
 	"github.com/yoadey/shiftmanager/internal/adapter/cache"
+	"github.com/yoadey/shiftmanager/internal/adapter/db"
 	"github.com/yoadey/shiftmanager/internal/adapter/email"
 	httpadapter "github.com/yoadey/shiftmanager/internal/adapter/http"
 	"github.com/yoadey/shiftmanager/internal/adapter/http/handler"
-	"github.com/yoadey/shiftmanager/internal/adapter/memory"
+	oidcadapter "github.com/yoadey/shiftmanager/internal/adapter/oidc"
 	"github.com/yoadey/shiftmanager/internal/port"
 	"github.com/yoadey/shiftmanager/internal/usecase"
-	"github.com/rs/zerolog"
 )
 
 const TestJWTSecret = "integration-test-secret"
 
-// Server wraps an httptest.Server pre-wired for integration tests.
+// Server wraps an httptest.Server ready for integration tests.
 type Server struct {
 	*httptest.Server
-	Members  *memory.MemberRepo
-	Events   *memory.EventRepo
-	Shifts   *memory.ShiftRepo
-	Regs     *memory.RegistrationRepo
-	Hours    *memory.HourRepo
-	Settings *memory.SettingsRepo
 }
 
-// New starts a test HTTP server with in-memory repos and seeded data.
+// New starts an in-memory GORM/SQLite-backed HTTP server with seeded fixture data.
 // Call s.Close() when done.
-func New(ctx context.Context) (*Server, error) {
-	// --- Repos ---
-	members := memory.NewMemberRepo()
-	events := memory.NewEventRepo()
-	shifts := memory.NewShiftRepo()
-	regs := memory.NewRegistrationRepo()
-	hours := memory.NewHourRepo()
-	audit := memory.NewAuditRepo()
-	settings := memory.NewSettingsRepo()
-	emailRepo := memory.NewEmailRepo()
-
-	if err := memory.Seed(ctx, members, events, shifts, hours); err != nil {
+func New(_ context.Context) (*Server, error) {
+	// SQLite in-memory DB — a fresh schema on every test run.
+	gdb, err := db.Open("sqlite::memory:")
+	if err != nil {
 		return nil, err
 	}
+	if err := db.Migrate(gdb); err != nil {
+		return nil, err
+	}
+	if err := db.SeedTestData(gdb); err != nil {
+		return nil, err
+	}
+	if err := db.SeedDefaultTemplates(gdb); err != nil {
+		return nil, err
+	}
+
+	// --- Repositories ---
+	memberRepo := db.NewMemberRepo(gdb)
+	eventRepo := db.NewEventRepo(gdb)
+	shiftRepo := db.NewShiftRepo(gdb)
+	regRepo := db.NewRegistrationRepo(gdb)
+	hourRepo := db.NewHourRepo(gdb)
+	auditRepo := db.NewAuditRepo(gdb)
+	settingsRepo := db.NewSettingsRepo(gdb)
+	templateRepo := db.NewEmailTemplateRepo(gdb)
+	emailLogRepo := db.NewEmailLogRepo(gdb)
 
 	// --- Services ---
 	memCache := cache.NewMemoryCache()
@@ -55,29 +61,29 @@ func New(ctx context.Context) (*Server, error) {
 		Port:    25,
 		From:    "noreply@test.local",
 		BaseURL: "http://localhost",
-	}, emailRepo, emailRepo)
+	}, templateRepo, emailLogRepo)
 
 	// --- Usecases ---
-	memberUC := usecase.NewMemberUsecase(members, audit)
-	eventUC := usecase.NewEventUsecase(events, shifts, regs, audit)
-	regUC := usecase.NewRegistrationUsecase(regs, shifts, events, members, emailSvc, audit, settings)
-	hourUC := usecase.NewHourUsecase(hours, members, shifts, audit)
-	billingUC := usecase.NewBillingUsecase(hours, members, settings, audit)
-	settingsUC := usecase.NewSettingsUsecase(settings, audit, memCache)
-	templateUC := usecase.NewEmailTemplateUsecase(
-		port.EmailTemplateRepository(emailRepo),
-		port.EmailLogRepository(emailRepo),
-		emailSvc, audit,
-	)
-	statsUC := usecase.NewStatsUsecase(hours, members, shifts, regs)
-	privacyUC := usecase.NewMemberPrivacyUsecase(members, regs, hours, audit)
-	notifUC := usecase.NewNotificationUsecase(hours, members, shifts, events, regs, settings, emailSvc, audit, "noreply@test.local")
+	memberUC := usecase.NewMemberUsecase(memberRepo, auditRepo)
+	eventUC := usecase.NewEventUsecase(eventRepo, shiftRepo, regRepo, auditRepo)
+	regUC := usecase.NewRegistrationUsecase(regRepo, shiftRepo, eventRepo, memberRepo, emailSvc, auditRepo, settingsRepo)
+	hourUC := usecase.NewHourUsecase(hourRepo, memberRepo, shiftRepo, auditRepo)
+	billingUC := usecase.NewBillingUsecase(hourRepo, memberRepo, settingsRepo, auditRepo)
+	settingsUC := usecase.NewSettingsUsecase(settingsRepo, auditRepo, memCache)
+	templateUC := usecase.NewEmailTemplateUsecase(templateRepo, emailLogRepo, emailSvc, auditRepo)
+	statsUC := usecase.NewStatsUsecase(hourRepo, memberRepo, shiftRepo, regRepo)
+	privacyUC := usecase.NewMemberPrivacyUsecase(memberRepo, regRepo, hourRepo, auditRepo)
+	notifUC := usecase.NewNotificationUsecase(hourRepo, memberRepo, shiftRepo, eventRepo, regRepo, settingsRepo, emailSvc, auditRepo, "noreply@test.local")
+	reminderUC := usecase.NewReminderUsecase(shiftRepo, regRepo, eventRepo, memberRepo, emailSvc, auditRepo, settingsRepo)
+	_ = reminderUC
 	regUC.SetUnderstaffedNotifier(notifUC)
 
 	// --- Handlers ---
-	log := zerolog.Nop()
+	var oidcSvc port.OIDCService
+	_ = oidcadapter.Config{} // ensure import used
+
 	handlers := httpadapter.Handlers{
-		Auth:     handler.BuildAuthHandler(nil, members, audit, TestJWTSecret, 0, "/auth/callback", ""),
+		Auth:     handler.BuildAuthHandler(oidcSvc, memberRepo, auditRepo, TestJWTSecret, 0, "/auth/callback", ""),
 		Member:   handler.NewMemberHandler(memberUC),
 		Event:    handler.NewEventHandler(eventUC),
 		Shift:    handler.NewShiftHandler(eventUC, regUC),
@@ -93,19 +99,11 @@ func New(ctx context.Context) (*Server, error) {
 
 	router := httpadapter.NewRouter(handlers, httpadapter.RouterConfig{
 		JWTSecret: TestJWTSecret,
-		Logger:    log,
+		Logger:    zerolog.Nop(),
 		Ready:     func() bool { return true },
 		TestMode:  true,
 	})
 
 	ts := httptest.NewServer(router)
-	return &Server{
-		Server:   ts,
-		Members:  members,
-		Events:   events,
-		Shifts:   shifts,
-		Regs:     regs,
-		Hours:    hours,
-		Settings: settings,
-	}, nil
+	return &Server{Server: ts}, nil
 }

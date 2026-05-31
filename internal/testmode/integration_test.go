@@ -11,7 +11,7 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	"github.com/yoadey/shiftmanager/internal/adapter/memory"
+	"github.com/yoadey/shiftmanager/internal/adapter/db"
 	"github.com/yoadey/shiftmanager/internal/testmode"
 )
 
@@ -95,19 +95,19 @@ func TestDevTokenEndpoint(t *testing.T) {
 	s := startServer(t)
 
 	t.Run("returns JWT for vorstand", func(t *testing.T) {
-		tok := token(t, s, "vorstand", memory.AdminID.String(), "admin@test.local")
+		tok := token(t, s, "vorstand", db.AdminID.String(), "admin@test.local")
 		assert.NotEmpty(t, tok)
 	})
 
 	t.Run("returns JWT for mitglied", func(t *testing.T) {
-		tok := token(t, s, "mitglied", memory.MemberID.String(), "max@test.local")
+		tok := token(t, s, "mitglied", db.MemberID.String(), "max@test.local")
 		assert.NotEmpty(t, tok)
 	})
 }
 
 func TestAuthMeEndpoint(t *testing.T) {
 	s := startServer(t)
-	tok := token(t, s, "vorstand", memory.AdminID.String(), "admin@test.local")
+	tok := token(t, s, "vorstand", db.AdminID.String(), "admin@test.local")
 
 	resp := get(t, s, "/api/v1/auth/me", tok)
 	assert.Equal(t, http.StatusOK, resp.StatusCode)
@@ -118,7 +118,7 @@ func TestAuthMeEndpoint(t *testing.T) {
 		Email string `json:"email"`
 	}
 	decode(t, resp, &me)
-	assert.Equal(t, memory.AdminID.String(), me.ID)
+	assert.Equal(t, db.AdminID.String(), me.ID)
 	assert.Equal(t, "vorstand", me.Role)
 	assert.Equal(t, "admin@test.local", me.Email)
 }
@@ -132,7 +132,7 @@ func TestAuthMeRequiresToken(t *testing.T) {
 
 func TestListMembers(t *testing.T) {
 	s := startServer(t)
-	tok := token(t, s, "vorstand", memory.AdminID.String(), "admin@test.local")
+	tok := token(t, s, "vorstand", db.AdminID.String(), "admin@test.local")
 
 	resp := get(t, s, "/api/v1/members", tok)
 	require.Equal(t, http.StatusOK, resp.StatusCode)
@@ -152,9 +152,9 @@ func TestListMembers(t *testing.T) {
 
 func TestGetMember(t *testing.T) {
 	s := startServer(t)
-	tok := token(t, s, "vorstand", memory.AdminID.String(), "admin@test.local")
+	tok := token(t, s, "vorstand", db.AdminID.String(), "admin@test.local")
 
-	resp := get(t, s, "/api/v1/members/"+memory.MemberID.String(), tok)
+	resp := get(t, s, "/api/v1/members/"+db.MemberID.String(), tok)
 	require.Equal(t, http.StatusOK, resp.StatusCode)
 
 	var m map[string]any
@@ -166,7 +166,7 @@ func TestGetMember(t *testing.T) {
 
 func TestListEvents(t *testing.T) {
 	s := startServer(t)
-	tok := token(t, s, "mitglied", memory.MemberID.String(), "max@test.local")
+	tok := token(t, s, "mitglied", db.MemberID.String(), "max@test.local")
 
 	resp := get(t, s, "/api/v1/events", tok)
 	require.Equal(t, http.StatusOK, resp.StatusCode)
@@ -180,9 +180,9 @@ func TestListEvents(t *testing.T) {
 
 func TestGetEventTimeline(t *testing.T) {
 	s := startServer(t)
-	tok := token(t, s, "mitglied", memory.MemberID.String(), "max@test.local")
+	tok := token(t, s, "mitglied", db.MemberID.String(), "max@test.local")
 
-	resp := get(t, s, "/api/v1/events/"+memory.EventID.String(), tok)
+	resp := get(t, s, "/api/v1/events/"+db.EventID.String(), tok)
 	require.Equal(t, http.StatusOK, resp.StatusCode)
 
 	var tl map[string]any
@@ -224,7 +224,7 @@ func TestKioskEventsPublic(t *testing.T) {
 func TestKioskPublicTimeline(t *testing.T) {
 	s := startServer(t)
 
-	resp := get(t, s, "/api/v1/kiosk/events/"+memory.EventID.String(), "")
+	resp := get(t, s, "/api/v1/kiosk/events/"+db.EventID.String(), "")
 	require.Equal(t, http.StatusOK, resp.StatusCode)
 
 	var tl map[string]any
@@ -237,10 +237,10 @@ func TestKioskPublicTimeline(t *testing.T) {
 
 func TestRegisterForShift(t *testing.T) {
 	s := startServer(t)
-	tok := token(t, s, "mitglied", memory.MemberID.String(), "max@test.local")
+	tok := token(t, s, "mitglied", db.MemberID.String(), "max@test.local")
 
-	body := fmt.Sprintf(`{"memberId": "%s"}`, memory.MemberID.String())
-	resp := post(t, s, "/api/v1/shifts/"+memory.Shift1ID.String()+"/register", tok, body)
+	body := fmt.Sprintf(`{"memberId": "%s"}`, db.MemberID.String())
+	resp := post(t, s, "/api/v1/shifts/"+db.Shift1ID.String()+"/register", tok, body)
 	require.Equal(t, http.StatusCreated, resp.StatusCode)
 
 	var reg map[string]any
@@ -250,21 +250,21 @@ func TestRegisterForShift(t *testing.T) {
 
 func TestDoubleRegistrationFails(t *testing.T) {
 	s := startServer(t)
-	tok := token(t, s, "mitglied", memory.MemberID.String(), "max@test.local")
+	tok := token(t, s, "mitglied", db.MemberID.String(), "max@test.local")
 
-	body := fmt.Sprintf(`{"memberId": "%s"}`, memory.MemberID.String())
-	resp1 := post(t, s, "/api/v1/shifts/"+memory.Shift1ID.String()+"/register", tok, body)
+	body := fmt.Sprintf(`{"memberId": "%s"}`, db.MemberID.String())
+	resp1 := post(t, s, "/api/v1/shifts/"+db.Shift1ID.String()+"/register", tok, body)
 	require.Equal(t, http.StatusCreated, resp1.StatusCode)
 	resp1.Body.Close()
 
-	resp2 := post(t, s, "/api/v1/shifts/"+memory.Shift1ID.String()+"/register", tok, body)
+	resp2 := post(t, s, "/api/v1/shifts/"+db.Shift1ID.String()+"/register", tok, body)
 	assert.Equal(t, http.StatusConflict, resp2.StatusCode)
 	resp2.Body.Close()
 }
 
 func TestGetMyHours(t *testing.T) {
 	s := startServer(t)
-	tok := token(t, s, "mitglied", memory.MemberID.String(), "max@test.local")
+	tok := token(t, s, "mitglied", db.MemberID.String(), "max@test.local")
 
 	resp := get(t, s, "/api/v1/hours/me", tok)
 	require.Equal(t, http.StatusOK, resp.StatusCode)
@@ -279,9 +279,9 @@ func TestGetMyHours(t *testing.T) {
 
 func TestManualBooking(t *testing.T) {
 	s := startServer(t)
-	tok := token(t, s, "vorstand", memory.AdminID.String(), "admin@test.local")
+	tok := token(t, s, "vorstand", db.AdminID.String(), "admin@test.local")
 
-	body := fmt.Sprintf(`{"memberId": "%s", "hours": 3.5, "desc": "Reinigung nach Fest"}`, memory.MemberID.String())
+	body := fmt.Sprintf(`{"memberId": "%s", "hours": 3.5, "desc": "Reinigung nach Fest"}`, db.MemberID.String())
 	resp := post(t, s, "/api/v1/hours/manual", tok, body)
 	require.Equal(t, http.StatusCreated, resp.StatusCode)
 
@@ -290,7 +290,7 @@ func TestManualBooking(t *testing.T) {
 	assert.Equal(t, float64(3.5), entry["hours"])
 
 	// Hours account should reflect the new entry.
-	memberTok := token(t, s, "mitglied", memory.MemberID.String(), "max@test.local")
+	memberTok := token(t, s, "mitglied", db.MemberID.String(), "max@test.local")
 	resp2 := get(t, s, "/api/v1/hours/me", memberTok)
 	require.Equal(t, http.StatusOK, resp2.StatusCode)
 
@@ -301,7 +301,7 @@ func TestManualBooking(t *testing.T) {
 
 func TestGetStats(t *testing.T) {
 	s := startServer(t)
-	tok := token(t, s, "veranstaltungsleiter", memory.AdminID.String(), "admin@test.local")
+	tok := token(t, s, "veranstaltungsleiter", db.AdminID.String(), "admin@test.local")
 
 	resp := get(t, s, "/api/v1/stats", tok)
 	require.Equal(t, http.StatusOK, resp.StatusCode)
@@ -321,7 +321,7 @@ func TestOpenAPISpec(t *testing.T) {
 
 func TestCreateAndPublishEvent(t *testing.T) {
 	s := startServer(t)
-	tok := token(t, s, "veranstaltungsleiter", memory.AdminID.String(), "admin@test.local")
+	tok := token(t, s, "veranstaltungsleiter", db.AdminID.String(), "admin@test.local")
 
 	// Create a draft event.
 	body := `{
@@ -354,8 +354,8 @@ func TestUnauthorizedAccessDenied(t *testing.T) {
 	s := startServer(t)
 
 	// Member role cannot access manual booking.
-	memberTok := token(t, s, "mitglied", memory.MemberID.String(), "max@test.local")
-	body := fmt.Sprintf(`{"memberId": "%s", "hours": 1, "desc": "test"}`, memory.MemberID.String())
+	memberTok := token(t, s, "mitglied", db.MemberID.String(), "max@test.local")
+	body := fmt.Sprintf(`{"memberId": "%s", "hours": 1, "desc": "test"}`, db.MemberID.String())
 	resp := post(t, s, "/api/v1/hours/manual", memberTok, body)
 	assert.Equal(t, http.StatusForbidden, resp.StatusCode)
 	resp.Body.Close()
