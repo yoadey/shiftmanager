@@ -142,11 +142,12 @@ function FeeTierSheet({ memberId, clubYearId, onClose }: { memberId: string; clu
 }
 
 export function MemberDetail({ id }: { id: string }) {
-  const { back, push } = useAppStore();
+  const { back, push, showToast } = useAppStore();
   const [goalOpen, setGoalOpen] = useState(false);
   const [feeOpen, setFeeOpen] = useState(false);
   const { data: stats } = useStats();
   const clubYearId = stats?.clubYearId ?? '';
+  const activate = useUpdateMember();
   const memberQ = useMember(id);
   const hoursQ = useMemberHours(id);
   const { data: settings } = useSettings();
@@ -192,7 +193,33 @@ export function MemberDetail({ id }: { id: string }) {
             <div style={{ color: 'var(--muted)', fontSize: 12.5, fontWeight: 600 }}>{m.email}</div>
             <div style={{ color: 'var(--muted)', fontSize: 12, fontWeight: 600 }}>seit {fmtDate(m.since, 'short')}</div>
           </div>
+          {m.active === false && <Badge kind="warn">Nicht freigeschaltet</Badge>}
         </div>
+        {m.active === false && (
+          <div className="sm-card pad" style={{ marginTop: 12, display: 'flex', alignItems: 'center', gap: 12, background: 'var(--warn-bg)' }}>
+            <Icon name="clock" size={20} color="var(--warn)" />
+            <div style={{ flex: 1 }}>
+              <div style={{ fontWeight: 800, fontSize: 14.5 }}>Konto wartet auf Freischaltung</div>
+              <div style={{ color: 'var(--ink-2)', fontSize: 12.5, fontWeight: 600 }}>Per OIDC registriert, aber noch nicht aktiviert.</div>
+            </div>
+            <Button
+              size="sm"
+              icon="check"
+              loading={activate.isPending}
+              onClick={() =>
+                activate.mutate(
+                  { id, active: true },
+                  {
+                    onSuccess: () => showToast('Mitglied freigeschaltet.'),
+                    onError: () => showToast('Freischaltung fehlgeschlagen.', 'crit'),
+                  },
+                )
+              }
+            >
+              Freischalten
+            </Button>
+          </div>
+        )}
         <div className="sm-card pad" style={{ marginTop: 12 }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline' }}>
             <span style={{ fontWeight: 700, color: 'var(--ink-2)', fontSize: 14 }}>Stundenkonto {settings?.clubYear ?? new Date().getFullYear()}</span>

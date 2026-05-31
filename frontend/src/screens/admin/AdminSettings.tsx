@@ -42,8 +42,8 @@ function SegRadio<T extends string>({ value, onChange, options }: { value: T; on
 }
 
 export function AdminSettings() {
-  const { push, setNameMode, showToast } = useAppStore();
-  const { user } = useAuthStore();
+  const { push, setNameMode, showToast, setRole } = useAppStore();
+  const { user, logout } = useAuthStore();
   const isAdmin = user?.role === 'admin' || user?.role === 'vorstand';
   const settingsQ = useSettings();
   const { data: branding } = useBranding();
@@ -247,6 +247,19 @@ export function AdminSettings() {
           <LinkRow icon="shield" label="Audit-Log" sub="Protokoll aller Änderungen" onClick={() => push('audit')} />
           <hr className="sm-divider" />
           <LinkRow icon="download" label="Datenbank-Export" sub="CSV / Backup" />
+        </div>
+
+        <Section title="Konto" />
+        <div className="sm-card">
+          <LinkRow
+            icon="lock"
+            label="Abmelden"
+            sub="Sitzung beenden"
+            onClick={() => {
+              logout();
+              setRole('mitglied');
+            }}
+          />
         </div>
       </div>
     </div>

@@ -2,19 +2,74 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { apiGet, apiPost, apiPut, apiPatch, apiClient } from './client';
 import type { Member } from '@/types';
 
+// ── Backend ↔ UI shape mapping ───────────────────────────────────────────────
+// The backend serialises domain.Member with camelCase field names
+// (firstName/lastName/joinedAt/individualGoalHours/isActive); the UI model uses
+// shorter names (first/last/since/goal/active). These mappers bridge both so
+// names/dates render and updates hit the right fields.
+
+interface RawMember {
+  id: string;
+  firstName: string;
+  lastName: string;
+  email: string;
+  joinedAt: string;
+  leftAt?: string | null;
+  isActive: boolean;
+  individualGoalHours?: number | null;
+  role?: string;
+  reminderOptOut?: boolean;
+}
+
+function toMember(r: RawMember): Member {
+  return {
+    id: r.id,
+    first: r.firstName ?? '',
+    last: r.lastName ?? '',
+    email: r.email ?? '',
+    since: r.joinedAt ?? '',
+    goal: r.individualGoalHours ?? null,
+    active: r.isActive,
+    reminderOptOut: r.reminderOptOut,
+  };
+}
+
+/** Fields accepted by the create/update mutations, in UI naming. */
+export type MemberWrite = Partial<{
+  first: string;
+  last: string;
+  email: string;
+  goal: number | null;
+  active: boolean;
+  role: string;
+  since: string;
+}>;
+
+function toRawWrite(data: MemberWrite): Record<string, unknown> {
+  const body: Record<string, unknown> = {};
+  if (data.first !== undefined) body.firstName = data.first;
+  if (data.last !== undefined) body.lastName = data.last;
+  if (data.email !== undefined) body.email = data.email;
+  if (data.goal !== undefined) body.individualGoalHours = data.goal;
+  if (data.active !== undefined) body.isActive = data.active;
+  if (data.role !== undefined) body.role = data.role;
+  if (data.since !== undefined) body.joinedAt = data.since;
+  return body;
+}
+
 // ── Queries ────────────────────────────────────────────────────────────────
 
 export function useMembers() {
   return useQuery({
     queryKey: ['members'],
-    queryFn: () => apiGet<Member[]>('/members'),
+    queryFn: () => apiGet<RawMember[]>('/members').then((rows) => rows.map(toMember)),
   });
 }
 
 export function useMember(id: string) {
   return useQuery({
     queryKey: ['members', id],
-    queryFn: () => apiGet<Member>(`/members/${id}`),
+    queryFn: () => apiGet<RawMember>(`/members/${id}`).then(toMember),
     enabled: !!id,
   });
 }
@@ -24,7 +79,7 @@ export function useMember(id: string) {
 export function useCreateMember() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: (data: Omit<Member, 'id'>) => apiPost<Member>('/members', data),
+    mutationFn: (data: MemberWrite) => apiPost<RawMember>('/members', toRawWrite(data)).then(toMember),
     onSuccess: () => qc.invalidateQueries({ queryKey: ['members'] }),
   });
 }
@@ -32,8 +87,8 @@ export function useCreateMember() {
 export function useUpdateMember() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: ({ id, ...data }: Partial<Member> & { id: string }) =>
-      apiPut<Member>(`/members/${id}`, data),
+    mutationFn: ({ id, ...data }: MemberWrite & { id: string }) =>
+      apiPut<RawMember>(`/members/${id}`, toRawWrite(data)).then(toMember),
     onSuccess: (_d, vars) => {
       qc.invalidateQueries({ queryKey: ['members'] });
       qc.invalidateQueries({ queryKey: ['members', vars.id] });
