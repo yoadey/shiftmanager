@@ -1,5 +1,5 @@
 import { useMutation, useQueryClient } from '@tanstack/react-query';
-import { apiPost, apiPut, apiPatch, apiDelete } from './client';
+import { apiPost, apiPut, apiDelete } from './client';
 import type { Shift } from '@/types';
 
 interface CreateShiftPayload extends Omit<Shift, 'id' | 'signups'> {
@@ -29,8 +29,8 @@ export function useCreateShift() {
 export function useUpdateShift() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: ({ id, eventId, ...data }: UpdateShiftPayload) =>
-      apiPut<Shift>(`/events/${eventId}/shifts/${id}`, data),
+    mutationFn: ({ id, eventId: _eventId, ...data }: UpdateShiftPayload) =>
+      apiPut<Shift>(`/shifts/${id}`, data),
     onSuccess: (_d, vars) => {
       qc.invalidateQueries({ queryKey: ['events', vars.eventId] });
     },
@@ -40,8 +40,8 @@ export function useUpdateShift() {
 export function useDeleteShift() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: ({ id, eventId }: { id: string; eventId: string }) =>
-      apiDelete<void>(`/events/${eventId}/shifts/${id}`),
+    mutationFn: ({ id, eventId: _eventId }: { id: string; eventId: string }) =>
+      apiDelete<void>(`/shifts/${id}`),
     onSuccess: (_d, vars) => {
       qc.invalidateQueries({ queryKey: ['events', vars.eventId] });
     },
@@ -86,13 +86,13 @@ export function useConfirmShiftHours() {
       shiftId,
       memberId,
       hours,
-      status,
+      description,
     }: {
       shiftId: string;
       memberId: string;
       hours: number;
-      status: 'bestätigt' | 'nichterschienen';
-    }) => apiPatch<{ message: string }>(`/shifts/${shiftId}/confirm`, { memberId, hours, status }),
+      description?: string;
+    }) => apiPost<{ message: string }>('/hours/confirm', { shiftId, memberId, hours, description }),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['events'] });
       qc.invalidateQueries({ queryKey: ['members'] });

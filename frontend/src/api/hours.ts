@@ -14,7 +14,7 @@ export function useMyHours() {
 export function useMemberHours(memberId: string) {
   return useQuery({
     queryKey: ['hours', memberId],
-    queryFn: () => apiGet<{ entries: HourEntry[]; confirmed: number; goal: number }>(`/hours/${memberId}`),
+    queryFn: () => apiGet<{ entries: HourEntry[]; confirmed: number; reserved: number; goal: number }>(`/hours/${memberId}`),
     enabled: !!memberId,
   });
 }
@@ -24,8 +24,8 @@ export function useMemberHours(memberId: string) {
 export function useManualBooking() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: (data: { memberId: string; date: string; hours: number; desc: string }) =>
-      apiPost<HourEntry>('/hours/manual', data),
+    mutationFn: (data: { memberId: string; date?: string; hours: number; desc: string }) =>
+      apiPost<HourEntry>('/hours/manual', { memberId: data.memberId, hours: data.hours, desc: data.desc }),
     onSuccess: (_d, vars) => {
       qc.invalidateQueries({ queryKey: ['hours', vars.memberId] });
       qc.invalidateQueries({ queryKey: ['my-hours'] });

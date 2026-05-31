@@ -1,5 +1,5 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { apiGet, apiPost, apiPut, apiPatch, apiClient } from './client';
+import { apiGet, apiPost, apiPut, apiDelete, apiClient } from './client';
 import type { Member } from '@/types';
 
 // ── Backend ↔ UI shape mapping ───────────────────────────────────────────────
@@ -99,7 +99,7 @@ export function useUpdateMember() {
 export function useDeactivateMember() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: (id: string) => apiPatch<Member>(`/members/${id}/deactivate`, {}),
+    mutationFn: (id: string) => apiDelete<void>(`/members/${id}`),
     onSuccess: () => qc.invalidateQueries({ queryKey: ['members'] }),
   });
 }

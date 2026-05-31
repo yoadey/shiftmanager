@@ -108,7 +108,9 @@ func NewRouter(h Handlers, cfg RouterConfig) http.Handler {
 		// Public kiosk routes (rate-limited, no JWT).
 		api.Group(func(kiosk chi.Router) {
 			kiosk.Use(middleware.RateLimit(cfg.RateLimitRPM))
+			kiosk.Get("/kiosk/events", h.Kiosk.ListEvents)
 			kiosk.Get("/kiosk/events/{id}", h.Kiosk.PublicTimeline)
+			kiosk.Get("/kiosk/members", h.Kiosk.SearchMembers)
 			kiosk.Post("/kiosk/shifts/{id}/register", h.Kiosk.Register)
 			kiosk.Get("/kiosk/confirm/{token}", h.Kiosk.Confirm)
 		})
@@ -179,6 +181,7 @@ func NewRouter(h Handlers, cfg RouterConfig) http.Handler {
 
 			// Hours.
 			auth.Route("/hours", func(hr chi.Router) {
+				hr.Get("/me", h.Hour.GetMyAccount)
 				hr.Get("/account", h.Hour.GetMemberAccount)
 				hr.Group(func(w chi.Router) {
 					w.Use(middleware.RequireRole(domain.RoleVeranstaltungsleiter))
@@ -191,6 +194,7 @@ func NewRouter(h Handlers, cfg RouterConfig) http.Handler {
 					w.Put("/{id}", h.Hour.CorrectEntry)
 					w.Delete("/{id}", h.Hour.DeleteEntry)
 				})
+				hr.Get("/{memberId}", h.Hour.GetMemberAccountByID)
 			})
 
 			// Settings, branding, fee tiers, audit (board/admin).

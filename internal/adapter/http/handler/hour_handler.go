@@ -45,17 +45,32 @@ func (h *HourHandler) ConfirmShiftHours(w http.ResponseWriter, r *http.Request) 
 
 // ManualBooking creates a manual hour entry (board only).
 // POST /api/v1/hours/manual
+// Accepts optional clubYearId; falls back to the active club year.
 func (h *HourHandler) ManualBooking(w http.ResponseWriter, r *http.Request) {
 	var body struct {
 		MemberID    uuid.UUID              `json:"memberId"`
 		ClubYearID  uuid.UUID              `json:"clubYearId"`
 		Hours       float64                `json:"hours"`
 		Description string                 `json:"description"`
+		Desc        string                 `json:"desc"`        // frontend alias
 		Status      domain.HourEntryStatus `json:"status"`
 	}
 	if err := decodeJSON(r, &body); err != nil {
 		writeError(w, http.StatusBadRequest, "invalid request body")
 		return
+	}
+	// Accept "desc" as an alias for "description" (frontend compatibility).
+	if body.Description == "" && body.Desc != "" {
+		body.Description = body.Desc
+	}
+	// If no clubYearId supplied, resolve from the active year.
+	if body.ClubYearID == uuid.Nil {
+		year, err := h.uc.GetActiveClubYear(r.Context())
+		if err != nil {
+			writeError(w, http.StatusBadRequest, "no active club year found; supply clubYearId")
+			return
+		}
+		body.ClubYearID = year.ID
 	}
 
 	actorID := middleware.GetUserID(r.Context())
@@ -115,6 +130,38 @@ func (h *HourHandler) DeleteEntry(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	w.WriteHeader(http.StatusNoContent)
+}
+
+// GetMyAccount returns the authenticated member's hour account using the active club year.
+// GET /api/v1/hours/me
+func (h *HourHandler) GetMyAccount(w http.ResponseWriter, r *http.Request) {
+	memberID := middleware.GetUserID(r.Context())
+	if memberID == uuid.Nil {
+		writeError(w, http.StatusUnauthorized, "unauthenticated")
+		return
+	}
+	full, err := h.uc.GetMemberAccountFull(r.Context(), memberID)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, full)
+}
+
+// GetMemberAccountByID returns any member's hour account using the active club year.
+// GET /api/v1/hours/{memberId}
+func (h *HourHandler) GetMemberAccountByID(w http.ResponseWriter, r *http.Request) {
+	memberID, err := parseUUIDParam(r, "memberId")
+	if err != nil {
+		writeError(w, http.StatusBadRequest, "invalid memberId")
+		return
+	}
+	full, err := h.uc.GetMemberAccountFull(r.Context(), memberID)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, full)
 }
 
 // GetMemberAccount returns a member's hour account for a club year.

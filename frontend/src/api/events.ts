@@ -1,5 +1,5 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { apiGet, apiPost, apiPut, apiPatch, apiDelete } from './client';
+import { apiGet, apiPost, apiPut, apiDelete } from './client';
 import type { Event, EventTimeline } from '@/types';
 
 // ── Queries ────────────────────────────────────────────────────────────────
@@ -60,7 +60,7 @@ export function useDeleteEvent() {
 export function usePublishEvent() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: (id: string) => apiPatch<Event>(`/events/${id}/publish`, {}),
+    mutationFn: (id: string) => apiPost<Event>(`/events/${id}/publish`),
     onSuccess: (_d, id) => {
       qc.invalidateQueries({ queryKey: ['events'] });
       qc.invalidateQueries({ queryKey: ['events', id] });

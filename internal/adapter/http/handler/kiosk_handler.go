@@ -6,6 +6,8 @@ import (
 
 	"github.com/go-chi/chi/v5"
 	"github.com/google/uuid"
+	"github.com/yoadey/shiftmanager/internal/domain"
+	"github.com/yoadey/shiftmanager/internal/port"
 	"github.com/yoadey/shiftmanager/internal/usecase"
 )
 
@@ -67,25 +69,35 @@ func (h *KioskHandler) Register(w http.ResponseWriter, r *http.Request) {
 	}
 
 	var body struct {
-		GuestEmail string `json:"guestEmail"`
-		Comment    string `json:"comment"`
+		GuestEmail string     `json:"guestEmail"`
+		Email      string     `json:"email"`       // frontend alias for guestEmail
+		MemberID   *uuid.UUID `json:"memberId"`
+		Comment    string     `json:"comment"`
 	}
 	if err := decodeJSON(r, &body); err != nil {
 		writeError(w, http.StatusBadRequest, "invalid request body")
 		return
 	}
-
-	email := strings.ToLower(strings.TrimSpace(body.GuestEmail))
-	if email == "" {
-		writeError(w, http.StatusBadRequest, "guestEmail is required")
-		return
+	// Accept "email" as alias for "guestEmail".
+	if body.GuestEmail == "" && body.Email != "" {
+		body.GuestEmail = body.Email
 	}
 
-	reg, err := h.regUC.Register(r.Context(), nil, usecase.RegisterInput{
-		ShiftID:    shiftID,
-		GuestEmail: &email,
-		Comment:    body.Comment,
-	})
+	var regInput usecase.RegisterInput
+	regInput.ShiftID = shiftID
+	regInput.Comment = body.Comment
+	if body.MemberID != nil {
+		regInput.MemberID = body.MemberID
+	} else {
+		email := strings.ToLower(strings.TrimSpace(body.GuestEmail))
+		if email == "" {
+			writeError(w, http.StatusBadRequest, "email or memberId is required")
+			return
+		}
+		regInput.GuestEmail = &email
+	}
+
+	reg, err := h.regUC.Register(r.Context(), nil, regInput)
 	if err != nil {
 		status := http.StatusInternalServerError
 		switch err.Error() {
@@ -98,6 +110,41 @@ func (h *KioskHandler) Register(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusCreated, reg)
+}
+
+// ListEvents returns all published events for the kiosk selection screen.
+// GET /api/v1/kiosk/events
+func (h *KioskHandler) ListEvents(w http.ResponseWriter, r *http.Request) {
+	if h.locked(w, r) {
+		return
+	}
+	published := "published"
+	events, err := h.eventUC.ListEvents(r.Context(), port.EventFilter{Status: (*domain.EventStatus)(&published)})
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, events)
+}
+
+// SearchMembers returns active members matching a search query for kiosk lookup.
+// GET /api/v1/kiosk/members?q=...
+func (h *KioskHandler) SearchMembers(w http.ResponseWriter, r *http.Request) {
+	if h.locked(w, r) {
+		return
+	}
+	q := strings.TrimSpace(r.URL.Query().Get("q"))
+	if len(q) < 2 {
+		writeError(w, http.StatusBadRequest, "query must be at least 2 characters")
+		return
+	}
+	active := true
+	members, err := h.memberUC.ListMembers(r.Context(), port.MemberFilter{Search: q, IsActive: &active})
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, members)
 }
 
 // Confirm validates a one-time confirmation token from a kiosk email.

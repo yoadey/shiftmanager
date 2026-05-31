@@ -37,7 +37,7 @@ export function useFeeTiers() {
 export function useAuditLog() {
   return useQuery({
     queryKey: ['audit-log'],
-    queryFn: () => apiGet<AuditEntry[]>('/audit'),
+    queryFn: () => apiGet<AuditEntry[]>('/settings/audit'),
   });
 }
 

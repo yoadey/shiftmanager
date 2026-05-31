@@ -16,7 +16,7 @@ export function useKioskEvents() {
 export function useKioskMemberSearch(query: string, enabled: boolean) {
   return useQuery({
     queryKey: ['kiosk', 'members', query],
-    queryFn: () => apiGet<Member[]>(`/kiosk/members?q=${encodeURIComponent(query)}`),
+    queryFn: () => apiGet<Member[]>(`/kiosk/members?q=${encodeURIComponent(query.trim())}`),
     enabled: enabled && query.trim().length >= 2,
   });
 }
@@ -50,7 +50,7 @@ export interface ConfirmResult {
 export function useConfirmRegistration(token: string) {
   return useQuery({
     queryKey: ['shift-confirm', token],
-    queryFn: () => apiPost<ConfirmResult>(`/shifts/confirm/${token}`),
+    queryFn: () => apiGet<ConfirmResult>(`/kiosk/confirm/${encodeURIComponent(token)}`),
     enabled: !!token,
     retry: false,
   });

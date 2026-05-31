@@ -217,6 +217,45 @@ func (uc *HourUsecase) GetMemberAccount(ctx context.Context, memberID, clubYearI
 	}, nil
 }
 
+// GetActiveClubYear returns the currently active club year.
+func (uc *HourUsecase) GetActiveClubYear(ctx context.Context) (*domain.ClubYear, error) {
+	return uc.hours.GetActiveClubYear(ctx)
+}
+
+// MemberAccountFull combines the hour account summary with the raw entries.
+type MemberAccountFull struct {
+	Confirmed float64             `json:"confirmed"`
+	Reserved  float64             `json:"reserved"`
+	Goal      float64             `json:"goal"`
+	Entries   []*domain.HourEntry `json:"entries"`
+}
+
+// GetMemberAccountFull returns the account summary and raw entries for a member
+// using the active club year. Falls back gracefully when no active year exists.
+func (uc *HourUsecase) GetMemberAccountFull(ctx context.Context, memberID uuid.UUID) (*MemberAccountFull, error) {
+	year, err := uc.hours.GetActiveClubYear(ctx)
+	if err != nil {
+		return &MemberAccountFull{Entries: []*domain.HourEntry{}}, nil
+	}
+	account, err := uc.GetMemberAccount(ctx, memberID, year.ID)
+	if err != nil {
+		return &MemberAccountFull{Entries: []*domain.HourEntry{}}, nil
+	}
+	entries, err := uc.hours.FindEntriesByMemberAndYear(ctx, memberID, year.ID)
+	if err != nil {
+		entries = nil
+	}
+	if entries == nil {
+		entries = []*domain.HourEntry{}
+	}
+	return &MemberAccountFull{
+		Confirmed: account.ConfirmedHours,
+		Reserved:  account.PendingHours,
+		Goal:      account.TargetHours,
+		Entries:   entries,
+	}, nil
+}
+
 // GetYearSummary returns hour summaries for all active members for the given year.
 func (uc *HourUsecase) GetYearSummary(ctx context.Context, clubYearID uuid.UUID) ([]domain.YearSummaryRow, error) {
 	year, err := uc.hours.GetClubYearByID(ctx, clubYearID)
