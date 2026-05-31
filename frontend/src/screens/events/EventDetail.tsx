@@ -9,10 +9,14 @@ import { Field, Input, Textarea } from '@/components/forms/Field';
 import { useAppStore } from '@/store/app.store';
 import { useAuthStore } from '@/store/auth.store';
 import { useRegisterShift, useDeregisterShift } from '@/api/shifts';
+import { useEvent, useEventTimeline } from '@/api/events';
+import { useMembers } from '@/api/members';
+import { useSettings } from '@/api/settings';
 import { calcOccupancy } from '@/hooks/useOccupancy';
 import { useNameFormat } from '@/hooks/useNameFormat';
-import { DEMO_STATE, fmtDate, hrs, durH, catGradient, memberMap } from '@/screens/_demo';
-import type { Event, Shift } from '@/types';
+import { LoadingState, ErrorState } from '@/components/ui/States';
+import { fmtDate, hrs, durH, catGradient } from '@/screens/_demo';
+import type { Event, Shift, Member } from '@/types';
 
 const dotColor: Record<string, string> = {
   ok: 'var(--ok)',
@@ -34,11 +38,11 @@ function MiniStat({ label, val, accent }: { label: string; val: number; accent?:
   );
 }
 
-function ShiftRow({ sh, onRegister, onDeregister }: { sh: Shift; onRegister: () => void; onDeregister: () => void }) {
+function ShiftRow({ sh, onRegister, onDeregister, memberMap }: { sh: Shift; onRegister: () => void; onDeregister: () => void; memberMap: Record<string, Member> }) {
   const { role } = useAppStore();
   const { user } = useAuthStore();
   const formatName = useNameFormat();
-  const uid = user?.id ?? DEMO_STATE.currentUserId;
+  const uid = user?.id ?? '';
   const o = calcOccupancy(sh);
   const mine = sh.signups.find((s) => s.memberId === uid && (s.status === 'angemeldet' || s.status === 'reserviert'));
   const isBoard = role === 'vorstand';
@@ -120,7 +124,7 @@ function ShiftRow({ sh, onRegister, onDeregister }: { sh: Shift; onRegister: () 
   );
 }
 
-function RegisterSheet({ sh, ev, onClose }: { sh: Shift; ev: Event; onClose: () => void }) {
+function RegisterSheet({ sh, ev, onClose, reservationHours }: { sh: Shift; ev: Event; onClose: () => void; reservationHours: number }) {
   const { showToast } = useAppStore();
   const register = useRegisterShift();
   const [comment, setComment] = useState('');
@@ -181,7 +185,7 @@ function RegisterSheet({ sh, ev, onClose }: { sh: Shift; ev: Event; onClose: () 
           </Field>
           <div style={{ display: 'flex', gap: 9, background: 'var(--warn-bg)', borderRadius: 12, padding: 12, fontSize: 12.5, color: '#8a5a13', fontWeight: 600, lineHeight: 1.45 }}>
             <Icon name="info" size={17} color="var(--warn)" style={{ flexShrink: 0, marginTop: 1 }} />
-            <span>Die Person erhält einen Bestätigungslink. Bis zur Bestätigung gilt der Platz als <b>reserviert</b> (max. {DEMO_STATE.settings.reservationHours} h).</span>
+            <span>Die Person erhält einen Bestätigungslink. Bis zur Bestätigung gilt der Platz als <b>reserviert</b> (max. {reservationHours} h).</span>
           </div>
         </div>
       ) : (
@@ -193,7 +197,7 @@ function RegisterSheet({ sh, ev, onClose }: { sh: Shift; ev: Event; onClose: () 
   );
 }
 
-function DeregisterDialog({ sh, onClose }: { sh: Shift; onClose: () => void }) {
+function DeregisterDialog({ sh, onClose, deregisterDeadlineH }: { sh: Shift; onClose: () => void; deregisterDeadlineH: number }) {
   const { showToast } = useAppStore();
   const deregister = useDeregisterShift();
   const confirm = () => {
@@ -211,7 +215,7 @@ function DeregisterDialog({ sh, onClose }: { sh: Shift; onClose: () => void }) {
         </div>
         <h3 style={{ fontSize: 19, fontWeight: 800 }}>Von Schicht abmelden?</h3>
         <p style={{ color: 'var(--ink-2)', fontSize: 14, fontWeight: 600, margin: '8px 0 18px', lineHeight: 1.45 }}>
-          „{sh.name}“ wird wieder freigegeben. Abmeldung ist bis {DEMO_STATE.settings.deregisterDeadlineH} h vor Beginn möglich.
+          „{sh.name}“ wird wieder freigegeben. Abmeldung ist bis {deregisterDeadlineH} h vor Beginn möglich.
         </p>
         <div style={{ display: 'flex', gap: 10 }}>
           <Button variant="ghost" onClick={onClose}>Behalten</Button>
@@ -227,10 +231,28 @@ export function EventDetail({ id }: { id: string }) {
   const [sheet, setSheet] = useState<Shift | null>(null);
   const [confirmOff, setConfirmOff] = useState<Shift | null>(null);
 
-  const ev = findEvent(DEMO_STATE.events, id);
-  if (!ev) return null;
+  const eventQ = useEvent(id);
+  const timelineQ = useEventTimeline(id);
+  const { data: settings } = useSettings();
+  // Member names are only needed in the board view (otherwise spare the request).
+  const { data: members } = useMembers();
+  const memberMap: Record<string, Member> = (members ?? []).reduce(
+    (acc, m) => { acc[m.id] = m; return acc; },
+    {} as Record<string, Member>,
+  );
 
-  const allShifts = ev.days.flatMap((d) => d.shifts);
+  const reservationHours = settings?.reservationHours ?? 48;
+  const deregisterDeadlineH = settings?.deregisterDeadlineH ?? 24;
+
+  if (eventQ.isLoading || timelineQ.isLoading) return <LoadingState />;
+  if (eventQ.isError) return <ErrorState />;
+
+  const ev = eventQ.data;
+  if (!ev) return <ErrorState text="Diese Veranstaltung wurde nicht gefunden." />;
+
+  // Prefer the dedicated timeline (multi-day grouped, occupancy ready); fall back to the event days.
+  const days = timelineQ.data?.days ?? ev.days ?? [];
+  const allShifts = days.flatMap((d) => d.shifts);
   const free = allShifts.reduce((a, s) => a + calcOccupancy(s).free, 0);
 
   return (
@@ -246,7 +268,7 @@ export function EventDetail({ id }: { id: string }) {
           </button>
           <div style={{ display: 'flex', gap: 8, marginBottom: 10 }}>
             <span className="sm-badge" style={{ background: 'rgba(255,255,255,0.92)', color: 'var(--ink)' }}><Icon name="tag" size={12} stroke={2.2} />{ev.category}</span>
-            {ev.status !== 'veröffentlicht' && (
+            {ev.status !== 'veröffentlicht' && ev.status !== 'published' && (
               <span className="sm-badge" style={{ background: 'rgba(0,0,0,0.4)', color: '#fff', textTransform: 'capitalize' }}>{ev.status}</span>
             )}
           </div>
@@ -258,9 +280,11 @@ export function EventDetail({ id }: { id: string }) {
         <div style={{ display: 'flex', flexDirection: 'column', gap: 9, color: 'var(--ink-2)', fontSize: 14, fontWeight: 600 }}>
           <span style={{ display: 'flex', alignItems: 'center', gap: 9 }}>
             <Icon name="calendar" size={17} color="var(--muted)" />
-            {ev.days.length > 1
-              ? `${fmtDate(ev.days[0].date, 'weekday')} – ${fmtDate(ev.days[ev.days.length - 1].date, 'weekday')}`
-              : fmtDate(ev.days[0].date, 'weekday-long')}
+            {days.length === 0
+              ? 'Termin offen'
+              : days.length > 1
+                ? `${fmtDate(days[0].date, 'weekday')} – ${fmtDate(days[days.length - 1].date, 'weekday')}`
+                : fmtDate(days[0].date, 'weekday-long')}
           </span>
           <span style={{ display: 'flex', alignItems: 'center', gap: 9 }}><Icon name="pin" size={17} color="var(--muted)" />{ev.location}</span>
         </div>
@@ -269,13 +293,13 @@ export function EventDetail({ id }: { id: string }) {
         <div style={{ display: 'flex', gap: 10, margin: '16px 0 4px' }}>
           <MiniStat label="Schichten" val={allShifts.length} />
           <MiniStat label="Freie Plätze" val={free} accent={free > 0} />
-          <MiniStat label={ev.days.length > 1 ? 'Tage' : 'Tag'} val={ev.days.length} />
+          <MiniStat label={days.length > 1 ? 'Tage' : 'Tag'} val={days.length} />
         </div>
 
-        {ev.days.map((day, i) => (
+        {days.map((day, i) => (
           <div className="tl-day" key={day.date}>
             <div className="tl-dayhead">
-              <span className="tl-daybadge">{ev.days.length > 1 ? `Tag ${i + 1}` : 'Programm'}</span>
+              <span className="tl-daybadge">{days.length > 1 ? `Tag ${i + 1}` : 'Programm'}</span>
               <span style={{ fontWeight: 700, fontSize: 13.5, color: 'var(--ink-2)' }}>{fmtDate(day.date, 'weekday-long')}</span>
             </div>
             <div className="tl-rail">
@@ -283,6 +307,7 @@ export function EventDetail({ id }: { id: string }) {
                 <ShiftRow
                   key={sh.id}
                   sh={sh}
+                  memberMap={memberMap}
                   onRegister={() => setSheet(sh)}
                   onDeregister={() => setConfirmOff(sh)}
                 />
@@ -292,8 +317,8 @@ export function EventDetail({ id }: { id: string }) {
         ))}
       </div>
 
-      {sheet && <RegisterSheet sh={sheet} ev={ev} onClose={() => setSheet(null)} />}
-      {confirmOff && <DeregisterDialog sh={confirmOff} onClose={() => setConfirmOff(null)} />}
+      {sheet && <RegisterSheet sh={sheet} ev={ev} onClose={() => setSheet(null)} reservationHours={reservationHours} />}
+      {confirmOff && <DeregisterDialog sh={confirmOff} onClose={() => setConfirmOff(null)} deregisterDeadlineH={deregisterDeadlineH} />}
     </div>
   );
 }

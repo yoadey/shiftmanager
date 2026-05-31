@@ -2,6 +2,16 @@ import React, { useState, useEffect } from 'react';
 import { Icon } from '@/components/ui/Icon';
 import { IOSFrame } from '@/components/device/IOSFrame';
 import { useAppStore } from '@/store/app.store';
+import { useBranding } from '@/api/settings';
+
+const DEFAULT_CLUB = 'TSC Schwarz-Gelb Aachen';
+
+function clubInitials(name: string): string {
+  const words = name.split(/\s+/).filter(Boolean);
+  if (words.length === 0) return 'SG';
+  if (words.length === 1) return words[0].slice(0, 2).toUpperCase();
+  return (words[0][0] + words[words.length - 1][0]).toUpperCase();
+}
 
 interface NavTab {
   key: string;
@@ -16,6 +26,8 @@ interface MobileShellProps {
 
 export function MobileShell({ tabs, children }: MobileShellProps) {
   const { role, setRole, tab, go, navStack } = useAppStore();
+  const { data: branding } = useBranding();
+  const clubName = branding?.clubName ?? DEFAULT_CLUB;
   const [scale, setScale] = useState(1);
 
   useEffect(() => {
@@ -37,8 +49,12 @@ export function MobileShell({ tabs, children }: MobileShellProps) {
     <div className="stage">
       {/* Role switcher chrome */}
       <div className="rolebar">
-        <div className="rb-brand">
-          <span className="rb-logo">SG</span>
+        <div className="rb-brand" title={clubName}>
+          {branding?.logoUrl ? (
+            <img src={branding.logoUrl} alt={clubName} className="rb-logo" style={{ objectFit: 'cover' }} />
+          ) : (
+            <span className="rb-logo">{clubInitials(clubName)}</span>
+          )}
           <span>ShiftManager</span>
         </div>
         <div className="rb-seg">

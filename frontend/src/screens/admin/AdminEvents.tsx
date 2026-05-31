@@ -2,8 +2,11 @@ import { useState } from 'react';
 import { Icon } from '@/components/ui/Icon';
 import { Badge } from '@/components/ui/Badge';
 import { useAppStore } from '@/store/app.store';
+import { useEvents } from '@/api/events';
 import { calcOccupancy } from '@/hooks/useOccupancy';
-import { DEMO_STATE, fmtDate } from '@/screens/_demo';
+import { LoadingState, ErrorState } from '@/components/ui/States';
+import { EmptyState } from '@/screens/member/MemberDashboard';
+import { fmtDate } from '@/screens/_demo';
 import { CreateEventFlow } from '@/screens/admin/CreateEventFlow';
 import type { EventStatus } from '@/types';
 
@@ -28,9 +31,10 @@ function statusLabel(s: EventStatus): string {
 export function AdminEvents() {
   const { push } = useAppStore();
   const [createOpen, setCreateOpen] = useState(false);
+  const eventsQ = useEvents();
 
-  const evs = [...DEMO_STATE.events].sort(
-    (a, b) => (order[a.status] - order[b.status]) || a.days[0].date.localeCompare(b.days[0].date),
+  const evs = [...(eventsQ.data ?? [])].sort(
+    (a, b) => (order[a.status] - order[b.status]) || (a.days?.[0]?.date ?? '').localeCompare(b.days?.[0]?.date ?? ''),
   );
 
   return (
@@ -49,8 +53,14 @@ export function AdminEvents() {
         </button>
       </div>
       <div className="sm-pad" style={{ paddingTop: 8 }}>
-        {evs.map((ev) => {
-          const shifts = ev.days.flatMap((d) => d.shifts);
+        {eventsQ.isLoading && <LoadingState />}
+        {eventsQ.isError && <ErrorState />}
+        {!eventsQ.isLoading && !eventsQ.isError && evs.length === 0 && (
+          <EmptyState icon="calendar" title="Keine Veranstaltungen" text="Lege über das Plus-Symbol die erste Veranstaltung an." />
+        )}
+        {!eventsQ.isLoading && !eventsQ.isError && evs.map((ev) => {
+          const days = ev.days ?? [];
+          const shifts = days.flatMap((d) => d.shifts);
           const filled = shifts.reduce((a, s) => a + calcOccupancy(s).count, 0);
           const cap = shifts.reduce((a, s) => a + s.max, 0);
           return (
@@ -59,7 +69,7 @@ export function AdminEvents() {
                 <div style={{ flex: 1, minWidth: 0 }}>
                   <div style={{ fontFamily: 'Bricolage Grotesque', fontWeight: 700, fontSize: 16.5, lineHeight: 1.15 }}>{ev.name}</div>
                   <div style={{ color: 'var(--muted)', fontSize: 12.5, fontWeight: 600, marginTop: 3 }}>
-                    {fmtDate(ev.days[0].date, 'daymon')}{ev.days.length > 1 ? ` – ${fmtDate(ev.days[ev.days.length - 1].date, 'daymon')}` : ''} · {ev.location}
+                    {days[0] ? fmtDate(days[0].date, 'daymon') : 'Termin offen'}{days.length > 1 ? ` – ${fmtDate(days[days.length - 1].date, 'daymon')}` : ''} · {ev.location}
                   </div>
                 </div>
                 <Badge kind={statusKind[ev.status] ?? 'neutral'} dot={ev.status === 'veröffentlicht'}>{statusLabel(ev.status)}</Badge>

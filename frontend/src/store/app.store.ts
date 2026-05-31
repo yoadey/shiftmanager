@@ -26,6 +26,9 @@ interface AppState {
   // Tweaks / branding
   tweaks: Tweaks;
 
+  // Global name-display mode (NM-005) — hydrated from the settings API at app root.
+  nameMode: 'abbrev' | 'full';
+
   // Actions
   setRole: (role: RoleView) => void;
   go: (tab: string) => void;
@@ -33,6 +36,7 @@ interface AppState {
   back: () => void;
   showToast: (msg: string, kind?: 'ok' | 'warn' | 'crit') => void;
   setTweak: <K extends keyof Tweaks>(key: K, value: Tweaks[K]) => void;
+  setNameMode: (mode: 'abbrev' | 'full') => void;
 }
 
 export const useAppStore = create<AppState>((set, get) => ({
@@ -48,6 +52,8 @@ export const useAppStore = create<AppState>((set, get) => ({
     radius: 'standard',
     warmth: 'warm',
   },
+
+  nameMode: 'abbrev',
 
   setRole: (role) => {
     localStorage.setItem('sm_role', role);
@@ -70,4 +76,6 @@ export const useAppStore = create<AppState>((set, get) => ({
 
   setTweak: (key, value) =>
     set((s) => ({ tweaks: { ...s.tweaks, [key]: value } })),
+
+  setNameMode: (mode) => set({ nameMode: mode }),
 }));

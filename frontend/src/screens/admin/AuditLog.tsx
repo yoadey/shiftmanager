@@ -2,12 +2,12 @@ import { Icon } from '@/components/ui/Icon';
 import { Badge } from '@/components/ui/Badge';
 import { useAppStore } from '@/store/app.store';
 import { useAuditLog } from '@/api/settings';
-import { DEMO_STATE } from '@/screens/_demo';
+import { LoadingState, MessageState, ErrorState } from '@/components/ui/States';
 
 export function AuditLog() {
   const { back } = useAppStore();
-  const { data } = useAuditLog();
-  const entries = data ?? DEMO_STATE.audit;
+  const { data, isLoading, isError } = useAuditLog();
+  const entries = data ?? [];
 
   return (
     <div className="fade-in">
@@ -22,6 +22,11 @@ export function AuditLog() {
         <div className="sm-title" style={{ fontSize: 22 }}>Audit-Log</div>
       </div>
       <div className="sm-pad" style={{ paddingTop: 4 }}>
+        {isLoading && <LoadingState />}
+        {isError && <ErrorState />}
+        {!isLoading && !isError && entries.length === 0 && (
+          <MessageState icon="shield" title="Keine Einträge" text="Es wurden noch keine Änderungen protokolliert." />
+        )}
         <div className="tl-rail">
           {entries.map((a, i) => (
             <div key={i} className="tl-shift">

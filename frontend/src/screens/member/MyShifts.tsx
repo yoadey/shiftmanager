@@ -2,7 +2,9 @@ import { useState } from 'react';
 import { Badge } from '@/components/ui/Badge';
 import { useAppStore } from '@/store/app.store';
 import { useAuthStore } from '@/store/auth.store';
-import { DEMO_STATE, hrs } from '@/screens/_demo';
+import { useEvents } from '@/api/events';
+import { LoadingState, ErrorState } from '@/components/ui/States';
+import { hrs } from '@/screens/_demo';
 import {
   collectMy,
   MyShiftCard,
@@ -35,9 +37,10 @@ function PastShiftCard({ r }: { r: ShiftRec }) {
 export function MyShifts() {
   const { push } = useAppStore();
   const { user } = useAuthStore();
-  const uid = user?.id ?? DEMO_STATE.currentUserId;
+  const uid = user?.id ?? '';
   const [tab, setTab] = useState<'up' | 'past'>('up');
-  const { up, past } = collectMy(DEMO_STATE.events, uid);
+  const eventsQ = useEvents();
+  const { up, past } = collectMy(eventsQ.data ?? [], uid);
   const list = tab === 'up' ? up : past;
 
   const tabs: [('up' | 'past'), string, number][] = [
@@ -67,14 +70,16 @@ export function MyShifts() {
         </div>
       </div>
       <div className="sm-pad" style={{ paddingTop: 14 }}>
-        {list.length === 0 && (
+        {eventsQ.isLoading && <LoadingState />}
+        {eventsQ.isError && <ErrorState />}
+        {!eventsQ.isLoading && !eventsQ.isError && list.length === 0 && (
           <EmptyState
             icon="calendar"
             title={tab === 'up' ? 'Keine kommenden Schichten' : 'Noch keine Historie'}
             text={tab === 'up' ? 'Finde freie Schichten im Tab „Entdecken“.' : 'Abgeschlossene Schichten erscheinen hier.'}
           />
         )}
-        {list.map((r) =>
+        {!eventsQ.isLoading && !eventsQ.isError && list.map((r) =>
           tab === 'up'
             ? <MyShiftCard key={r.sh.id} r={r} onClick={() => push('event', { id: r.ev.id })} />
             : <PastShiftCard key={r.sh.id} r={r} />,

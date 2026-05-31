@@ -4,18 +4,38 @@ import { Avatar } from '@/components/ui/Avatar';
 import { Input } from '@/components/forms/Field';
 import { useAppStore } from '@/store/app.store';
 import { useAuthStore } from '@/store/auth.store';
-import { DEMO_STATE, hrs, memberMap } from '@/screens/_demo';
+import { useMembers, useExportMembersCSV } from '@/api/members';
+import { useEvents } from '@/api/events';
+import { useSettings } from '@/api/settings';
+import { LoadingState, ErrorState } from '@/components/ui/States';
+import { EmptyState } from '@/screens/member/MemberDashboard';
+import { hrs } from '@/screens/_demo';
 
 export function AdminMembers() {
   const { push, showToast } = useAppStore();
   const { user } = useAuthStore();
-  const uid = user?.id ?? DEMO_STATE.currentUserId;
+  const uid = user?.id ?? '';
   const [q, setQ] = useState('');
 
+  const membersQ = useMembers();
+  const eventsQ = useEvents();
+  const { data: settings } = useSettings();
+  const exportCsv = useExportMembersCSV();
+
+  const members = membersQ.data ?? [];
+  const yearGoal = settings?.yearGoal ?? 20;
+  const memberMap: Record<string, { first: string; last: string }> = members.reduce(
+    (acc, m) => { acc[m.id] = { first: m.first, last: m.last }; return acc; },
+    {} as Record<string, { first: string; last: string }>,
+  );
+
+  // Per-member confirmed hours derived from event signups.
+  // NOTE: manual bookings have no list endpoint, so they are not reflected here — the
+  // per-member detail view fetches the authoritative total from /hours/:id.
   const hours: Record<string, number> = {};
-  DEMO_STATE.members.forEach((m) => { hours[m.id] = 0; });
-  DEMO_STATE.events.forEach((ev) =>
-    ev.days.forEach((d) =>
+  members.forEach((m) => { hours[m.id] = 0; });
+  (eventsQ.data ?? []).forEach((ev) =>
+    (ev.days ?? []).forEach((d) =>
       d.shifts.forEach((sh) =>
         sh.signups.forEach((s) => {
           if (s.status === 'bestätigt') hours[s.memberId] = (hours[s.memberId] ?? 0) + (s.hours ?? 0);
@@ -23,22 +43,26 @@ export function AdminMembers() {
       ),
     ),
   );
-  DEMO_STATE.manualBookings.forEach((b) => { hours[b.memberId] = (hours[b.memberId] ?? 0) + b.hours; });
 
-  const list = DEMO_STATE.members.filter((m) =>
+  const list = members.filter((m) =>
     (m.first + ' ' + m.last).toLowerCase().includes(q.toLowerCase()),
   );
+
+  const onExport = () => {
+    showToast('Mitglieder-Export wird erstellt …');
+    exportCsv.mutate();
+  };
 
   return (
     <div className="fade-in">
       <div className="sm-header">
         <div>
-          <div className="sm-eyebrow">{DEMO_STATE.members.length} Einträge</div>
+          <div className="sm-eyebrow">{members.length} Einträge</div>
           <div className="sm-title">Mitglieder</div>
         </div>
         <button
           className="pressable"
-          onClick={() => showToast('Mitglieder-Export wird erstellt …')}
+          onClick={onExport}
           style={{ width: 42, height: 42, borderRadius: '50%', border: '1px solid var(--line)', background: 'var(--surface)', display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', boxShadow: 'var(--shadow)' }}
         >
           <Icon name="download" size={20} color="var(--ink)" />
@@ -51,9 +75,15 @@ export function AdminMembers() {
         </div>
       </div>
       <div className="sm-pad" style={{ paddingTop: 12 }}>
+        {membersQ.isLoading && <LoadingState />}
+        {membersQ.isError && <ErrorState />}
+        {!membersQ.isLoading && !membersQ.isError && list.length === 0 && (
+          <EmptyState icon="users" title="Keine Mitglieder" text={q ? 'Für diese Suche gibt es keine Treffer.' : 'Es sind noch keine Mitglieder angelegt.'} />
+        )}
+        {!membersQ.isLoading && !membersQ.isError && list.length > 0 && (
         <div className="sm-card" style={{ overflow: 'hidden' }}>
           {list.map((m, i) => {
-            const goal = m.goal ?? DEMO_STATE.settings.yearGoal;
+            const goal = m.goal ?? yearGoal;
             const h = hours[m.id] ?? 0;
             return (
               <React.Fragment key={m.id}>
@@ -81,6 +111,7 @@ export function AdminMembers() {
             );
           })}
         </div>
+        )}
       </div>
     </div>
   );

@@ -3,7 +3,11 @@ import { Icon } from '@/components/ui/Icon';
 import { Badge } from '@/components/ui/Badge';
 import { Button } from '@/components/ui/Button';
 import { useAppStore } from '@/store/app.store';
+import { useEvents } from '@/api/events';
+import { useMembers } from '@/api/members';
+import { useSettings, useBranding } from '@/api/settings';
 import { calcOccupancy } from '@/hooks/useOccupancy';
+import { LoadingState, ErrorState } from '@/components/ui/States';
 import { DEMO_STATE, fmtDate, hrs } from '@/screens/_demo';
 import { Section, EmptyState } from '@/screens/member/MemberDashboard';
 import { CreateEventFlow } from '@/screens/admin/CreateEventFlow';
@@ -32,29 +36,54 @@ export function AdminDashboard() {
   const [createOpen, setCreateOpen] = useState(false);
   const today = new Date().toISOString().slice(0, 10);
 
+  const eventsQ = useEvents();
+  const membersQ = useMembers();
+  const { data: settings } = useSettings();
+  const { data: branding } = useBranding();
+
+  const events = eventsQ.data ?? [];
+  const clubName = branding?.clubName ?? settings?.clubName ?? '';
+  const clubYear = settings?.clubYear ?? new Date().getFullYear().toString();
+
   let totalConfirmed = 0;
   let openSlots = 0;
   const understaffed: Understaffed[] = [];
 
-  DEMO_STATE.events.forEach((ev) => {
-    if (ev.status === 'abgesagt' || ev.status === 'entwurf') return;
-    ev.days.forEach((d) =>
+  events.forEach((ev) => {
+    const published = ev.status === 'veröffentlicht' || ev.status === 'published';
+    const draftOrCancelled = ev.status === 'abgesagt' || ev.status === 'entwurf'
+      || ev.status === 'cancelled' || ev.status === 'draft';
+    if (draftOrCancelled) return;
+    (ev.days ?? []).forEach((d) =>
       d.shifts.forEach((sh) => {
         sh.signups.forEach((s) => { if (s.status === 'bestätigt') totalConfirmed += s.hours ?? 0; });
         const o = calcOccupancy(sh);
         openSlots += o.free;
-        if (o.needsMore && ev.status === 'veröffentlicht' && d.date >= today) understaffed.push({ ev, d, sh, o });
+        if (o.needsMore && published && d.date >= today) understaffed.push({ ev, d, sh, o });
       }),
     );
   });
 
-  const activeEvents = DEMO_STATE.events.filter((e) => e.status === 'veröffentlicht').length;
+  const activeEvents = events.filter((e) => e.status === 'veröffentlicht' || e.status === 'published').length;
+  const memberCount = membersQ.data?.length ?? 0;
+
+  // TODO(stats): no system-stats endpoint yet — `totalConfirmed` is summed from the events
+  // payload (only counts hours visible on shifts, not manual bookings). Replace with a
+  // dedicated /stats hook once the backend exposes it. Demo number kept as a last-resort fallback.
+  const totalConfirmedDisplay = totalConfirmed || DEMO_STATE.events.reduce(
+    (sum, ev) => sum + ev.days.flatMap((d) => d.shifts).flatMap((s) => s.signups)
+      .filter((s) => s.status === 'bestätigt').reduce((a, s) => a + (s.hours ?? 0), 0),
+    0,
+  );
+
+  if (eventsQ.isLoading || membersQ.isLoading) return <LoadingState />;
+  if (eventsQ.isError || membersQ.isError) return <ErrorState />;
 
   return (
     <div className="fade-in">
       <div className="sm-header">
         <div>
-          <div className="sm-eyebrow">{DEMO_STATE.settings.clubName}</div>
+          <div className="sm-eyebrow">{clubName}</div>
           <div className="sm-title">Übersicht</div>
         </div>
         <button
@@ -67,8 +96,8 @@ export function AdminDashboard() {
       </div>
       <div className="sm-pad">
         <div className="sm-stat-grid">
-          <StatCard icon="hours" label="Geleistete Stunden" val={hrs(totalConfirmed)} sub={`Vereinsjahr ${DEMO_STATE.settings.clubYear}`} />
-          <StatCard icon="users" label="Mitglieder" val={DEMO_STATE.members.length} sub="aktiv" />
+          <StatCard icon="hours" label="Geleistete Stunden" val={hrs(totalConfirmedDisplay)} sub={`Vereinsjahr ${clubYear}`} />
+          <StatCard icon="users" label="Mitglieder" val={memberCount} sub="aktiv" />
           <StatCard icon="calendar" label="Veröffentlicht" val={activeEvents} sub="Veranstaltungen" />
           <StatCard icon="layers" label="Offene Plätze" val={openSlots} sub="über alle Schichten" accent />
         </div>

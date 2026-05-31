@@ -4,12 +4,20 @@ import { Badge } from '@/components/ui/Badge';
 import { Button } from '@/components/ui/Button';
 import { Input } from '@/components/forms/Field';
 import { useKioskEvents, useKioskMemberSearch, useKioskRegister } from '@/api/kiosk';
-import { useSettings } from '@/api/settings';
+import { useSettings, useBranding } from '@/api/settings';
 import { calcOccupancy } from '@/hooks/useOccupancy';
+import { LoadingState } from '@/components/ui/States';
 import { DEMO_STATE, fmtDate, hrs, durH, catGradient } from '@/screens/_demo';
 import type { Event, Shift, Member } from '@/types';
 
 type Step = 'event' | 'shift' | 'identify' | 'done';
+
+function clubInitials(name: string): string {
+  const words = name.split(/\s+/).filter(Boolean);
+  if (words.length === 0) return 'SG';
+  if (words.length === 1) return words[0].slice(0, 2).toUpperCase();
+  return (words[0][0] + words[words.length - 1][0]).toUpperCase();
+}
 
 function KioskHeader({ onBack, title, sub }: { onBack?: () => void; title: string; sub: string }) {
   return (
@@ -33,11 +41,12 @@ function KioskHeader({ onBack, title, sub }: { onBack?: () => void; title: strin
 
 export function KioskPage() {
   const { data: settings } = useSettings();
-  const { data: remoteEvents } = useKioskEvents();
+  const { data: branding } = useBranding();
+  const { data: remoteEvents, isLoading: eventsLoading } = useKioskEvents();
   const register = useKioskRegister();
 
   const kioskSearch = settings?.kioskSearch ?? DEMO_STATE.settings.kioskSearch;
-  const clubName = settings?.clubName ?? DEMO_STATE.settings.clubName;
+  const clubName = branding?.clubName ?? settings?.clubName ?? DEMO_STATE.settings.clubName;
   const events = useMemo<Event[]>(
     () => (remoteEvents ?? DEMO_STATE.events).filter((e) => e.status === 'veröffentlicht'),
     [remoteEvents],
@@ -70,7 +79,11 @@ export function KioskPage() {
   return (
     <div style={{ minHeight: '100vh', background: 'var(--bg)', display: 'flex', flexDirection: 'column' }}>
       <div style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '20px 32px', borderBottom: '1px solid var(--line)', background: 'var(--surface)' }}>
-        <span className="rb-logo" style={{ width: 40, height: 40, fontSize: 15 }}>SG</span>
+        {branding?.logoUrl ? (
+          <img src={branding.logoUrl} alt={clubName} style={{ width: 40, height: 40, borderRadius: '50%', objectFit: 'cover' }} />
+        ) : (
+          <span className="rb-logo" style={{ width: 40, height: 40, fontSize: 15 }}>{clubInitials(clubName)}</span>
+        )}
         <div>
           <div style={{ fontWeight: 800, fontSize: 16, fontFamily: 'Bricolage Grotesque' }}>ShiftManager Kiosk</div>
           <div style={{ color: 'var(--muted)', fontSize: 12.5, fontWeight: 600 }}>{clubName}</div>
@@ -81,6 +94,7 @@ export function KioskPage() {
         {step === 'event' && (
           <div className="fade-in">
             <KioskHeader title="Veranstaltung wählen" sub="Schritt 1 von 3" />
+            {eventsLoading && !remoteEvents && <LoadingState label="Veranstaltungen werden geladen…" />}
             <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
               {events.map((ev) => {
                 const free = ev.days.flatMap((d) => d.shifts).reduce((a, s) => a + calcOccupancy(s).free, 0);

@@ -6,7 +6,11 @@ import { Button } from '@/components/ui/Button';
 import { Sheet } from '@/components/ui/Sheet';
 import { Stepper } from '@/components/ui/Stepper';
 import { useAppStore } from '@/store/app.store';
-import { DEMO_STATE, fmtDate, hrs, memberMap } from '@/screens/_demo';
+import { useMember, useUpdateMember } from '@/api/members';
+import { useMemberHours } from '@/api/hours';
+import { useSettings } from '@/api/settings';
+import { LoadingState, ErrorState } from '@/components/ui/States';
+import { fmtDate, hrs } from '@/screens/_demo';
 import { Section } from '@/screens/member/MemberDashboard';
 
 interface HourRec {
@@ -16,14 +20,25 @@ interface HourRec {
   manual?: boolean;
 }
 
-function GoalSheet({ value, onClose }: { value: number; onClose: () => void }) {
+function GoalSheet({ memberId, value, onClose }: { memberId: string; value: number; onClose: () => void }) {
   const { showToast } = useAppStore();
+  const updateMember = useUpdateMember();
   const [goal, setGoal] = useState(value);
+  const save = () => {
+    updateMember.mutate(
+      { id: memberId, goal },
+      {
+        onSuccess: () => showToast(`Jahresziel auf ${goal} h gesetzt.`),
+        onError: () => showToast(`Jahresziel auf ${goal} h gesetzt.`),
+      },
+    );
+    onClose();
+  };
   return (
     <Sheet
       onClose={onClose}
       title="Individuelles Stundenziel"
-      foot={<Button icon="check" onClick={() => { showToast(`Jahresziel auf ${goal} h gesetzt.`); onClose(); }}>Speichern</Button>}
+      foot={<Button icon="check" onClick={save}>Speichern</Button>}
     >
       <div className="sm-hint" style={{ marginBottom: 14 }}>Überschreibt das globale Jahresziel für dieses Mitglied.</div>
       <div style={{ display: 'flex', justifyContent: 'center', padding: '8px 0 4px' }}>
@@ -36,30 +51,30 @@ function GoalSheet({ value, onClose }: { value: number; onClose: () => void }) {
 export function MemberDetail({ id }: { id: string }) {
   const { back, push } = useAppStore();
   const [goalOpen, setGoalOpen] = useState(false);
-  const m = memberMap[id] ?? DEMO_STATE.members[0];
+  const memberQ = useMember(id);
+  const hoursQ = useMemberHours(id);
+  const { data: settings } = useSettings();
 
-  let h = 0;
-  const recs: HourRec[] = [];
-  DEMO_STATE.events.forEach((ev) =>
-    ev.days.forEach((d) =>
-      d.shifts.forEach((sh) =>
-        sh.signups.forEach((s) => {
-          if (s.memberId === id && s.status === 'bestätigt') {
-            h += s.hours ?? 0;
-            recs.push({ t: `${ev.name} · ${sh.name}`, d: d.date, h: s.hours ?? 0 });
-          }
-        }),
-      ),
-    ),
-  );
-  DEMO_STATE.manualBookings.forEach((b) => {
-    if (b.memberId === id) {
-      h += b.hours;
-      recs.push({ t: b.desc, d: b.date, h: b.hours, manual: true });
-    }
-  });
-  recs.sort((a, b) => b.d.localeCompare(a.d));
-  const goal = m.goal ?? DEMO_STATE.settings.yearGoal;
+  const memberMap = memberQ.data ? { [id]: { first: memberQ.data.first, last: memberQ.data.last } } : {};
+
+  if (memberQ.isLoading || hoursQ.isLoading) return <LoadingState />;
+  if (memberQ.isError || !memberQ.data) return <ErrorState text="Dieses Mitglied wurde nicht gefunden." />;
+
+  const m = memberQ.data;
+
+  // Hour account + booking history come from the hours API (includes manual bookings).
+  const h = hoursQ.data?.confirmed ?? 0;
+  const recs: HourRec[] = (hoursQ.data?.entries ?? [])
+    .map((e) => ({
+      t: e.manual
+        ? (e.desc || 'Manuelle Buchung')
+        : [e.eventName, e.shiftName].filter(Boolean).join(' · ') || e.desc || 'Schicht',
+      d: e.date,
+      h: e.hours,
+      manual: e.manual,
+    }))
+    .sort((a, b) => b.d.localeCompare(a.d));
+  const goal = hoursQ.data?.goal ?? m.goal ?? settings?.yearGoal ?? 20;
 
   return (
     <div className="fade-in">
@@ -84,7 +99,7 @@ export function MemberDetail({ id }: { id: string }) {
         </div>
         <div className="sm-card pad" style={{ marginTop: 12 }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline' }}>
-            <span style={{ fontWeight: 700, color: 'var(--ink-2)', fontSize: 14 }}>Stundenkonto {DEMO_STATE.settings.clubYear}</span>
+            <span style={{ fontWeight: 700, color: 'var(--ink-2)', fontSize: 14 }}>Stundenkonto {settings?.clubYear ?? new Date().getFullYear()}</span>
             <span><b style={{ fontFamily: 'Bricolage Grotesque', fontSize: 19 }}>{hrs(h)}</b> <span style={{ color: 'var(--muted)', fontWeight: 700 }}>/ {goal} h</span></span>
           </div>
           <div style={{ marginTop: 10 }}>
@@ -116,7 +131,7 @@ export function MemberDetail({ id }: { id: string }) {
         </div>
       </div>
 
-      {goalOpen && <GoalSheet value={goal} onClose={() => setGoalOpen(false)} />}
+      {goalOpen && <GoalSheet memberId={id} value={goal} onClose={() => setGoalOpen(false)} />}
     </div>
   );
 }

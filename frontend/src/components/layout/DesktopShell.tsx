@@ -3,6 +3,17 @@ import { Icon } from '@/components/ui/Icon';
 import { Avatar } from '@/components/ui/Avatar';
 import { useAppStore } from '@/store/app.store';
 import { useAuthStore } from '@/store/auth.store';
+import { useBranding } from '@/api/settings';
+
+const DEFAULT_CLUB = 'TSC Schwarz-Gelb Aachen';
+
+/** Builds short initials from a club name for the logo badge. */
+function clubInitials(name: string): string {
+  const words = name.split(/\s+/).filter(Boolean);
+  if (words.length === 0) return 'SG';
+  if (words.length === 1) return words[0].slice(0, 2).toUpperCase();
+  return (words[0][0] + words[words.length - 1][0]).toUpperCase();
+}
 
 interface NavTab {
   key: string;
@@ -29,7 +40,9 @@ const DEMO_USER = {
 export function DesktopShell({ tabs, children, onOpenCreate: _onOpenCreate }: DesktopShellProps) {
   const { role, setRole, tab, go, navStack } = useAppStore();
   const { user } = useAuthStore();
+  const { data: branding } = useBranding();
   const me = user ?? DEMO_USER;
+  const clubName = branding?.clubName ?? DEFAULT_CLUB;
 
   const memberMap: Record<string, { first: string; last: string }> = {
     [me.id]: { first: me.first ?? me.name.split(' ')[0], last: me.last ?? me.name.split(' ')[1] ?? '' },
@@ -39,12 +52,16 @@ export function DesktopShell({ tabs, children, onOpenCreate: _onOpenCreate }: De
     <div className="stage desktop">
       <aside className="dt-sidebar">
         <div className="dt-brand">
-          <span className="rb-logo" style={{ width: 38, height: 38, fontSize: 15 }}>
-            SG
-          </span>
+          {branding?.logoUrl ? (
+            <img src={branding.logoUrl} alt={clubName} style={{ width: 38, height: 38, borderRadius: '50%', objectFit: 'cover' }} />
+          ) : (
+            <span className="rb-logo" style={{ width: 38, height: 38, fontSize: 15 }}>
+              {clubInitials(clubName)}
+            </span>
+          )}
           <div>
             <div className="dt-brand-name">ShiftManager</div>
-            <div className="dt-brand-sub">TSC Schwarz-Gelb Aachen</div>
+            <div className="dt-brand-sub">{clubName}</div>
           </div>
         </div>
 

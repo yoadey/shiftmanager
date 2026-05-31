@@ -5,8 +5,10 @@ import { Button } from '@/components/ui/Button';
 import { Toggle } from '@/components/ui/Toggle';
 import { useAppStore } from '@/store/app.store';
 import { useAuthStore } from '@/store/auth.store';
-import { DEMO_STATE, fmtDate, memberMap } from '@/screens/_demo';
+import { useMember } from '@/api/members';
+import { fmtDate } from '@/screens/_demo';
 import { Section } from '@/screens/member/MemberDashboard';
+import type { Member } from '@/types';
 
 function PrefRow({ label, sub, on, set }: { label: string; sub: string; on: boolean; set: () => void }) {
   return (
@@ -48,8 +50,19 @@ interface Prefs {
 export function MemberProfile() {
   const { setRole, showToast } = useAppStore();
   const { user } = useAuthStore();
-  const uid = user?.id ?? DEMO_STATE.currentUserId;
-  const me = memberMap[uid] ?? DEMO_STATE.members[0];
+  const uid = user?.id ?? '';
+  const { data: profile } = useMember(uid);
+
+  // Prefer the live profile; fall back to the auth user while it loads.
+  const me: Member = profile ?? {
+    id: uid,
+    first: user?.first ?? user?.name?.split(' ')[0] ?? '',
+    last: user?.last ?? user?.name?.split(' ')[1] ?? '',
+    email: user?.email ?? '',
+    since: '',
+    goal: null,
+  };
+  const memberMap = { [me.id]: { first: me.first, last: me.last } };
   const [prefs, setPrefs] = useState<Prefs>({ week: true, day: true, news: false });
 
   return (
@@ -66,7 +79,7 @@ export function MemberProfile() {
           <div>
             <div style={{ fontFamily: 'Bricolage Grotesque', fontWeight: 800, fontSize: 19 }}>{me.first} {me.last}</div>
             <div style={{ color: 'var(--muted)', fontSize: 13, fontWeight: 600 }}>{me.email}</div>
-            <div style={{ color: 'var(--muted)', fontSize: 12.5, fontWeight: 600, marginTop: 2 }}>Mitglied seit {fmtDate(me.since, 'short')}</div>
+            {me.since && <div style={{ color: 'var(--muted)', fontSize: 12.5, fontWeight: 600, marginTop: 2 }}>Mitglied seit {fmtDate(me.since, 'short')}</div>}
           </div>
         </div>
 

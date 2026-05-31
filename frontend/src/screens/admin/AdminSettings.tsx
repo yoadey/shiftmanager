@@ -1,10 +1,11 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { Badge } from '@/components/ui/Badge';
 import { Input } from '@/components/forms/Field';
 import { Stepper } from '@/components/ui/Stepper';
 import { Toggle } from '@/components/ui/Toggle';
 import { useAppStore } from '@/store/app.store';
-import { useSettings, useUpdateSettings, useFeeTiers } from '@/api/settings';
+import { useSettings, useUpdateSettings, useBranding } from '@/api/settings';
+import { LoadingState, ErrorState } from '@/components/ui/States';
 import { DEMO_STATE } from '@/screens/_demo';
 import { Section } from '@/screens/member/MemberDashboard';
 import { LinkRow } from '@/screens/member/MemberProfile';
@@ -39,23 +40,34 @@ function SegRadio<T extends string>({ value, onChange, options }: { value: T; on
 }
 
 export function AdminSettings() {
-  const { push } = useAppStore();
-  const { data: remote } = useSettings();
-  useFeeTiers();
+  const { push, setNameMode } = useAppStore();
+  const settingsQ = useSettings();
+  const { data: branding } = useBranding();
   const updateSettings = useUpdateSettings();
+  const remote = settingsQ.data;
 
   const [s, setS] = useState<AppSettings>(remote ?? DEMO_STATE.settings);
+
+  // Hydrate the editable form once the real settings arrive.
+  useEffect(() => {
+    if (remote) setS(remote);
+  }, [remote]);
 
   const setSetting = <K extends keyof AppSettings>(key: K, value: AppSettings[K]) => {
     setS((prev) => ({ ...prev, [key]: value }));
     updateSettings.mutate({ [key]: value } as Partial<AppSettings>);
+    // NM-005: keep the global name-display mode in sync so every screen updates immediately.
+    if (key === 'nameMode') setNameMode(value as 'abbrev' | 'full');
   };
+
+  if (settingsQ.isLoading) return <LoadingState />;
+  if (settingsQ.isError && !remote) return <ErrorState />;
 
   return (
     <div className="fade-in">
       <div className="sm-header">
         <div>
-          <div className="sm-eyebrow">{s.clubName}</div>
+          <div className="sm-eyebrow">{branding?.clubName ?? s.clubName}</div>
           <div className="sm-title">Einstellungen</div>
         </div>
       </div>
@@ -134,7 +146,13 @@ export function AdminSettings() {
           </RowBetween>
           <hr className="sm-divider" style={{ margin: '14px 0' }} />
           <RowBetween label="Vereinslogo" sub="PNG/SVG, min. 200×200 px">
-            <div style={{ width: 30, height: 30, borderRadius: '50%', background: 'var(--ink)', color: 'var(--primary)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 800, fontSize: 12, fontFamily: 'Bricolage Grotesque' }}>SG</div>
+            {branding?.logoUrl ? (
+              <img src={branding.logoUrl} alt="Logo" style={{ width: 30, height: 30, borderRadius: '50%', objectFit: 'cover' }} />
+            ) : (
+              <div style={{ width: 30, height: 30, borderRadius: '50%', background: 'var(--ink)', color: 'var(--primary)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 800, fontSize: 12, fontFamily: 'Bricolage Grotesque' }}>
+                {(branding?.clubName ?? s.clubName).split(/\s+/).filter(Boolean).map((w) => w[0]).slice(0, 2).join('').toUpperCase() || 'SG'}
+              </div>
+            )}
           </RowBetween>
         </div>
 

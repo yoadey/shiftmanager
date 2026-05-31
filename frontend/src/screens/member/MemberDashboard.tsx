@@ -6,10 +6,11 @@ import { Button } from '@/components/ui/Button';
 import { HourBar } from '@/components/ui/HourBar';
 import { useAppStore } from '@/store/app.store';
 import { useAuthStore } from '@/store/auth.store';
+import { useEvents } from '@/api/events';
+import { useMyHours } from '@/api/hours';
+import { useSettings, useBranding } from '@/api/settings';
+import { LoadingState, ErrorState } from '@/components/ui/States';
 import type { Event, Shift, ShiftDay, Signup } from '@/types';
-
-// ── Demo data (until API is connected) ───────────────────────────────────────
-import { DEMO_STATE } from '@/screens/_demo';
 
 // ── Date helpers ──────────────────────────────────────────────────────────────
 function fmtDate(iso: string, style?: string): string {
@@ -159,36 +160,36 @@ export function MemberDashboard() {
   const { go, push } = useAppStore();
   const { user } = useAuthStore();
 
-  const { events, manualBookings, settings } = DEMO_STATE;
-  const uid = user?.id ?? 'm-jonas';
-  const me = DEMO_STATE.members.find((m) => m.id === uid) ?? DEMO_STATE.members[0];
-  const memberMap = Object.fromEntries(DEMO_STATE.members.map((m) => [m.id, m]));
+  const eventsQ = useEvents();
+  const hoursQ = useMyHours();
+  const { data: settings } = useSettings();
+  const { data: branding } = useBranding();
+
+  const uid = user?.id ?? '';
+  const events = eventsQ.data ?? [];
+  const clubName = branding?.clubName ?? settings?.clubName ?? '';
+  const clubYear = settings?.clubYear ?? new Date().getFullYear().toString();
+  const firstName = user?.first ?? user?.name?.split(' ')[0] ?? '';
+  const memberMap = user ? { [uid]: { first: firstName, last: user.last ?? user.name?.split(' ')[1] ?? '' } } : {};
 
   const { up } = collectMy(events, uid);
 
-  let confirmed = 0;
-  events.forEach((ev) =>
-    ev.days.forEach((d) =>
-      d.shifts.forEach((sh) =>
-        sh.signups.forEach((s) => {
-          if (s.memberId === uid && s.status === 'bestätigt') confirmed += s.hours ?? 0;
-        }),
-      ),
-    ),
-  );
-  manualBookings.forEach((b) => { if (b.memberId === uid) confirmed += b.hours; });
-
+  // Hour account comes from the hours API (confirmed / incl. reserved / goal).
+  const confirmed = hoursQ.data?.confirmed ?? 0;
   const reservedExtra = up.reduce((a, r) => a + r.dur, 0);
-  const incl = confirmed + reservedExtra;
-  const goal = me.goal ?? settings.yearGoal;
+  const incl = confirmed + (hoursQ.data?.reserved ?? reservedExtra);
+  const goal = hoursQ.data?.goal ?? settings?.yearGoal ?? 20;
   const remaining = Math.max(goal - incl, 0);
+
+  if (eventsQ.isLoading || hoursQ.isLoading) return <LoadingState />;
+  if (eventsQ.isError || hoursQ.isError) return <ErrorState />;
 
   return (
     <div className="fade-in">
       <div className="sm-header">
         <div>
-          <div className="sm-eyebrow">{settings.clubName}</div>
-          <div className="sm-title">Hallo, {me.first}</div>
+          <div className="sm-eyebrow">{clubName}</div>
+          <div className="sm-title">Hallo, {firstName}</div>
         </div>
         <div style={{ display: 'flex', gap: 9 }}>
           <button
@@ -208,7 +209,7 @@ export function MemberDashboard() {
         <div className="sm-card pad" style={{ padding: 18 }}>
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 14 }}>
             <span style={{ fontWeight: 700, fontSize: 14.5, color: 'var(--ink-2)' }}>Stundenkonto</span>
-            <Badge kind="primary" dot={false}>Vereinsjahr {settings.clubYear}</Badge>
+            <Badge kind="primary" dot={false}>Vereinsjahr {clubYear}</Badge>
           </div>
           <div style={{ display: 'flex', alignItems: 'baseline', gap: 8 }}>
             <span style={{ fontFamily: 'Bricolage Grotesque', fontSize: 46, fontWeight: 800, lineHeight: 1, letterSpacing: '-0.03em' }}>

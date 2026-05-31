@@ -1,9 +1,10 @@
-import { useEffect, useState, lazy, Suspense } from 'react';
+import { useEffect, useState, useRef, lazy, Suspense } from 'react';
 import { DesktopShell } from '@/components/layout/DesktopShell';
 import { MobileShell } from '@/components/layout/MobileShell';
 import { Toast } from '@/components/ui/Toast';
 import { TweaksPanel } from '@/components/tweaks/TweaksPanel';
 import { useAppStore } from '@/store/app.store';
+import { useBranding, useSettings } from '@/api/settings';
 
 // Screens — lazy loaded
 const MemberDashboard = lazy(() => import('@/screens/member/MemberDashboard').then(m => ({ default: m.MemberDashboard })));
@@ -77,9 +78,32 @@ function ScreenRouter() {
 }
 
 export default function App() {
-  const { role, tweaks } = useAppStore();
+  const { role, tweaks, setTweak, setNameMode } = useAppStore();
   const [isDesktop, setIsDesktop] = useState(() => window.innerWidth >= 900);
   const [createOpen, setCreateOpen] = useState(false);
+
+  // Branding (B-002/B-005/B-006) — applied at app root, falls back to defaults while loading.
+  const { data: branding } = useBranding();
+  const { data: settings } = useSettings();
+  const brandingAppliedRef = useRef(false);
+
+  // Hydrate the primary colour from branding once (TweaksPanel stays the live source after that).
+  useEffect(() => {
+    if (branding?.primaryColor && !brandingAppliedRef.current) {
+      brandingAppliedRef.current = true;
+      setTweak('primaryColor', branding.primaryColor);
+    }
+  }, [branding?.primaryColor, setTweak]);
+
+  // Accent colour derived from the brand primary.
+  useEffect(() => {
+    document.documentElement.style.setProperty('--accent', tweaks.primaryColor);
+  }, [tweaks.primaryColor]);
+
+  // NM-005: hydrate the global name-display mode from the settings API.
+  useEffect(() => {
+    if (settings?.nameMode) setNameMode(settings.nameMode);
+  }, [settings?.nameMode, setNameMode]);
 
   // Apply CSS custom properties from tweaks
   useEffect(() => {

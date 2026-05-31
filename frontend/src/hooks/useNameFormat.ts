@@ -16,7 +16,7 @@ interface FormatOptions {
  * NM-006: own name always shown in full
  */
 export function useNameFormat() {
-  const { tweaks: _t, role } = useAppStore();
+  const { role, nameMode } = useAppStore();
   const { user } = useAuthStore();
 
   const formatName = (member: Member | undefined | null, opts: FormatOptions = {}): string => {
@@ -29,8 +29,9 @@ export function useNameFormat() {
     // NM-003: board viewers always see full
     if (opts.viewerFull || role === 'vorstand') return full;
 
-    // Explicit mode override
-    if (opts.mode === 'full') return full;
+    // Explicit mode override, otherwise the global setting (NM-005)
+    const mode = opts.mode ?? nameMode;
+    if (mode === 'full') return full;
 
     // Default abbreviation (NM-002)
     return `${member.first} ${member.last.charAt(0)}.`;

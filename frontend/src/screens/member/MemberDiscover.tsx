@@ -2,20 +2,25 @@ import { useState } from 'react';
 import { Icon } from '@/components/ui/Icon';
 import { Badge } from '@/components/ui/Badge';
 import { useAppStore } from '@/store/app.store';
+import { useEvents } from '@/api/events';
 import { calcOccupancy } from '@/hooks/useOccupancy';
-import { DEMO_STATE, fmtDate, catGradient } from '@/screens/_demo';
+import { LoadingState, ErrorState } from '@/components/ui/States';
+import { fmtDate, catGradient } from '@/screens/_demo';
 import { EmptyState } from '@/screens/member/MemberDashboard';
 import type { Event } from '@/types';
 
 function EventCard({ ev, onClick }: { ev: Event; onClick: () => void }) {
-  const allShifts = ev.days.flatMap((d) => d.shifts);
+  const days = ev.days ?? [];
+  const allShifts = days.flatMap((d) => d.shifts);
   const free = allShifts.reduce((a, s) => a + calcOccupancy(s).free, 0);
   const needs = allShifts.some((s) => calcOccupancy(s).needsMore);
-  const d0 = ev.days[0].date;
-  const d1 = ev.days[ev.days.length - 1].date;
-  const dateLabel = ev.days.length > 1
-    ? `${fmtDate(d0, 'daymon')} – ${fmtDate(d1, 'daymon')}`
-    : fmtDate(d0, 'weekday');
+  const d0 = days[0]?.date;
+  const d1 = days[days.length - 1]?.date;
+  const dateLabel = !d0
+    ? 'Termin offen'
+    : days.length > 1
+      ? `${fmtDate(d0, 'daymon')} – ${fmtDate(d1, 'daymon')}`
+      : fmtDate(d0, 'weekday');
 
   return (
     <div className="sm-card pressable" style={{ marginBottom: 12, overflow: 'hidden' }} onClick={onClick}>
@@ -23,8 +28,8 @@ function EventCard({ ev, onClick }: { ev: Event; onClick: () => void }) {
         <span className="sm-badge" style={{ background: 'rgba(255,255,255,0.92)', color: 'var(--ink)', backdropFilter: 'blur(4px)' }}>
           <Icon name="tag" size={12} stroke={2.2} />{ev.category}
         </span>
-        {ev.days.length > 1 && (
-          <span style={{ position: 'absolute', top: 12, right: 12 }} className="sm-badge b-neutral">{ev.days.length} Tage</span>
+        {days.length > 1 && (
+          <span style={{ position: 'absolute', top: 12, right: 12 }} className="sm-badge b-neutral">{days.length} Tage</span>
         )}
       </div>
       <div style={{ padding: 15 }}>
@@ -56,7 +61,8 @@ interface FilterDef {
 export function MemberDiscover() {
   const { push } = useAppStore();
   const [filter, setFilter] = useState('alle');
-  const pub = DEMO_STATE.events.filter((e) => e.status === 'veröffentlicht');
+  const eventsQ = useEvents();
+  const pub = (eventsQ.data ?? []).filter((e) => e.status === 'veröffentlicht' || e.status === 'published');
 
   const filters: FilterDef[] = [
     { id: 'alle', label: 'Alle' },
@@ -68,7 +74,7 @@ export function MemberDiscover() {
 
   const shown = pub.filter((ev) => {
     if (filter === 'alle') return true;
-    if (filter === 'frei') return ev.days.some((d) => d.shifts.some((s) => calcOccupancy(s).free > 0));
+    if (filter === 'frei') return (ev.days ?? []).some((d) => d.shifts.some((s) => calcOccupancy(s).free > 0));
     return ev.category === filter;
   });
 
@@ -100,11 +106,16 @@ export function MemberDiscover() {
         </div>
       </div>
       <div className="sm-pad" style={{ paddingTop: 14 }}>
-        {shown.map((ev) => (
-          <EventCard key={ev.id} ev={ev} onClick={() => push('event', { id: ev.id })} />
-        ))}
-        {shown.length === 0 && (
+        {eventsQ.isLoading ? (
+          <LoadingState />
+        ) : eventsQ.isError ? (
+          <ErrorState />
+        ) : shown.length === 0 ? (
           <EmptyState icon="compass" title="Keine Treffer" text="Für diesen Filter gibt es gerade keine Veranstaltungen." />
+        ) : (
+          shown.map((ev) => (
+            <EventCard key={ev.id} ev={ev} onClick={() => push('event', { id: ev.id })} />
+          ))
         )}
       </div>
     </div>
