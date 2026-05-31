@@ -3,7 +3,11 @@ import ReactDOM from 'react-dom/client';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { BrowserRouter } from 'react-router-dom';
 import AppRouter from './router';
+import { setupApiClient } from './api/setup';
 import './styles/global.css';
+
+// Wire up the generated API client (base URL + JWT auth) before rendering.
+setupApiClient();
 
 const queryClient = new QueryClient({
   defaultOptions: {

@@ -166,7 +166,7 @@ export function MemberDetail({ id }: { id: string }) {
       t: e.manual
         ? (e.desc || 'Manuelle Buchung')
         : [e.eventName, e.shiftName].filter(Boolean).join(' · ') || e.desc || 'Schicht',
-      d: e.date,
+      d: e.date ?? '',
       h: e.hours,
       manual: e.manual,
     }))

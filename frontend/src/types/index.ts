@@ -1,27 +1,69 @@
-// ── Enums / literals ──────────────────────────────────────────────────────────
+// ── Architecture note ─────────────────────────────────────────────────────────
+//
+// Single source of truth:  api/openapi.yaml
+// Generated API types:     src/api/generated/types.gen.ts  (DO NOT EDIT)
+// Regenerate:              npm run generate  (or: make generate)
+//
+// The types below are used by UI components. They are either:
+//   (a) re-exported directly from the generated spec (shape matches API 1:1), or
+//   (b) UI-adapter types with shorter field names that the api/ mappers convert
+//       from the raw generated shapes (e.g. firstName → first).
+//
+// At the API boundary (src/api/*.ts) always use the generated types for
+// request/response bodies, then map to UI types before returning from hooks.
 
-export type RegistrationState = 'registered' | 'reserved' | 'confirmed' | 'no_show';
+// ── (a) Direct re-exports from generated spec ─────────────────────────────────
+// These types are used as-is; their shape matches the backend JSON exactly.
 
-export type EventStatus = 'draft' | 'published' | 'completed' | 'cancelled'
-  // German variants used in prototype data
-  | 'entwurf' | 'veröffentlicht' | 'abgeschlossen' | 'abgesagt';
+export type {
+  MemberRole,
+  MemberWrite,
+  MemberPreferences,
+  AppSettings,
+  BrandingConfig,
+  BrandingUpdateResult,
+  FeeTier,
+  MemberFeeTier,
+  EmailTemplate,
+  EmailLogEntry,
+  SystemStats,
+  ClubYear,
+  HourEntry,
+  HourEntryStatus,
+  MemberHourAccount,
+  ManualBookingRequest,
+  ConfirmShiftHoursRequest,
+  KioskRegisterRequest,
+  ConfirmResult,
+  MessageResponse,
+  ErrorResponse,
+  // Raw backend member shape (camelCase) — used in api/members.ts mapper.
+  Member as RawMember,
+} from '@/api/generated/types.gen';
 
-export type UserRole = 'admin' | 'vorstand' | 'veranstaltungsleiter' | 'mitglied';
+// ── (b) UI-adapter types ───────────────────────────────────────────────────────
+// Components use these shorter-named types; api/* mappers convert raw→UI.
 
-// ── Domain models ─────────────────────────────────────────────────────────────
+export type UserRole = import('@/api/generated/types.gen').MemberRole;
 
 export interface Member {
   id: string;
-  first: string;
-  last: string;
+  first: string;   // ← firstName
+  last: string;    // ← lastName
   email: string;
-  since: string; // ISO date
-  goal: number | null;
-  active?: boolean;
-  // N-001: when true, the member has opted out of (non-mandatory) reminder mails.
+  since: string;   // ← joinedAt
+  goal: number | null;   // ← individualGoalHours
+  active?: boolean;      // ← isActive
   reminderOptOut?: boolean;
 }
 
+export type EventStatus =
+  | 'draft' | 'published' | 'cancelled' | 'completed'
+  | 'entwurf' | 'veröffentlicht' | 'abgeschlossen' | 'abgesagt'; // German prototype variants
+
+export type EventVisibility = import('@/api/generated/types.gen').EventVisibility;
+
+// Signup as stored in shift signups (UI view, state mapped from backend 'state')
 export interface Signup {
   memberId: string;
   status: 'angemeldet' | 'bestätigt' | 'reserviert' | 'nichterschienen';
@@ -30,13 +72,14 @@ export interface Signup {
   guest?: string;
 }
 
+// Shift uses short HH:MM strings for display; api/events.ts maps from ISO datetimes
 export interface Shift {
   id: string;
   name: string;
-  start: string; // HH:MM
-  end: string;   // HH:MM
-  min: number;
-  max: number;
+  start: string; // HH:MM (mapped from startAt)
+  end: string;   // HH:MM (mapped from endAt)
+  min: number;   // mapped from minHelpers
+  max: number;   // mapped from maxHelpers
   qual?: string;
   desc?: string;
   signups: Signup[];
@@ -57,69 +100,12 @@ export interface Event {
   days: ShiftDay[];
 }
 
-export interface Registration {
-  id: string;
-  shiftId: string;
-  memberId: string;
-  state: RegistrationState;
-  comment?: string;
-  hours?: number;
-  createdAt: string;
+export interface EventTimeline {
+  event: Event;
+  days: ShiftDay[];
 }
 
-export interface HourEntry {
-  id: string;
-  memberId: string;
-  date: string;
-  hours: number;
-  desc: string;
-  eventName?: string;
-  shiftName?: string;
-  manual?: boolean;
-  by?: string;
-}
-
-export interface ClubYear {
-  year: string;
-  goal: number;
-}
-
-export interface AuditEntry {
-  ts: string;
-  who: string;
-  what: string;
-  cat: string;
-}
-
-// ── App settings ──────────────────────────────────────────────────────────────
-
-export interface AppSettings {
-  clubName: string;
-  yearGoal: number;
-  clubYear: string;
-  nameMode: 'abbrev' | 'full';
-  reservationHours: number;
-  billingMode: 'auto' | 'manuell';
-  kioskSearch: boolean;
-  feeSchedule: number[];
-  deregisterDeadlineH: number;
-  // K-012: when true the public kiosk routes are disabled.
-  kioskLocked?: boolean;
-}
-
-export interface BrandingConfig {
-  primaryColor: string;
-  logoUrl?: string;
-  clubName: string;
-}
-
-export interface FeeTier {
-  missingHour: number;
-  amount: number;
-}
-
-// ── Computed / view types ─────────────────────────────────────────────────────
-
+// Computed occupancy (richer than the raw API ShiftOccupancy)
 export interface ShiftOccupancy {
   count: number;
   min: number;
@@ -130,20 +116,12 @@ export interface ShiftOccupancy {
   needsMore: boolean;
 }
 
-export type ShiftWithRegistrations = Shift;
-
-export interface EventTimeline {
-  event: Event;
-  days: { date: string; shifts: ShiftWithRegistrations[] }[];
+export interface AuditEntry {
+  ts: string;
+  who: string;
+  what: string;
+  cat: string;
 }
-
-export interface MemberAccount {
-  confirmed: number;
-  reserved: number;
-  goal: number;
-}
-
-// ── Auth ──────────────────────────────────────────────────────────────────────
 
 export interface AuthUser {
   id: string;
@@ -154,72 +132,20 @@ export interface AuthUser {
   last?: string;
 }
 
-// ── Admin statistics (D-004) ───────────────────────────────────────────────────
+export type RegistrationState = 'registered' | 'reserved' | 'confirmed' | 'no_show';
 
-export interface SystemStats {
-  clubYearId: string;
-  clubYearLabel: string;
-  totalConfirmedHours: number;
-  openShifts: number;
-  upcomingShifts: number;
-  activeMembers: number;
-  membersBelowTarget: number;
-}
-
-// ── Branding update result (B-003) ──────────────────────────────────────────────
-
-export interface BrandingUpdateResult {
-  branding: BrandingConfig;
-  warnings?: string[];
-}
-
-// ── Email templates / log (Section 4, N-004) ───────────────────────────────────
-
-export interface EmailTemplate {
+export interface Registration {
   id: string;
-  name: string;
-  subject: string;
-  body: string;
-}
-
-export type EmailLogStatus = 'sent' | 'failed';
-
-export interface EmailLogEntry {
-  id: string;
-  to: string;
-  template: string;
-  subject: string;
-  body: string;
-  status: EmailLogStatus;
-  error: string;
+  shiftId: string;
+  memberId: string;
+  state: RegistrationState;
+  comment?: string;
+  hours?: number;
   createdAt: string;
 }
-
-// ── Per-member fee-tier overrides (G-004) ───────────────────────────────────────
-// Mirrors the backend domain.FeeTier struct (camelCase JSON).
-
-export interface MemberFeeTier {
-  id: string;
-  clubYearId: string;
-  position: number;
-  amountCents: number;
-}
-
-// ── GDPR data export (DS-003) ───────────────────────────────────────────────────
-// The export is an opaque document; we download it as JSON rather than render it.
-
-export interface MemberDataExport {
-  member: unknown;
-  registrations: unknown[];
-  hourEntries: unknown[];
-  hourTargets: unknown[];
-  exportedAt: string;
-}
-
-// ── Tweaks ────────────────────────────────────────────────────────────────────
 
 export interface Tweaks {
   primaryColor: string;
   radius: 'klein' | 'standard' | 'weich';
-  warmth: 'warm' | 'neutral';
+  warmth: 'cool' | 'neutral' | 'warm';
 }
