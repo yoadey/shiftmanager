@@ -1,0 +1,83 @@
+{{- if .Values.backup.enabled }}
+{{- $fullName := include "shiftmanager.fullname" . -}}
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: {{ printf "%s-backup" $fullName }}
+  labels:
+    {{- include "shiftmanager.labels" . | nindent 4 }}
+spec:
+  schedule: {{ .Values.backup.schedule | quote }}
+  concurrencyPolicy: Forbid
+  successfulJobsHistoryLimit: 3
+  failedJobsHistoryLimit: 3
+  jobTemplate:
+    spec:
+      backoffLimit: 2
+      template:
+        metadata:
+          labels:
+            {{- include "shiftmanager.selectorLabels" . | nindent 12 }}
+        spec:
+          restartPolicy: OnFailure
+          securityContext:
+            {{- toYaml .Values.podSecurityContext | nindent 12 }}
+          containers:
+            - name: pg-dump
+              image: {{ .Values.backup.image | quote }}
+              command:
+                - /bin/sh
+                - -c
+                - |
+                  set -euo pipefail
+                  TS=$(date +%Y%m%d-%H%M%S)
+                  DUMP="/backups/shiftmanager-${TS}.sql.gz"
+                  echo "Dumping database to ${DUMP}"
+                  pg_dump "$DATABASE_URL" | gzip > "$DUMP"
+                  echo "Pruning backups older than {{ .Values.backup.retentionDays }} days"
+                  find /backups -name 'shiftmanager-*.sql.gz' -mtime +{{ .Values.backup.retentionDays }} -delete
+                  echo "Done."
+              env:
+                - name: DATABASE_URL
+                  valueFrom:
+                    secretKeyRef:
+                      name: {{ include "shiftmanager.secretName" . }}
+                      key: DATABASE_URL
+              securityContext:
+                {{- toYaml .Values.securityContext | nindent 16 }}
+              resources:
+                {{- toYaml .Values.backup.resources | nindent 16 }}
+              volumeMounts:
+                - name: backups
+                  mountPath: /backups
+                - name: tmp
+                  mountPath: /tmp
+          volumes:
+            - name: tmp
+              emptyDir: {}
+            - name: backups
+              {{- if .Values.backup.persistence.enabled }}
+              persistentVolumeClaim:
+                claimName: {{ .Values.backup.persistence.existingClaim | default (printf "%s-backups" $fullName) }}
+              {{- else }}
+              emptyDir: {}
+              {{- end }}
+{{- end }}
+{{- if and .Values.backup.enabled .Values.backup.persistence.enabled (not .Values.backup.persistence.existingClaim) }}
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: {{ printf "%s-backups" (include "shiftmanager.fullname" .) }}
+  labels:
+    {{- include "shiftmanager.labels" . | nindent 4 }}
+spec:
+  accessModes:
+    {{- toYaml .Values.backup.persistence.accessModes | nindent 4 }}
+  resources:
+    requests:
+      storage: {{ .Values.backup.persistence.size | quote }}
+  {{- if .Values.backup.persistence.storageClass }}
+  storageClassName: {{ .Values.backup.persistence.storageClass | quote }}
+  {{- end }}
+{{- end }}

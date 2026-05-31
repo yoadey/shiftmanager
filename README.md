@@ -161,6 +161,34 @@ Die Anmeldung laeuft ausschliesslich ueber OIDC. Der Ablauf:
 
 ## Deployment (Kubernetes)
 
+### Helm (empfohlen)
+
+Das vollständige Helm-Chart liegt unter [`deploy/helm/shiftmanager/`](deploy/helm/shiftmanager/)
+und bringt optional PostgreSQL und Redis als Subcharts mit (Bitnami), inkl.
+Migrations-Init-Container, Uploads-PVC, Ingress, HPA, PDB, NetworkPolicy, optionalem
+`pg_dump`-Backup-CronJob und `helm test`.
+
+```bash
+helm dependency update ./deploy/helm/shiftmanager
+
+helm upgrade --install shiftmanager ./deploy/helm/shiftmanager \
+  -n shiftmanager --create-namespace \
+  --set app.jwtSecret="$(openssl rand -hex 32)" \
+  --set postgresql.auth.password="$(openssl rand -hex 16)" \
+  --set app.bootstrapAdminEmail="vorstand@mein-verein.de" \
+  --set app.baseUrl="https://schichten.mein-verein.de" \
+  --set app.oidc.issuer="https://id.mein-verein.de/realms/verein" \
+  --set app.oidc.clientId="shiftmanager" \
+  --set app.oidc.clientSecret="••••" \
+  --set app.oidc.redirectUrl="https://schichten.mein-verein.de/api/v1/auth/callback"
+```
+
+Externe DB/Redis statt Subcharts: `--set postgresql.enabled=false --set database.external.url=…`
+bzw. `--set redis.enabled=false`. Details und ein Produktionsbeispiel siehe
+[`deploy/helm/shiftmanager/README.md`](deploy/helm/shiftmanager/README.md).
+
+### Rohe Manifeste (Alternative)
+
 Die Kubernetes-Manifeste unter `deploy/kubernetes/` sind fuer k3s mit Traefik und cert-manager ausgelegt.
 
 ### Voraussetzungen

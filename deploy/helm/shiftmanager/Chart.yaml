@@ -1,0 +1,38 @@
+apiVersion: v2
+name: shiftmanager
+description: >-
+  ShiftManager – webbasierte Verwaltung von Vereins-Helferschichten (Go-Backend +
+  React-SPA in einem Image). Optionale, mitgelieferte PostgreSQL- und Redis-
+  Subcharts (Bitnami) für einen schlüsselfertigen Start.
+type: application
+# Chart-Version (SemVer). Bei jeder Chart-Änderung erhöhen.
+version: 0.1.0
+# Version der ausgelieferten Anwendung (entspricht dem Anforderungsdokument).
+appVersion: "1.4"
+home: https://github.com/yoadey/shiftmanager
+sources:
+  - https://github.com/yoadey/shiftmanager
+keywords:
+  - shiftmanager
+  - verein
+  - scheduling
+  - helferschichten
+  - golang
+  - react
+maintainers:
+  - name: TSC Schwarz-Gelb Aachen
+    url: https://github.com/yoadey/shiftmanager
+
+# Optional mitgelieferte Abhängigkeiten. Über die jeweilige *.enabled-Flag in
+# values.yaml ein-/ausschaltbar (condition). Sind sie deaktiviert, müssen die
+# externen Verbindungen (database.external.url bzw. redis.external.url oder ein
+# existingSecret) gesetzt werden.
+dependencies:
+  - name: postgresql
+    version: ">=15.0.0 <17.0.0"
+    repository: oci://registry-1.docker.io/bitnamicharts
+    condition: postgresql.enabled
+  - name: redis
+    version: ">=19.0.0 <21.0.0"
+    repository: oci://registry-1.docker.io/bitnamicharts
+    condition: redis.enabled

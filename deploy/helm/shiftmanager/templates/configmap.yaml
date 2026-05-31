@@ -1,0 +1,24 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "shiftmanager.fullname" . }}
+  labels:
+    {{- include "shiftmanager.labels" . | nindent 4 }}
+data:
+  PORT: "8080"
+  BASE_URL: {{ .Values.app.baseUrl | quote }}
+  LOG_LEVEL: {{ .Values.app.logLevel | quote }}
+  KIOSK_ENABLED: {{ .Values.app.kioskEnabled | quote }}
+  RESERVATION_HOURS: {{ .Values.app.reservationHours | quote }}
+  DEREGISTER_DEADLINE_H: {{ .Values.app.deregisterDeadlineH | quote }}
+  UPLOAD_DIR: {{ .Values.app.uploadDir | quote }}
+  GOMEMLIMIT: {{ .Values.app.goMemLimit | quote }}
+  BOOTSTRAP_ADMIN_EMAIL: {{ .Values.app.bootstrapAdminEmail | quote }}
+  OIDC_ISSUER: {{ .Values.app.oidc.issuer | quote }}
+  OIDC_CLIENT_ID: {{ .Values.app.oidc.clientId | quote }}
+  OIDC_REDIRECT_URL: {{ .Values.app.oidc.redirectUrl | quote }}
+  LOGIN_REDIRECT_URL: {{ .Values.app.oidc.loginRedirectUrl | quote }}
+  SMTP_HOST: {{ .Values.app.smtp.host | quote }}
+  SMTP_PORT: {{ .Values.app.smtp.port | quote }}
+  SMTP_USER: {{ .Values.app.smtp.user | quote }}
+  SMTP_FROM: {{ .Values.app.smtp.from | quote }}
