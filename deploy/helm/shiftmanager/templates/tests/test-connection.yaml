@@ -1,0 +1,33 @@
+apiVersion: v1
+kind: Pod
+metadata:
+  name: {{ include "shiftmanager.fullname" . }}-test
+  labels:
+    {{- include "shiftmanager.labels" . | nindent 4 }}
+  annotations:
+    "helm.sh/hook": test
+    "helm.sh/hook-delete-policy": before-hook-creation,hook-succeeded
+spec:
+  restartPolicy: Never
+  securityContext:
+    {{- toYaml .Values.podSecurityContext | nindent 4 }}
+  containers:
+    - name: healthcheck
+      image: curlimages/curl:8.10.1
+      command:
+        - /bin/sh
+        - -c
+        - |
+          set -e
+          url="http://{{ include "shiftmanager.fullname" . }}:{{ .Values.service.port }}"
+          echo "GET ${url}/health"
+          curl -fsS "${url}/health"
+          echo
+          echo "GET ${url}/readyz"
+          curl -fsS "${url}/readyz"
+          echo
+          echo "GET ${url}/api/v1/openapi.json (head)"
+          curl -fsS "${url}/api/v1/openapi.json" -o /dev/null
+          echo "OK"
+      securityContext:
+        {{- toYaml .Values.securityContext | nindent 8 }}

@@ -1,0 +1,113 @@
+# ============================================================
+# ShiftManager .gitignore
+# ============================================================
+
+# ----- Go -----
+# Binaries
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+/shiftmanager
+/cmd/server/server
+/server
+
+# Test binary, built with `go test -c`
+*.test
+
+# Test coverage
+*.out
+coverage.html
+coverage.out
+
+# Go workspace
+go.work
+go.work.sum
+
+# Dependency vendor directory
+vendor/
+
+# Build output
+/bin/
+/dist/
+
+# ----- Node / Frontend -----
+frontend/node_modules/
+frontend/dist/
+frontend/.vite/
+node_modules/
+# NOTE: do not add an unanchored `dist/` here — it would also match
+# internal/infrastructure/static/dist/, which holds the committed SPA
+# placeholder that //go:embed needs to compile. Build-output dist dirs
+# are already covered by `/dist/` (root) and `frontend/dist/` above.
+
+# npm / yarn / pnpm
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+.pnpm-store/
+
+# TypeScript incremental build cache
+*.tsbuildinfo
+frontend/tsconfig.tsbuildinfo
+
+# ----- Environment / Secrets -----
+.env
+.env.local
+.env.*.local
+*.env.local
+*.env.production
+*.env.staging
+*.env.development
+
+# ----- IDE / Editor -----
+# JetBrains (GoLand, WebStorm, etc.)
+.idea/
+*.iml
+*.iws
+*.ipr
+
+# VS Code
+.vscode/
+*.code-workspace
+
+# Vim / NeoVim
+*.swp
+*.swo
+*~
+.netrwhist
+
+# Emacs
+*#
+.\#*
+
+# Sublime Text
+*.sublime-project
+*.sublime-workspace
+
+# macOS
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V*/
+.Trashes
+ehthumbs.db
+Thumbs.db
+
+# ----- Docker -----
+docker-compose.override.yml
+
+# ----- Kubernetes / Helm -----
+# Rendered manifests with actual secrets (use sealed-secrets or external-secrets)
+deploy/kubernetes/secret.yaml.bak
+*.kubeconfig
+
+# ----- Misc -----
+*.log
+*.pid
+*.seed
+*.pid.lock
+tmp/
+.tmp/

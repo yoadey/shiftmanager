@@ -1,0 +1,130 @@
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: shiftmanager-api
+  namespace: shiftmanager
+  labels:
+    app.kubernetes.io/name: shiftmanager
+    app.kubernetes.io/component: api
+spec:
+  # Start with 1 replica; the HPA in hpa.yaml can scale to 2
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: shiftmanager
+      app.kubernetes.io/component: api
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxSurge: 1
+      maxUnavailable: 0
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: shiftmanager
+        app.kubernetes.io/component: api
+    spec:
+      # Spread pods across nodes/zones for HA when scaled to 2
+      topologySpreadConstraints:
+        - maxSkew: 1
+          topologyKey: kubernetes.io/hostname
+          whenUnsatisfiable: DoNotSchedule
+          labelSelector:
+            matchLabels:
+              app.kubernetes.io/name: shiftmanager
+              app.kubernetes.io/component: api
+
+      # Run DB migrations before the app starts
+      initContainers:
+        - name: migrate
+          image: ghcr.io/yoadey/shiftmanager:latest
+          imagePullPolicy: Always
+          command: ["/shiftmanager", "migrate"]
+          env:
+            - name: DATABASE_URL
+              valueFrom:
+                secretKeyRef:
+                  name: shiftmanager-secret
+                  key: DATABASE_URL
+          resources:
+            requests:
+              cpu: "50m"
+              memory: "64Mi"
+            limits:
+              cpu: "200m"
+              memory: "128Mi"
+
+      containers:
+        - name: api
+          image: ghcr.io/yoadey/shiftmanager:latest
+          imagePullPolicy: Always
+          ports:
+            - name: http
+              containerPort: 8080
+              protocol: TCP
+
+          # Non-secret config from ConfigMap
+          envFrom:
+            - configMapRef:
+                name: shiftmanager-config
+            - secretRef:
+                name: shiftmanager-secret
+
+          # GOMEMLIMIT also set explicitly so it is always present even if
+          # the ConfigMap value is overridden
+          env:
+            - name: GOMEMLIMIT
+              value: "200MiB"
+
+          resources:
+            requests:
+              cpu: "75m"
+              memory: "96Mi"
+            limits:
+              cpu: "500m"
+              memory: "256Mi"
+
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: http
+            initialDelaySeconds: 15
+            periodSeconds: 20
+            timeoutSeconds: 5
+            failureThreshold: 3
+
+          readinessProbe:
+            httpGet:
+              path: /readyz
+              port: http
+            initialDelaySeconds: 5
+            periodSeconds: 10
+            timeoutSeconds: 3
+            failureThreshold: 3
+
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            runAsNonRoot: true
+            runAsUser: 65532
+            capabilities:
+              drop:
+                - ALL
+
+      securityContext:
+        fsGroup: 65532
+
+      # Pull the image using GitHub Packages credentials if the repo is private.
+      # Create the secret with:
+      #   kubectl create secret docker-registry ghcr-credentials \
+      #     --namespace shiftmanager \
+      #     --docker-server=ghcr.io \
+      #     --docker-username=<github-username> \
+      #     --docker-password=<PAT>
+      # Then uncomment:
+      # imagePullSecrets:
+      #   - name: ghcr-credentials
+
+      restartPolicy: Always
+      terminationGracePeriodSeconds: 30

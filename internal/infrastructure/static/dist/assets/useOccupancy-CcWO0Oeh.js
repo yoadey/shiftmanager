@@ -1,0 +1,1 @@
+function c(e){const t=e.signups.filter(a=>a.status==="angemeldet"||a.status==="bestätigt"||a.status==="reserviert").length;let n,l;return t>=e.max?(n="full",l="Ausgebucht"):t>=e.min?(n="ok",l="Besetzt"):t>0?(n="warn",l="Teilweise"):(n="crit",l="Offen"),{count:t,min:e.min,max:e.max,key:n,label:l,free:e.max-t,needsMore:t<e.min}}export{c};
