@@ -28,6 +28,7 @@ type Handlers struct {
 	Stats    *handler.StatsHandler
 	Privacy  *handler.PrivacyHandler
 	OpenAPI  *handler.OpenAPIHandler
+	DevAuth  *handler.DevAuthHandler // non-nil only in test mode
 }
 
 // RouterConfig holds the cross-cutting configuration for the router.
@@ -44,6 +45,8 @@ type RouterConfig struct {
 	// UploadDir is the directory uploaded files (logos) are served from at
 	// /uploads/*. Empty disables the uploads route.
 	UploadDir string
+	// TestMode, when true, disables rate limiting and mounts the /dev/token endpoint.
+	TestMode bool
 }
 
 // NewRouter builds the chi router with the full middleware stack and all routes.
@@ -98,16 +101,25 @@ func NewRouter(h Handlers, cfg RouterConfig) http.Handler {
 			api.Get("/docs", h.OpenAPI.Docs)
 		}
 
+		// Test-mode: token endpoint — never registered in production.
+		if cfg.TestMode && h.DevAuth != nil {
+			api.Get("/dev/token", h.DevAuth.Token)
+		}
+
 		// Public auth routes (rate-limited, no JWT).
 		api.Group(func(pub chi.Router) {
-			pub.Use(middleware.RateLimit(cfg.RateLimitRPM))
+			if !cfg.TestMode {
+				pub.Use(middleware.RateLimit(cfg.RateLimitRPM))
+			}
 			pub.Get("/auth/login", h.Auth.Login)
 			pub.Get("/auth/callback", h.Auth.Callback)
 		})
 
-		// Public kiosk routes (rate-limited, no JWT).
+		// Public kiosk routes (rate-limited in production, no JWT).
 		api.Group(func(kiosk chi.Router) {
-			kiosk.Use(middleware.RateLimit(cfg.RateLimitRPM))
+			if !cfg.TestMode {
+				kiosk.Use(middleware.RateLimit(cfg.RateLimitRPM))
+			}
 			kiosk.Get("/kiosk/events", h.Kiosk.ListEvents)
 			kiosk.Get("/kiosk/events/{id}", h.Kiosk.PublicTimeline)
 			kiosk.Get("/kiosk/members", h.Kiosk.SearchMembers)

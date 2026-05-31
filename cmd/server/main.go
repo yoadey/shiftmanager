@@ -27,6 +27,7 @@ import (
 	"github.com/yoadey/shiftmanager/internal/adapter/email"
 	httpadapter "github.com/yoadey/shiftmanager/internal/adapter/http"
 	"github.com/yoadey/shiftmanager/internal/adapter/http/handler"
+	"github.com/yoadey/shiftmanager/internal/adapter/memory"
 	oidcadapter "github.com/yoadey/shiftmanager/internal/adapter/oidc"
 	"github.com/yoadey/shiftmanager/internal/adapter/postgres"
 	"github.com/yoadey/shiftmanager/internal/config"
@@ -70,50 +71,92 @@ func run() error {
 	}
 
 	log := logger.New(cfg.LogLevel)
+
+	if cfg.TestMode {
+		log.Warn().Msg("⚠️  TEST MODE ACTIVE — in-memory DB, auto-auth enabled, /dev/token exposed")
+	}
 	log.Info().Str("port", cfg.Port).Msg("starting shiftmanager")
 
 	rootCtx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
 
-	// --- Database ---
-	pool, err := newPool(rootCtx, cfg.DatabaseURL)
-	if err != nil {
-		return fmt.Errorf("connect database: %w", err)
-	}
-	defer pool.Close()
+	// --- Repositories (in-memory for test mode, PostgreSQL otherwise) ---
+	var (
+		dbPool       *pgxpool.Pool // nil in test mode
+		memberRepo   port.MemberRepository
+		eventRepo    port.EventRepository
+		shiftRepo    port.ShiftRepository
+		regRepo      port.RegistrationRepository
+		hourRepo     port.HourRepository
+		auditRepo    port.AuditRepository
+		settingsRepo port.SettingsRepository
+		templateRepo port.EmailTemplateRepository
+		emailLogRepo port.EmailLogRepository
+	)
 
-	if err := runMigrations(cfg.DatabaseURL); err != nil {
-		return fmt.Errorf("run migrations: %w", err)
-	}
+	if cfg.TestMode {
+		mMember := memory.NewMemberRepo()
+		mEvent := memory.NewEventRepo()
+		mShift := memory.NewShiftRepo()
+		mReg := memory.NewRegistrationRepo()
+		mHour := memory.NewHourRepo()
+		mAudit := memory.NewAuditRepo()
+		mSettings := memory.NewSettingsRepo()
+		mEmailRepo := memory.NewEmailRepo()
+		mTemplate := port.EmailTemplateRepository(mEmailRepo)
+		mEmailLog := port.EmailLogRepository(mEmailRepo)
 
-	// --- Optional Redis ---
-	var redisClient *redis.Client
-	if cfg.RedisURL != "" {
-		opt, err := redis.ParseURL(cfg.RedisURL)
+		if err := memory.Seed(rootCtx, mMember, mEvent, mShift, mHour); err != nil {
+			return fmt.Errorf("seed test data: %w", err)
+		}
+
+		memberRepo = mMember
+		eventRepo = mEvent
+		shiftRepo = mShift
+		regRepo = mReg
+		hourRepo = mHour
+		auditRepo = mAudit
+		settingsRepo = mSettings
+		templateRepo = mTemplate
+		emailLogRepo = mEmailLog
+	} else {
+		// --- Database ---
+		dbPool, err = newPool(rootCtx, cfg.DatabaseURL)
 		if err != nil {
-			return fmt.Errorf("parse redis url: %w", err)
+			return fmt.Errorf("connect database: %w", err)
 		}
-		redisClient = redis.NewClient(opt)
-		if err := redisClient.Ping(rootCtx).Err(); err != nil {
-			log.Warn().Err(err).Msg("redis ping failed; continuing without redis")
-			_ = redisClient.Close()
-			redisClient = nil
-		} else {
-			defer func() { _ = redisClient.Close() }()
-			log.Info().Msg("connected to redis")
-		}
-	}
+		defer dbPool.Close()
 
-	// --- Repositories ---
-	memberRepo := postgres.NewMemberRepo(pool)
-	eventRepo := postgres.NewEventRepo(pool)
-	shiftRepo := postgres.NewShiftRepo(pool)
-	regRepo := postgres.NewRegistrationRepo(pool)
-	hourRepo := postgres.NewHourRepo(pool)
-	auditRepo := postgres.NewAuditRepo(pool)
-	settingsRepo := postgres.NewSettingsRepo(pool)
-	templateRepo := postgres.NewEmailTemplateRepo(pool)
-	emailLogRepo := postgres.NewEmailLogRepo(pool)
+		if err := runMigrations(cfg.DatabaseURL); err != nil {
+			return fmt.Errorf("run migrations: %w", err)
+		}
+
+		// --- Optional Redis ---
+		if cfg.RedisURL != "" {
+			opt, err := redis.ParseURL(cfg.RedisURL)
+			if err != nil {
+				return fmt.Errorf("parse redis url: %w", err)
+			}
+			rc := redis.NewClient(opt)
+			if err := rc.Ping(rootCtx).Err(); err != nil {
+				log.Warn().Err(err).Msg("redis ping failed; continuing without redis")
+				_ = rc.Close()
+			} else {
+				defer func() { _ = rc.Close() }()
+				log.Info().Msg("connected to redis")
+			}
+		}
+
+		memberRepo = postgres.NewMemberRepo(dbPool)
+		eventRepo = postgres.NewEventRepo(dbPool)
+		shiftRepo = postgres.NewShiftRepo(dbPool)
+		regRepo = postgres.NewRegistrationRepo(dbPool)
+		hourRepo = postgres.NewHourRepo(dbPool)
+		auditRepo = postgres.NewAuditRepo(dbPool)
+		settingsRepo = postgres.NewSettingsRepo(dbPool)
+		templateRepo = postgres.NewEmailTemplateRepo(dbPool)
+		emailLogRepo = postgres.NewEmailLogRepo(dbPool)
+	}
 
 	// --- Services ---
 	memCache := cache.NewMemoryCache()
@@ -174,24 +217,35 @@ func run() error {
 		Privacy:  handler.NewPrivacyHandler(privacyUC),
 		OpenAPI:  handler.NewOpenAPIHandler(),
 	}
+	if cfg.TestMode {
+		handlers.DevAuth = handler.NewDevAuthHandler(cfg.JWTSecret)
+	}
 
-	router := httpadapter.NewRouter(handlers, httpadapter.RouterConfig{
+	routerCfg := httpadapter.RouterConfig{
 		JWTSecret:    cfg.JWTSecret,
 		RateLimitRPM: 120,
 		Logger:       log,
-		Ready: func() bool {
+		Ready:        func() bool { return true },
+		Static:       static.Handler(),
+		UploadDir:    cfg.UploadDir,
+		TestMode:     cfg.TestMode,
+	}
+	if !cfg.TestMode {
+		// Use the real pool for the readiness check in production.
+		routerCfg.Ready = func() bool {
 			ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 			defer cancel()
-			return pool.Ping(ctx) == nil
-		},
-		Static:    static.Handler(),
-		UploadDir: cfg.UploadDir,
-	})
+			return dbPool != nil && dbPool.Ping(ctx) == nil
+		}
+	}
+	router := httpadapter.NewRouter(handlers, routerCfg)
 
-	// --- Scheduler ---
-	sched := scheduler.New(pool, regUC, reminderUC, notificationUC, log)
-	sched.Start(rootCtx)
-	defer sched.Stop()
+	// --- Scheduler (skipped in test mode — no DB pool available) ---
+	if !cfg.TestMode {
+		sched := scheduler.New(dbPool, regUC, reminderUC, notificationUC, log)
+		sched.Start(rootCtx)
+		defer sched.Stop()
+	}
 
 	// --- HTTP server ---
 	srv := &http.Server{

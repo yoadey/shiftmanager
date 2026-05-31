@@ -45,6 +45,7 @@ type Config struct {
 
 	// Feature flags
 	KioskEnabled bool
+	TestMode     bool // TEST_MODE=true: in-memory repos, no DB required, /dev/token active
 
 	// Logging
 	LogLevel string
@@ -78,6 +79,7 @@ func Load() (*Config, error) {
 		JWTExpiration:       24 * time.Hour,
 		LogLevel:            getEnv("LOG_LEVEL", "info"),
 		KioskEnabled:        getEnvBool("KIOSK_ENABLED", true),
+		TestMode:            getEnvBool("TEST_MODE", false),
 		ReservationHours:    getEnvInt("RESERVATION_HOURS", 48),
 		DeregisterDeadlineH: getEnvInt("DEREGISTER_DEADLINE_H", 24),
 		UploadDir:           getEnv("UPLOAD_DIR", "./uploads"),
@@ -89,11 +91,15 @@ func Load() (*Config, error) {
 		return nil, fmt.Errorf("invalid SMTP_PORT: %w", err)
 	}
 
-	if cfg.DatabaseURL == "" {
-		return nil, fmt.Errorf("DATABASE_URL is required")
+	if !cfg.TestMode && cfg.DatabaseURL == "" {
+		return nil, fmt.Errorf("DATABASE_URL is required (or set TEST_MODE=true)")
 	}
 	if cfg.JWTSecret == "" {
-		return nil, fmt.Errorf("JWT_SECRET is required")
+		if cfg.TestMode {
+			cfg.JWTSecret = "test-secret-do-not-use-in-production"
+		} else {
+			return nil, fmt.Errorf("JWT_SECRET is required")
+		}
 	}
 
 	return cfg, nil

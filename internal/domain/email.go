@@ -1,10 +1,17 @@
 package domain
 
 import (
+	"fmt"
 	"time"
 
 	"github.com/google/uuid"
 )
+
+// ErrEmailTemplateNotFound is returned when an email template cannot be found.
+var ErrEmailTemplateNotFound = fmt.Errorf("email template not found")
+
+// ErrEmailLogNotFound is returned when an email log entry cannot be found.
+var ErrEmailLogNotFound = fmt.Errorf("email log entry not found")
 
 // Standard email template names. These match the rows seeded in migration 003
 // and are the keys used to look up overridable subject/body from the database.
