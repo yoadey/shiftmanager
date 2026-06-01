@@ -105,7 +105,19 @@ func (r *MemberRepo) List(ctx context.Context, filter port.MemberFilter) ([]*dom
 
 func (r *MemberRepo) Update(ctx context.Context, m *domain.Member) error {
 	model := toMemberModel(m)
-	result := r.db.WithContext(ctx).Save(&model)
+	result := r.db.WithContext(ctx).
+		Model(&MemberModel{}).
+		Where("id = ?", model.ID).
+		Updates(map[string]interface{}{
+			"first_name":       model.FirstName,
+			"last_name":        model.LastName,
+			"email":            model.Email,
+			"role":             model.Role,
+			"is_active":        model.IsActive,
+			"joined_at":        model.JoinedAt,
+			"left_at":          model.LeftAt,
+			"reminder_opt_out": model.ReminderOptOut,
+		})
 	if result.Error != nil {
 		return result.Error
 	}

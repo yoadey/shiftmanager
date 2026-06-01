@@ -67,7 +67,17 @@ func (r *HourRepo) FindEntriesByYear(ctx context.Context, clubYearID uuid.UUID) 
 
 func (r *HourRepo) UpdateEntry(ctx context.Context, e *domain.HourEntry) error {
 	model := toHourEntryModel(e)
-	result := r.db.WithContext(ctx).Save(&model)
+	result := r.db.WithContext(ctx).
+		Model(&HourEntryModel{}).
+		Where("id = ?", model.ID).
+		Updates(map[string]interface{}{
+			"hours":       model.Hours,
+			"type":        model.Type,
+			"status":      model.Status,
+			"description": model.Description,
+			"shift_id":    model.ShiftID,
+			"booked_by":   model.BookedBy,
+		})
 	if result.Error != nil {
 		return result.Error
 	}

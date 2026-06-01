@@ -108,7 +108,18 @@ func (r *RegistrationRepo) CountActiveByShift(ctx context.Context, shiftID uuid.
 
 func (r *RegistrationRepo) Update(ctx context.Context, reg *domain.Registration) error {
 	model := toRegistrationModel(reg)
-	result := r.db.WithContext(ctx).Save(&model)
+	result := r.db.WithContext(ctx).
+		Model(&RegistrationModel{}).
+		Where("id = ?", model.ID).
+		Updates(map[string]interface{}{
+			"state":              model.State,
+			"comment":            model.Comment,
+			"member_id":          model.MemberID,
+			"guest_email":        model.GuestEmail,
+			"reserved_until":     model.ReservedUntil,
+			"booked_hours":       model.BookedHours,
+			"confirmation_token": model.ConfirmationToken,
+		})
 	if result.Error != nil {
 		return result.Error
 	}

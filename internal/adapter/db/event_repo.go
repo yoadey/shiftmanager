@@ -80,7 +80,20 @@ func (r *EventRepo) List(ctx context.Context, filter port.EventFilter) ([]*domai
 
 func (r *EventRepo) Update(ctx context.Context, e *domain.Event) error {
 	model := toEventModel(e)
-	result := r.db.WithContext(ctx).Save(&model)
+	result := r.db.WithContext(ctx).
+		Model(&EventModel{}).
+		Where("id = ?", model.ID).
+		Updates(map[string]interface{}{
+			"name":        model.Name,
+			"description": model.Description,
+			"location":    model.Location,
+			"category":    model.Category,
+			"start_date":  model.StartDate,
+			"end_date":    model.EndDate,
+			"status":      model.Status,
+			"visibility":  model.Visibility,
+			"updated_at":  model.UpdatedAt,
+		})
 	if result.Error != nil {
 		return result.Error
 	}
@@ -204,7 +217,18 @@ func (r *ShiftRepo) FindUpcomingShifts(ctx context.Context, after time.Time) ([]
 
 func (r *ShiftRepo) Update(ctx context.Context, s *domain.Shift) error {
 	model := toShiftModel(s)
-	result := r.db.WithContext(ctx).Save(&model)
+	result := r.db.WithContext(ctx).
+		Model(&ShiftModel{}).
+		Where("id = ?", model.ID).
+		Updates(map[string]interface{}{
+			"name":                   model.Name,
+			"start_at":               model.StartAt,
+			"end_at":                 model.EndAt,
+			"min_helpers":            model.MinHelpers,
+			"max_helpers":            model.MaxHelpers,
+			"required_qualification": model.RequiredQualification,
+			"shift_date":             model.ShiftDate,
+		})
 	if result.Error != nil {
 		return result.Error
 	}
