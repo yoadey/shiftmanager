@@ -8,9 +8,10 @@ import { Toggle } from '@/components/ui/Toggle';
 import { Field, Input, Textarea, Select } from '@/components/forms/Field';
 import { useAppStore } from '@/store/app.store';
 import { useCreateEvent } from '@/api/events';
+import { useCreateShift } from '@/api/shifts';
 import { fmtDate } from '@/screens/_demo';
 import { Section, EmptyState } from '@/screens/member/MemberDashboard';
-import type { Event, EventStatus, ShiftDay } from '@/types';
+import type { EventStatus } from '@/types';
 
 function datesBetween(start: string, end: string): string[] {
   const out: string[] = [];
@@ -147,10 +148,11 @@ function ShiftBuilder({ dates, multiDay, shifts, setShifts }: {
 export function CreateEventFlow({ onClose }: { onClose: () => void }) {
   const { showToast } = useAppStore();
   const createEvent = useCreateEvent();
+  const createShift = useCreateShift();
   const [step, setStep] = useState(0);
   const [f, setF] = useState<EventForm>({
     name: '', description: '', location: '', category: 'Turnier',
-    status: 'veröffentlicht', multiDay: false, startDate: '2026-08-22', endDate: '2026-08-23',
+    status: 'published', multiDay: false, startDate: '', endDate: '',
   });
   const [shifts, setShifts] = useState<DraftShift[]>([]);
   const set = <K extends keyof EventForm>(k: K, v: EventForm[K]) => setF((p) => ({ ...p, [k]: v }));
@@ -159,32 +161,35 @@ export function CreateEventFlow({ onClose }: { onClose: () => void }) {
   const step0valid = !!(f.name.trim() && f.location.trim() && f.startDate && (!f.multiDay || f.endDate >= f.startDate));
   const labels = ['Eckdaten', 'Schichten', 'Prüfen'];
 
-  const finish = () => {
-    const byDate: Record<string, ShiftDay['shifts']> = {};
-    dates.forEach((d) => { byDate[d] = []; });
-    shifts.forEach((s) => {
-      (byDate[s.date] ?? (byDate[s.date] = [])).push({
-        id: 'ns-' + Math.random().toString(36).slice(2, 7),
-        name: s.name, start: s.start, end: s.end, min: s.min, max: s.max, desc: s.desc, signups: [],
+  const finish = async () => {
+    try {
+      const endDate = f.multiDay ? f.endDate : f.startDate;
+      const newEvent = await createEvent.mutateAsync({
+        name: f.name.trim(),
+        description: f.description.trim() || 'Keine Beschreibung.',
+        location: f.location.trim(),
+        category: f.category,
+        status: f.status,
+        startDate: `${f.startDate}T12:00:00Z`,
+        endDate: `${endDate}T12:00:00Z`,
       });
-    });
-    const days: ShiftDay[] = Object.keys(byDate).sort()
-      .filter((d) => byDate[d].length)
-      .map((d) => ({ date: d, shifts: byDate[d].sort((a, b) => a.start.localeCompare(b.start)) }));
-
-    const payload: Omit<Event, 'id'> = {
-      name: f.name.trim(),
-      description: f.description.trim() || 'Keine Beschreibung.',
-      location: f.location.trim(),
-      category: f.category,
-      status: f.status,
-      days,
-    };
-    createEvent.mutate(payload, {
-      onSuccess: () => showToast('Veranstaltung erstellt.'),
-      onError: () => showToast('Veranstaltung erstellt.'),
-    });
-    onClose();
+      for (const s of shifts) {
+        await createShift.mutateAsync({
+          eventId: newEvent.id,
+          date: s.date,
+          name: s.name,
+          start: s.start,
+          end: s.end,
+          min: s.min,
+          max: s.max,
+          qual: s.desc || '',
+        });
+      }
+      showToast('Veranstaltung erstellt.');
+      onClose();
+    } catch {
+      showToast('Erstellen fehlgeschlagen.', 'crit');
+    }
   };
 
   return (
@@ -232,8 +237,8 @@ export function CreateEventFlow({ onClose }: { onClose: () => void }) {
             </div>
             <Field label="Sichtbarkeit">
               <div style={{ display: 'flex', gap: 9 }}>
-                <ChoiceCard active={f.status === 'entwurf'} onClick={() => set('status', 'entwurf')} icon="edit" title="Entwurf" sub="Nur intern" />
-                <ChoiceCard active={f.status === 'veröffentlicht'} onClick={() => set('status', 'veröffentlicht')} icon="users" title="Veröffentlicht" sub="Für Mitglieder" />
+                <ChoiceCard active={f.status === 'draft'} onClick={() => set('status', 'draft')} icon="edit" title="Entwurf" sub="Nur intern" />
+                <ChoiceCard active={f.status === 'published'} onClick={() => set('status', 'published')} icon="users" title="Veröffentlicht" sub="Für Mitglieder" />
               </div>
             </Field>
           </div>
@@ -254,7 +259,7 @@ export function CreateEventFlow({ onClose }: { onClose: () => void }) {
                 <span style={{ display: 'flex', gap: 8, alignItems: 'center' }}><Icon name="pin" size={15} color="var(--muted)" />{f.location}</span>
               </div>
               <div style={{ marginTop: 10 }}>
-                <Badge kind={f.status === 'veröffentlicht' ? 'ok' : 'neutral'}>{f.status === 'veröffentlicht' ? 'Wird veröffentlicht' : 'Als Entwurf gespeichert'}</Badge>
+                <Badge kind={f.status === 'published' ? 'ok' : 'neutral'}>{f.status === 'published' ? 'Wird veröffentlicht' : 'Als Entwurf gespeichert'}</Badge>
               </div>
             </div>
             <Section title={`${shifts.length} Schicht${shifts.length === 1 ? '' : 'en'}`} />
@@ -283,7 +288,7 @@ export function CreateEventFlow({ onClose }: { onClose: () => void }) {
       <div className="sheet-foot">
         {step < 2
           ? <Button disabled={step === 0 ? !step0valid : shifts.length === 0} icon="arrowR" onClick={() => setStep(step + 1)}>{step === 1 && shifts.length === 0 ? 'Mind. eine Schicht' : 'Weiter'}</Button>
-          : <Button icon="check" onClick={finish}>Veranstaltung erstellen</Button>}
+          : <Button icon="check" disabled={createEvent.isPending || createShift.isPending} onClick={finish}>Veranstaltung erstellen</Button>}
       </div>
     </Sheet>
   );

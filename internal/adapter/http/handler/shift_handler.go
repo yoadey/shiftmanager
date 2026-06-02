@@ -6,6 +6,7 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/yoadey/shiftmanager/internal/adapter/http/middleware"
+	"github.com/yoadey/shiftmanager/internal/domain"
 	"github.com/yoadey/shiftmanager/internal/usecase"
 )
 
@@ -165,21 +166,15 @@ func (h *ShiftHandler) Deregister(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// The registration ID is expected as a query parameter or derived from shiftID + member.
-	regIDStr := r.URL.Query().Get("registrationId")
-	regID, err := uuid.Parse(regIDStr)
-	if err != nil {
-		writeError(w, http.StatusBadRequest, "registrationId query param is required")
-		return
-	}
-
 	memberID := middleware.GetUserID(r.Context())
 	force := r.URL.Query().Get("force") == "true"
 
-	_ = shiftID // used for context; the regID already identifies the registration
-
-	if err := h.regUC.Deregister(r.Context(), &memberID, regID, force); err != nil {
-		writeError(w, http.StatusBadRequest, err.Error())
+	if err := h.regUC.DeregisterByShift(r.Context(), memberID, shiftID, force); err != nil {
+		status := http.StatusBadRequest
+		if err == domain.ErrDeregisterDeadlinePassed {
+			status = http.StatusUnprocessableEntity
+		}
+		writeError(w, status, err.Error())
 		return
 	}
 	w.WriteHeader(http.StatusNoContent)

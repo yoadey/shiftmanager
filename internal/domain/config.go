@@ -10,20 +10,28 @@ const (
 
 // AppSettings holds the configurable business-logic settings for the application.
 type AppSettings struct {
+	ClubName                string      `json:"clubName"`
+	ClubYear                string      `json:"clubYear"`
+	YearGoal                int         `json:"yearGoal"`
+	FeeSchedule             []float32   `json:"feeSchedule"`
 	NameMode                NameMode    `json:"nameMode"`
 	KioskSearch             bool        `json:"kioskSearch"`
 	ReservationHours        int         `json:"reservationHours"`
 	DeregisterDeadlineH     int         `json:"deregisterDeadlineH"`
 	BillingMode             BillingMode `json:"billingMode"`
-	ReminderHourOfDay       int         `json:"reminderHourOfDay"`       // N-002: hour-of-day (UTC) reminders are sent
-	ReminderLeadWeeks       int         `json:"reminderLeadWeeks"`       // N-002: weeks before a shift for the "early" reminder
-	BillingWarningLeadWeeks int         `json:"billingWarningLeadWeeks"` // weeks before year end the missing-hours warning is sent
-	KioskLocked             bool        `json:"kioskLocked"`             // K-012: when true the public kiosk routes are disabled
+	ReminderHourOfDay       int         `json:"reminderHourOfDay"`
+	ReminderLeadWeeks       int         `json:"reminderLeadWeeks"`
+	BillingWarningLeadWeeks int         `json:"billingWarningLeadWeeks"`
+	KioskLocked             bool        `json:"kioskLocked"`
 }
 
 // DefaultAppSettings returns the factory-default application settings.
 func DefaultAppSettings() AppSettings {
 	return AppSettings{
+		ClubName:                "TSC Schwarz-Gelb Aachen",
+		ClubYear:                "2026",
+		YearGoal:                20,
+		FeeSchedule:             []float32{5, 7, 10, 15},
 		NameMode:                NameModeAbbrev,
 		KioskSearch:             false,
 		ReservationHours:        48,
@@ -56,6 +64,10 @@ func DefaultBranding() BrandingConfig {
 
 // AppSettingsKeys maps each setting field to its key-value store key.
 const (
+	SettingKeyClubName                = "clubName"
+	SettingKeyClubYear                = "clubYear"
+	SettingKeyYearGoal                = "yearGoal"
+	SettingKeyFeeSchedule             = "feeSchedule"
 	SettingKeyNameMode                = "nameMode"
 	SettingKeyKioskSearch             = "kioskSearch"
 	SettingKeyReservationHours        = "reservationHours"

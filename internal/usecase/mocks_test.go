@@ -578,6 +578,20 @@ func (f *fakeAuditRepo) List(ctx context.Context, filter port.AuditFilter) ([]*d
 	return out, nil
 }
 
+func (f *fakeAuditRepo) DeleteBefore(ctx context.Context, before time.Time) (int64, error) {
+	var kept []*domain.AuditEntry
+	var deleted int64
+	for _, e := range f.entries {
+		if e.ChangedAt.Before(before) {
+			deleted++
+		} else {
+			kept = append(kept, e)
+		}
+	}
+	f.entries = kept
+	return deleted, nil
+}
+
 // countActions returns how many audit entries have the given action.
 func (f *fakeAuditRepo) countActions(action string) int {
 	n := 0
@@ -602,10 +616,11 @@ func (f *fakeAuditRepo) has(action, entity string) bool {
 // --- SettingsRepo fake ---
 
 type fakeSettingsRepo struct {
-	kv          map[string]string
-	branding    *domain.BrandingConfig
-	tiers       map[uuid.UUID][]*domain.FeeTier
-	memberTiers map[string][]*domain.FeeTier // key memberID|yearID
+	kv              map[string]string
+	branding        *domain.BrandingConfig
+	tiers           map[uuid.UUID][]*domain.FeeTier
+	memberTiers     map[string][]*domain.FeeTier // key memberID|yearID
+	brandingHistory []*domain.BrandingHistoryEntry
 }
 
 var _ port.SettingsRepository = (*fakeSettingsRepo)(nil)
@@ -672,6 +687,34 @@ func (f *fakeSettingsRepo) ReplaceMemberFeeTiers(ctx context.Context, memberID, 
 	return nil
 }
 
+func (f *fakeSettingsRepo) InsertBrandingHistory(ctx context.Context, entry *domain.BrandingHistoryEntry) error {
+	cp := *entry
+	f.brandingHistory = append(f.brandingHistory, &cp)
+	return nil
+}
+
+func (f *fakeSettingsRepo) ListBrandingHistory(ctx context.Context, limit int) ([]*domain.BrandingHistoryEntry, error) {
+	if limit <= 0 || limit > len(f.brandingHistory) {
+		limit = len(f.brandingHistory)
+	}
+	out := make([]*domain.BrandingHistoryEntry, limit)
+	for i := 0; i < limit; i++ {
+		cp := *f.brandingHistory[i]
+		out[i] = &cp
+	}
+	return out, nil
+}
+
+func (f *fakeSettingsRepo) GetBrandingHistoryEntry(ctx context.Context, id uuid.UUID) (*domain.BrandingHistoryEntry, error) {
+	for _, e := range f.brandingHistory {
+		if e.ID == id {
+			cp := *e
+			return &cp, nil
+		}
+	}
+	return nil, domain.ErrMemberNotFound
+}
+
 // --- EmailService fake ---
 
 type sentEmail struct {
@@ -718,6 +761,11 @@ func (f *fakeEmailService) SendYearBilling(ctx context.Context, to string, membe
 
 func (f *fakeEmailService) SendUnderstaffedNotice(ctx context.Context, to string, shift *domain.Shift, event *domain.Event) error {
 	f.sent = append(f.sent, sentEmail{kind: "understaffed", to: to})
+	return nil
+}
+
+func (f *fakeEmailService) SendHoursConfirmed(ctx context.Context, to string, member *domain.Member, shift *domain.Shift, event *domain.Event, hours float64) error {
+	f.sent = append(f.sent, sentEmail{kind: "hours_confirmed", to: to})
 	return nil
 }
 

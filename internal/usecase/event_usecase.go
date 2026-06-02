@@ -17,6 +17,7 @@ type EventUsecase struct {
 	shifts        port.ShiftRepository
 	registrations port.RegistrationRepository
 	audit         port.AuditRepository
+	email         port.EmailService
 }
 
 // NewEventUsecase creates a new EventUsecase.
@@ -25,12 +26,14 @@ func NewEventUsecase(
 	shifts port.ShiftRepository,
 	registrations port.RegistrationRepository,
 	audit port.AuditRepository,
+	emailSvc port.EmailService,
 ) *EventUsecase {
 	return &EventUsecase{
 		events:        events,
 		shifts:        shifts,
 		registrations: registrations,
 		audit:         audit,
+		email:         emailSvc,
 	}
 }
 
@@ -43,9 +46,10 @@ type CreateEventInput struct {
 	StartDate   time.Time
 	EndDate     time.Time
 	Visibility  domain.EventVisibility
+	Status      domain.EventStatus
 }
 
-// CreateEvent validates and persists a new event in draft status.
+// CreateEvent validates and persists a new event. Status defaults to draft.
 func (uc *EventUsecase) CreateEvent(ctx context.Context, actorID uuid.UUID, input CreateEventInput) (*domain.Event, error) {
 	if input.Name == "" {
 		return nil, fmt.Errorf("event name is required")
@@ -55,6 +59,9 @@ func (uc *EventUsecase) CreateEvent(ctx context.Context, actorID uuid.UUID, inpu
 	}
 	if input.Visibility == "" {
 		input.Visibility = domain.EventVisibilityPublic
+	}
+	if input.Status == "" {
+		input.Status = domain.EventStatusDraft
 	}
 
 	now := time.Now().UTC()
@@ -66,7 +73,7 @@ func (uc *EventUsecase) CreateEvent(ctx context.Context, actorID uuid.UUID, inpu
 		Category:    input.Category,
 		StartDate:   input.StartDate,
 		EndDate:     input.EndDate,
-		Status:      domain.EventStatusDraft,
+		Status:      input.Status,
 		Visibility:  input.Visibility,
 		CreatedAt:   now,
 		UpdatedAt:   now,
@@ -91,6 +98,7 @@ type UpdateEventInput struct {
 	StartDate   *time.Time
 	EndDate     *time.Time
 	Visibility  domain.EventVisibility
+	Status      domain.EventStatus // optional; only "cancelled" is acted upon here
 }
 
 // UpdateEvent applies changes to an existing event.
@@ -122,6 +130,9 @@ func (uc *EventUsecase) UpdateEvent(ctx context.Context, actorID uuid.UUID, id u
 	if input.Visibility != "" {
 		e.Visibility = input.Visibility
 	}
+	if input.Status != "" {
+		e.Status = input.Status
+	}
 	e.UpdatedAt = time.Now().UTC()
 
 	if e.EndDate.Before(e.StartDate) {
@@ -135,6 +146,29 @@ func (uc *EventUsecase) UpdateEvent(ctx context.Context, actorID uuid.UUID, id u
 	aid := actorID
 	_ = uc.writeAudit(ctx, &aid, domain.AuditActionUpdate, domain.AuditEntityEvent, e.ID.String(), before, e)
 
+	// If the event was just cancelled, notify all registered helpers (best-effort).
+	if e.Status == domain.EventStatusCancelled && before.Status != domain.EventStatusCancelled && uc.email != nil {
+		shifts, err := uc.shifts.FindByEventID(ctx, e.ID)
+		if err == nil {
+			for _, s := range shifts {
+				regs, err := uc.registrations.FindByShiftID(ctx, s.ID)
+				if err != nil {
+					continue
+				}
+				for _, reg := range regs {
+					var emailTo string
+					if reg.GuestEmail != nil {
+						emailTo = *reg.GuestEmail
+					}
+					// For member registrations we don't have the email here; best-effort only.
+					if emailTo != "" {
+						_ = uc.email.SendCancellation(ctx, emailTo, reg, s, e)
+					}
+				}
+			}
+		}
+	}
+
 	return e, nil
 }
 
@@ -144,10 +178,6 @@ func (uc *EventUsecase) DeleteEvent(ctx context.Context, actorID uuid.UUID, id u
 	if err != nil {
 		return err
 	}
-	if !e.CanDelete() {
-		return fmt.Errorf("cannot delete event in status %s", e.Status)
-	}
-
 	if err := uc.events.Delete(ctx, id); err != nil {
 		return fmt.Errorf("delete event: %w", err)
 	}
@@ -383,6 +413,61 @@ func derefRegistrations(in []*domain.Registration) []domain.Registration {
 		out[i] = *r
 	}
 	return out
+}
+
+// CopyEvent creates a new event as a copy of an existing one (including all shifts).
+// The copy gets status draft and the name "Kopie von <original name>".
+func (uc *EventUsecase) CopyEvent(ctx context.Context, actorID uuid.UUID, id uuid.UUID) (*domain.Event, error) {
+	orig, err := uc.events.GetByID(ctx, id)
+	if err != nil {
+		return nil, err
+	}
+
+	shifts, err := uc.shifts.FindByEventID(ctx, id)
+	if err != nil {
+		return nil, fmt.Errorf("load shifts: %w", err)
+	}
+
+	now := time.Now().UTC()
+	newEvent := &domain.Event{
+		ID:          uuid.New(),
+		Name:        "Kopie von " + orig.Name,
+		Description: orig.Description,
+		Location:    orig.Location,
+		Category:    orig.Category,
+		StartDate:   orig.StartDate,
+		EndDate:     orig.EndDate,
+		Status:      domain.EventStatusDraft,
+		Visibility:  orig.Visibility,
+		CreatedAt:   now,
+		UpdatedAt:   now,
+	}
+
+	if err := uc.events.Create(ctx, newEvent); err != nil {
+		return nil, fmt.Errorf("create copy event: %w", err)
+	}
+
+	for _, s := range shifts {
+		newShift := &domain.Shift{
+			ID:                    uuid.New(),
+			EventID:               newEvent.ID,
+			Name:                  s.Name,
+			StartAt:               s.StartAt,
+			EndAt:                 s.EndAt,
+			MinHelpers:            s.MinHelpers,
+			MaxHelpers:            s.MaxHelpers,
+			RequiredQualification: s.RequiredQualification,
+			Date:                  s.Date,
+		}
+		if err := uc.shifts.Create(ctx, newShift); err != nil {
+			return nil, fmt.Errorf("create copy shift: %w", err)
+		}
+	}
+
+	aid := actorID
+	_ = uc.writeAudit(ctx, &aid, domain.AuditActionCreate, domain.AuditEntityEvent, newEvent.ID.String(), nil, map[string]string{"copiedFrom": id.String()})
+
+	return newEvent, nil
 }
 
 func (uc *EventUsecase) writeAudit(ctx context.Context, actorID *uuid.UUID, action, entity, entityID string, before, after interface{}) error {

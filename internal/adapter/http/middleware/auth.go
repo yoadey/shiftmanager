@@ -18,13 +18,19 @@ const (
 	ContextKeyUserRole contextKey = "userRole"
 	// ContextKeyUserEmail is the context key for the authenticated user's email.
 	ContextKeyUserEmail contextKey = "userEmail"
+	// ContextKeyUserFirstName is the context key for the authenticated user's first name.
+	ContextKeyUserFirstName contextKey = "userFirstName"
+	// ContextKeyUserLastName is the context key for the authenticated user's last name.
+	ContextKeyUserLastName contextKey = "userLastName"
 )
 
 // Claims represents the JWT payload used in ShiftManager tokens.
 type Claims struct {
 	jwt.RegisteredClaims
-	Role  string `json:"role"`
-	Email string `json:"email"`
+	Role      string `json:"role"`
+	Email     string `json:"email"`
+	FirstName string `json:"firstName,omitempty"`
+	LastName  string `json:"lastName,omitempty"`
 }
 
 // JWTAuth returns a middleware that validates Bearer JWTs.
@@ -68,6 +74,8 @@ func JWTAuth(secret string) func(http.Handler) http.Handler {
 			ctx := context.WithValue(r.Context(), ContextKeyUserID, userID)
 			ctx = context.WithValue(ctx, ContextKeyUserRole, claims.Role)
 			ctx = context.WithValue(ctx, ContextKeyUserEmail, claims.Email)
+			ctx = context.WithValue(ctx, ContextKeyUserFirstName, claims.FirstName)
+			ctx = context.WithValue(ctx, ContextKeyUserLastName, claims.LastName)
 
 			next.ServeHTTP(w, r.WithContext(ctx))
 		})
@@ -95,6 +103,22 @@ func GetUserRole(ctx context.Context) string {
 func GetUserEmail(ctx context.Context) string {
 	if email, ok := ctx.Value(ContextKeyUserEmail).(string); ok {
 		return email
+	}
+	return ""
+}
+
+// GetUserFirstName extracts the authenticated user's first name from context.
+func GetUserFirstName(ctx context.Context) string {
+	if v, ok := ctx.Value(ContextKeyUserFirstName).(string); ok {
+		return v
+	}
+	return ""
+}
+
+// GetUserLastName extracts the authenticated user's last name from context.
+func GetUserLastName(ctx context.Context) string {
+	if v, ok := ctx.Value(ContextKeyUserLastName).(string); ok {
+		return v
 	}
 	return ""
 }

@@ -23,6 +23,7 @@ const AuditLog = lazy(() => import('@/screens/admin/AuditLog').then(m => ({ defa
 const EmailTemplates = lazy(() => import('@/screens/admin/EmailTemplates').then(m => ({ default: m.EmailTemplates })));
 const EmailLog = lazy(() => import('@/screens/admin/EmailLog').then(m => ({ default: m.EmailLog })));
 const CreateEventFlow = lazy(() => import('@/screens/admin/CreateEventFlow').then(m => ({ default: m.CreateEventFlow })));
+const AdminBilling = lazy(() => import('@/screens/admin/AdminBilling').then(m => ({ default: m.AdminBilling })));
 
 function pickOn(hex: string): string {
   const h = hex.replace('#', '');
@@ -66,6 +67,7 @@ function ScreenRouter() {
     if (top.name === 'audit') return <AuditLog />;
     if (top.name === 'email-templates') return <EmailTemplates />;
     if (top.name === 'email-log') return <EmailLog />;
+    if (top.name === 'billing') return <AdminBilling />;
   }
 
   if (role === 'mitglied') {

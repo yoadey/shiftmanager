@@ -1,15 +1,19 @@
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { apiPost, apiPut, apiDelete } from './client';
-import type { Shift } from '@/types';
 
-interface CreateShiftPayload extends Omit<Shift, 'id' | 'signups'> {
+export interface ShiftPayload {
   eventId: string;
-  date: string;
+  date: string;     // YYYY-MM-DD
+  name: string;
+  start: string;    // HH:MM (local time)
+  end: string;      // HH:MM (local time)
+  min: number;
+  max: number;
+  qual?: string;
 }
 
-interface UpdateShiftPayload extends Partial<Omit<Shift, 'signups'>> {
-  id: string;
-  eventId: string;
+function toISO(date: string, time: string): string {
+  return new Date(`${date}T${time}:00`).toISOString();
 }
 
 // ── Mutations ──────────────────────────────────────────────────────────────
@@ -17,8 +21,15 @@ interface UpdateShiftPayload extends Partial<Omit<Shift, 'signups'>> {
 export function useCreateShift() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: ({ eventId, date, ...data }: CreateShiftPayload) =>
-      apiPost<Shift>(`/events/${eventId}/shifts`, { ...data, date }),
+    mutationFn: ({ eventId, date, name, start, end, min, max, qual }: ShiftPayload) =>
+      apiPost(`/events/${eventId}/shifts`, {
+        name,
+        startAt: toISO(date, start),
+        endAt: toISO(date, end),
+        minHelpers: min,
+        maxHelpers: max,
+        requiredQualification: qual ?? '',
+      }),
     onSuccess: (_d, vars) => {
       qc.invalidateQueries({ queryKey: ['events', vars.eventId] });
       qc.invalidateQueries({ queryKey: ['events'] });
@@ -29,10 +40,18 @@ export function useCreateShift() {
 export function useUpdateShift() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: ({ id, eventId: _eventId, ...data }: UpdateShiftPayload) =>
-      apiPut<Shift>(`/shifts/${id}`, data),
+    mutationFn: ({ id, eventId: _eventId, date, name, start, end, min, max, qual }: ShiftPayload & { id: string }) =>
+      apiPut(`/shifts/${id}`, {
+        name,
+        startAt: toISO(date, start),
+        endAt: toISO(date, end),
+        minHelpers: min,
+        maxHelpers: max,
+        requiredQualification: qual ?? '',
+      }),
     onSuccess: (_d, vars) => {
       qc.invalidateQueries({ queryKey: ['events', vars.eventId] });
+      qc.invalidateQueries({ queryKey: ['events'] });
     },
   });
 }
@@ -44,6 +63,7 @@ export function useDeleteShift() {
       apiDelete<void>(`/shifts/${id}`),
     onSuccess: (_d, vars) => {
       qc.invalidateQueries({ queryKey: ['events', vars.eventId] });
+      qc.invalidateQueries({ queryKey: ['events'] });
     },
   });
 }

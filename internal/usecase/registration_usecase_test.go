@@ -59,7 +59,7 @@ func TestRegister_Self(t *testing.T) {
 	assert.Equal(t, domain.RegistrationStateRegistered, reg.State)
 	assert.Nil(t, reg.ReservedUntil)
 	assert.True(t, f.audit.has(domain.AuditActionRegister, domain.AuditEntityRegistration))
-	assert.Equal(t, 1, f.email.countKind("kiosk")) // kiosk confirmation email goes to member
+	assert.Equal(t, 1, f.email.countKind("confirmation")) // member registration sends standard confirmation
 }
 
 func TestRegister_KioskGuestEmail(t *testing.T) {

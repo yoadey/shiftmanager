@@ -48,9 +48,6 @@ func (uc *BillingUsecase) ComputeYearBilling(ctx context.Context, actorID uuid.U
 	if err != nil {
 		return nil, fmt.Errorf("load fee tiers: %w", err)
 	}
-	if len(tiers) == 0 {
-		return nil, domain.ErrNoFeeTiers
-	}
 
 	// Convert pointer slice to value slice.
 	tierValues := make([]domain.FeeTier, len(tiers))

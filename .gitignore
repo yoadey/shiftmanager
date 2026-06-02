@@ -104,6 +104,11 @@ docker-compose.override.yml
 deploy/kubernetes/secret.yaml.bak
 *.kubeconfig
 
+# ----- Playwright E2E -----
+frontend/e2e/.auth/
+frontend/playwright-report/
+frontend/test-results/
+
 # ----- Misc -----
 *.log
 *.pid

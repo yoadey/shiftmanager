@@ -14,7 +14,13 @@ const (
 	lockKeyExpireReservations int64 = 4711001
 	lockKeySendReminders      int64 = 4711002
 	lockKeyNotifications      int64 = 4711003
+	lockKeyAuditCleanup       int64 = 4711004
 )
+
+// AuditCleaner can delete old audit log entries (DS-009).
+type AuditCleaner interface {
+	DeleteBefore(ctx context.Context, before time.Time) (int64, error)
+}
 
 // ReservationExpirer is the subset of the registration usecase needed to expire
 // stale reservations.
@@ -40,6 +46,7 @@ type Scheduler struct {
 	expirer       ReservationExpirer
 	reminders     ReminderSender
 	notifications NotificationRunner
+	auditCleaner  AuditCleaner
 	log           zerolog.Logger
 
 	cancel context.CancelFunc
@@ -49,12 +56,13 @@ type Scheduler struct {
 // New creates a new Scheduler. db may be nil to disable advisory locking
 // (jobs still run, but without distributed coordination — suitable for
 // single-instance deployments and test mode).
-func New(db *sql.DB, expirer ReservationExpirer, reminders ReminderSender, notifications NotificationRunner, log zerolog.Logger) *Scheduler {
+func New(db *sql.DB, expirer ReservationExpirer, reminders ReminderSender, notifications NotificationRunner, auditCleaner AuditCleaner, log zerolog.Logger) *Scheduler {
 	return &Scheduler{
 		db:            db,
 		expirer:       expirer,
 		reminders:     reminders,
 		notifications: notifications,
+		auditCleaner:  auditCleaner,
 		log:           log.With().Str("component", "scheduler").Logger(),
 	}
 }
@@ -66,6 +74,7 @@ func (s *Scheduler) Start(ctx context.Context) {
 	s.run(ctx, "expire-reservations", 15*time.Minute, lockKeyExpireReservations, s.expireReservations)
 	s.run(ctx, "send-reminders", time.Hour, lockKeySendReminders, s.sendReminders)
 	s.run(ctx, "notifications", 24*time.Hour, lockKeyNotifications, s.runNotifications)
+	s.run(ctx, "audit-cleanup", 7*24*time.Hour, lockKeyAuditCleanup, s.cleanupAuditLog)
 
 	s.log.Info().Msg("scheduler started")
 }
@@ -151,4 +160,14 @@ func (s *Scheduler) runNotifications(ctx context.Context) (int, error) {
 		return 0, nil
 	}
 	return s.notifications.RunDailyNotifications(ctx)
+}
+
+func (s *Scheduler) cleanupAuditLog(ctx context.Context) (int, error) {
+	if s.auditCleaner == nil {
+		return 0, nil
+	}
+	// Retain audit entries for 2 years (DS-009).
+	cutoff := time.Now().UTC().AddDate(-2, 0, 0)
+	n, err := s.auditCleaner.DeleteBefore(ctx, cutoff)
+	return int(n), err
 }

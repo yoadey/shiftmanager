@@ -342,6 +342,34 @@ func (h *SettingsHandler) GetEmailLog(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, entries)
 }
 
+// GetBrandingHistory returns recent branding configuration snapshots (B-008).
+// GET /api/v1/settings/branding/history
+func (h *SettingsHandler) GetBrandingHistory(w http.ResponseWriter, r *http.Request) {
+	entries, err := h.uc.GetBrandingHistory(r.Context())
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, entries)
+}
+
+// RollbackBranding restores a previous branding configuration snapshot (B-008).
+// POST /api/v1/settings/branding/rollback/{id}
+func (h *SettingsHandler) RollbackBranding(w http.ResponseWriter, r *http.Request) {
+	id, err := parseUUIDParam(r, "id")
+	if err != nil {
+		writeError(w, http.StatusBadRequest, "invalid id")
+		return
+	}
+	actorID := middleware.GetUserID(r.Context())
+	b, err := h.uc.RollbackBranding(r.Context(), actorID, id)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, b)
+}
+
 // ResendEmail re-sends a logged email by id (N-004).
 // POST /api/v1/settings/email-log/{id}/resend
 func (h *SettingsHandler) ResendEmail(w http.ResponseWriter, r *http.Request) {

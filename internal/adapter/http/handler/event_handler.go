@@ -4,6 +4,7 @@ import (
 	"net/http"
 	"time"
 
+	"github.com/go-chi/chi/v5"
 	"github.com/google/uuid"
 	"github.com/yoadey/shiftmanager/internal/adapter/http/middleware"
 	"github.com/yoadey/shiftmanager/internal/domain"
@@ -69,6 +70,7 @@ func (h *EventHandler) Create(w http.ResponseWriter, r *http.Request) {
 		StartDate   time.Time               `json:"startDate"`
 		EndDate     time.Time               `json:"endDate"`
 		Visibility  domain.EventVisibility  `json:"visibility"`
+		Status      domain.EventStatus      `json:"status"`
 	}
 	if err := decodeJSON(r, &body); err != nil {
 		writeError(w, http.StatusBadRequest, "invalid request body")
@@ -84,6 +86,7 @@ func (h *EventHandler) Create(w http.ResponseWriter, r *http.Request) {
 		StartDate:   body.StartDate,
 		EndDate:     body.EndDate,
 		Visibility:  body.Visibility,
+		Status:      body.Status,
 	})
 	if err != nil {
 		writeError(w, http.StatusBadRequest, err.Error())
@@ -126,6 +129,7 @@ func (h *EventHandler) Update(w http.ResponseWriter, r *http.Request) {
 		StartDate   *time.Time              `json:"startDate"`
 		EndDate     *time.Time              `json:"endDate"`
 		Visibility  domain.EventVisibility  `json:"visibility"`
+		Status      domain.EventStatus      `json:"status"`
 	}
 	if err := decodeJSON(r, &body); err != nil {
 		writeError(w, http.StatusBadRequest, "invalid request body")
@@ -141,6 +145,7 @@ func (h *EventHandler) Update(w http.ResponseWriter, r *http.Request) {
 		StartDate:   body.StartDate,
 		EndDate:     body.EndDate,
 		Visibility:  body.Visibility,
+		Status:      body.Status,
 	})
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error())
@@ -188,6 +193,24 @@ func (h *EventHandler) Publish(w http.ResponseWriter, r *http.Request) {
 // GET /api/v1/events/:id/timeline
 func (h *EventHandler) GetTimeline(w http.ResponseWriter, r *http.Request) {
 	h.GetWithTimeline(w, r)
+}
+
+// CopyEvent creates a copy of an event including all its shifts.
+// POST /api/v1/events/{id}/copy
+func (h *EventHandler) CopyEvent(w http.ResponseWriter, r *http.Request) {
+	id := chi.URLParam(r, "id")
+	eventID, err := uuid.Parse(id)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, "invalid id")
+		return
+	}
+	actorID := middleware.GetUserID(r.Context())
+	event, err := h.uc.CopyEvent(r.Context(), actorID, eventID)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusCreated, event)
 }
 
 // unused import guard

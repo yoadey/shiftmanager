@@ -16,6 +16,8 @@ type HourUsecase struct {
 	members port.MemberRepository
 	shifts  port.ShiftRepository
 	audit   port.AuditRepository
+	email   port.EmailService
+	events  port.EventRepository
 }
 
 // NewHourUsecase creates a new HourUsecase.
@@ -24,12 +26,16 @@ func NewHourUsecase(
 	members port.MemberRepository,
 	shifts port.ShiftRepository,
 	audit port.AuditRepository,
+	emailSvc port.EmailService,
+	events port.EventRepository,
 ) *HourUsecase {
 	return &HourUsecase{
 		hours:   hours,
 		members: members,
 		shifts:  shifts,
 		audit:   audit,
+		email:   emailSvc,
+		events:  events,
 	}
 }
 
@@ -68,6 +74,19 @@ func (uc *HourUsecase) ConfirmShiftHours(ctx context.Context, actorID uuid.UUID,
 	}
 
 	_ = uc.writeAudit(ctx, &aid, domain.AuditActionConfirm, domain.AuditEntityHourEntry, entry.ID.String(), nil, entry)
+
+	// Send hours-confirmed email (best-effort).
+	if uc.email != nil {
+		member, _ := uc.members.GetByID(ctx, memberID)
+		shift, _ := uc.shifts.GetByID(ctx, shiftID)
+		var event *domain.Event
+		if shift != nil && uc.events != nil {
+			event, _ = uc.events.GetByID(ctx, shift.EventID)
+		}
+		if member != nil && member.Email != "" {
+			_ = uc.email.SendHoursConfirmed(ctx, member.Email, member, shift, event, hours)
+		}
+	}
 
 	return entry, nil
 }
@@ -220,6 +239,36 @@ func (uc *HourUsecase) GetMemberAccount(ctx context.Context, memberID, clubYearI
 // GetActiveClubYear returns the currently active club year.
 func (uc *HourUsecase) GetActiveClubYear(ctx context.Context) (*domain.ClubYear, error) {
 	return uc.hours.GetActiveClubYear(ctx)
+}
+
+// ListClubYears returns all club years, newest first.
+func (uc *HourUsecase) ListClubYears(ctx context.Context) ([]*domain.ClubYear, error) {
+	return uc.hours.ListClubYears(ctx)
+}
+
+// CreateClubYearInput holds the fields for creating a new club year.
+type CreateClubYearInput struct {
+	Label              string    `json:"label"`
+	StartDate          time.Time `json:"startDate"`
+	EndDate            time.Time `json:"endDate"`
+	DefaultTargetHours float64   `json:"defaultTargetHours"`
+	SetActive          bool      `json:"setActive"`
+}
+
+// CreateClubYear creates a new club year and optionally marks it as active.
+func (uc *HourUsecase) CreateClubYear(ctx context.Context, actorID uuid.UUID, input CreateClubYearInput) (*domain.ClubYear, error) {
+	year := &domain.ClubYear{
+		ID:                 uuid.New(),
+		Label:              input.Label,
+		StartDate:          input.StartDate,
+		EndDate:            input.EndDate,
+		DefaultTargetHours: input.DefaultTargetHours,
+		IsActive:           input.SetActive,
+	}
+	if err := uc.hours.CreateClubYear(ctx, year); err != nil {
+		return nil, fmt.Errorf("create club year: %w", err)
+	}
+	return year, nil
 }
 
 // MemberAccountFull combines the hour account summary with the raw entries.

@@ -118,6 +118,25 @@ export function useImportMembersCSV() {
   });
 }
 
+export interface ImportPreviewResult {
+  toCreate: Array<{ email: string; firstName: string; lastName: string }>;
+  toUpdate: Array<{ email: string; firstName: string; lastName: string; changes: string[] }>;
+  unchanged: number;
+}
+
+export function useImportMembersPreview() {
+  return useMutation({
+    mutationFn: async (file: File): Promise<ImportPreviewResult> => {
+      const form = new FormData();
+      form.append('file', file);
+      const res = await apiClient.post<ImportPreviewResult>('/members/import?preview=true', form, {
+        headers: { 'Content-Type': 'multipart/form-data' },
+      });
+      return res.data;
+    },
+  });
+}
+
 export function useExportMembersCSV() {
   return useMutation({
     mutationFn: async () => {

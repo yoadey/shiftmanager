@@ -73,7 +73,8 @@ export function CallbackPage() {
     localStorage.setItem('sm_token', token);
     getMe()
       .then((me) => {
-        const user: AuthUser = { id: me.id, name: me.email, email: me.email, role: me.role };
+        const displayName = [me.firstName, me.lastName].filter(Boolean).join(' ') || me.email;
+        const user: AuthUser = { id: me.id, name: displayName, email: me.email, role: me.role, first: me.firstName, last: me.lastName };
         login(token, user);
         setRole(roleView(me.role));
         navigate('/', { replace: true });

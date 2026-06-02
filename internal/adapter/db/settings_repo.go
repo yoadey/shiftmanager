@@ -2,8 +2,10 @@ package db
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
+	"time"
 
 	"github.com/google/uuid"
 	"github.com/yoadey/shiftmanager/internal/domain"
@@ -192,3 +194,67 @@ func (r *SettingsRepo) ReplaceMemberFeeTiers(ctx context.Context, memberID, club
 		return nil
 	})
 }
+
+// --- Branding history (B-008) ---
+
+func (r *SettingsRepo) InsertBrandingHistory(ctx context.Context, entry *domain.BrandingHistoryEntry) error {
+	b, err := json.Marshal(entry.Branding)
+	if err != nil {
+		return fmt.Errorf("marshal branding: %w", err)
+	}
+	model := BrandingHistoryModel{
+		ID:        entry.ID.String(),
+		Branding:  string(b),
+		CreatedAt: entry.CreatedAt,
+	}
+	return r.db.WithContext(ctx).Create(&model).Error
+}
+
+func (r *SettingsRepo) ListBrandingHistory(ctx context.Context, limit int) ([]*domain.BrandingHistoryEntry, error) {
+	if limit <= 0 {
+		limit = 20
+	}
+	var models []BrandingHistoryModel
+	if err := r.db.WithContext(ctx).Order("created_at DESC").Limit(limit).Find(&models).Error; err != nil {
+		return nil, err
+	}
+	out := make([]*domain.BrandingHistoryEntry, 0, len(models))
+	for _, m := range models {
+		e, err := brandingHistoryModelToDomain(m)
+		if err != nil {
+			continue
+		}
+		out = append(out, e)
+	}
+	return out, nil
+}
+
+func (r *SettingsRepo) GetBrandingHistoryEntry(ctx context.Context, id uuid.UUID) (*domain.BrandingHistoryEntry, error) {
+	var model BrandingHistoryModel
+	if err := r.db.WithContext(ctx).Where("id = ?", id.String()).First(&model).Error; err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return nil, fmt.Errorf("branding history entry not found")
+		}
+		return nil, err
+	}
+	return brandingHistoryModelToDomain(model)
+}
+
+func brandingHistoryModelToDomain(m BrandingHistoryModel) (*domain.BrandingHistoryEntry, error) {
+	id, err := uuid.Parse(m.ID)
+	if err != nil {
+		return nil, fmt.Errorf("parse uuid: %w", err)
+	}
+	var b domain.BrandingConfig
+	if err := json.Unmarshal([]byte(m.Branding), &b); err != nil {
+		return nil, fmt.Errorf("unmarshal branding: %w", err)
+	}
+	return &domain.BrandingHistoryEntry{
+		ID:        id,
+		Branding:  b,
+		CreatedAt: m.CreatedAt,
+	}, nil
+}
+
+// ensure time import is used (Go compiler check)
+var _ = time.Now

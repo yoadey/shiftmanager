@@ -280,6 +280,7 @@ components:
           items: { type: number }
         deregisterDeadlineH: { type: integer }
         kioskLocked:         { type: boolean }
+        reminderLeadWeeks:   { type: integer }
 
     BrandingConfig:
       type: object
@@ -297,6 +298,14 @@ components:
         warnings:
           type: array
           items: { type: string }
+
+    BrandingHistoryEntry:
+      type: object
+      required: [id, branding, createdAt]
+      properties:
+        id:        { $ref: '#/components/schemas/UUID' }
+        branding:  { $ref: '#/components/schemas/BrandingConfig' }
+        createdAt: { type: string, format: date-time }
 
     FeeTier:
       type: object

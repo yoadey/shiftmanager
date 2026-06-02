@@ -178,7 +178,7 @@ export function MemberDashboard() {
   const confirmed = hoursQ.data?.confirmed ?? 0;
   const reservedExtra = up.reduce((a, r) => a + r.dur, 0);
   const incl = confirmed + (hoursQ.data?.reserved ?? reservedExtra);
-  const goal = hoursQ.data?.goal ?? settings?.yearGoal ?? 20;
+  const goal = hoursQ.data?.goal || settings?.yearGoal || 20;
   const remaining = Math.max(goal - incl, 0);
 
   if (eventsQ.isLoading || hoursQ.isLoading) return <LoadingState />;

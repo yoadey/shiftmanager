@@ -9,7 +9,7 @@ export function Avatar({ memberId, name, size = 38, members }: AvatarProps) {
   let initials = '?';
   if (memberId && members?.[memberId]) {
     const m = members[memberId];
-    initials = m.first[0] + m.last[0];
+    initials = (m.first?.[0] ?? '') + (m.last?.[0] ?? '');
   } else if (name) {
     initials = name
       .split(' ')

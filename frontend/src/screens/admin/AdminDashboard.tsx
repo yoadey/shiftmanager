@@ -102,6 +102,8 @@ export function AdminDashboard() {
         <Button icon="plus" onClick={() => setCreateOpen(true)} style={{ marginTop: 14 }}>Neue Veranstaltung</Button>
         <div style={{ height: 14 }} />
         <Button variant="soft" icon="plus" onClick={() => push('manual')}>Stunden manuell buchen</Button>
+        <div style={{ height: 10 }} />
+        <Button variant="soft" icon="euro" onClick={() => push('billing')}>Jahresabrechnung</Button>
 
         <Section title="Unterbesetzte Schichten" />
         {understaffed.length === 0

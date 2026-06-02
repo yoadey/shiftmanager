@@ -208,6 +208,7 @@ export type AppSettings = {
   feeSchedule: Array<number>;
   deregisterDeadlineH: number;
   kioskLocked?: boolean;
+  reminderLeadWeeks?: number;
 };
 
 export type BrandingConfig = {

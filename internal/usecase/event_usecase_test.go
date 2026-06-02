@@ -16,7 +16,8 @@ func newEventUC() (*EventUsecase, *fakeEventRepo, *fakeShiftRepo, *fakeRegistrat
 	shifts := newFakeShiftRepo()
 	regs := newFakeRegistrationRepo()
 	audit := newFakeAuditRepo()
-	return NewEventUsecase(events, shifts, regs, audit), events, shifts, regs, audit
+	email := &fakeEmailService{}
+	return NewEventUsecase(events, shifts, regs, audit, email), events, shifts, regs, audit
 }
 
 func TestCreateEvent(t *testing.T) {
@@ -62,11 +63,11 @@ func TestDeleteEvent(t *testing.T) {
 	require.NoError(t, err)
 	assert.True(t, audit.has(domain.AuditActionDelete, domain.AuditEntityEvent))
 
-	// Published event cannot be deleted.
+	// Published events can be deleted (role enforcement happens at the HTTP layer).
 	pubID := uuid.New()
 	events.add(&domain.Event{ID: pubID, Status: domain.EventStatusPublished})
 	err = uc.DeleteEvent(context.Background(), uuid.New(), pubID)
-	assert.Error(t, err)
+	assert.NoError(t, err)
 }
 
 func TestCreateShift(t *testing.T) {

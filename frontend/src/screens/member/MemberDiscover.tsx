@@ -61,6 +61,8 @@ interface FilterDef {
 export function MemberDiscover() {
   const { push } = useAppStore();
   const [filter, setFilter] = useState('alle');
+  const [dateFrom, setDateFrom] = useState('');
+  const [dateTo, setDateTo] = useState('');
   const eventsQ = useEvents();
   const pub = (eventsQ.data ?? []).filter((e) => e.status === 'veröffentlicht' || e.status === 'published');
 
@@ -73,9 +75,20 @@ export function MemberDiscover() {
   ];
 
   const shown = pub.filter((ev) => {
-    if (filter === 'alle') return true;
-    if (filter === 'frei') return (ev.days ?? []).some((d) => d.shifts.some((s) => calcOccupancy(s).free > 0));
-    return ev.category === filter;
+    if (filter !== 'alle') {
+      if (filter === 'frei' && !(ev.days ?? []).some((d) => d.shifts.some((s) => calcOccupancy(s).free > 0))) return false;
+      if (filter !== 'frei' && ev.category !== filter) return false;
+    }
+    if (dateFrom || dateTo) {
+      const days = ev.days ?? [];
+      const inRange = days.some((d) => {
+        if (dateFrom && d.date < dateFrom) return false;
+        if (dateTo && d.date > dateTo) return false;
+        return true;
+      });
+      if (!inRange) return false;
+    }
+    return true;
   });
 
   return (
@@ -103,6 +116,26 @@ export function MemberDiscover() {
               {f.id === 'frei' && <Icon name="filter" size={14} stroke={2.2} />}{f.label}
             </button>
           ))}
+        </div>
+        <div style={{ display: 'flex', gap: 8, marginTop: 10 }}>
+          <div style={{ flex: 1 }}>
+            <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--muted)', marginBottom: 4 }}>Von</div>
+            <input
+              type="date"
+              value={dateFrom}
+              onChange={(e) => setDateFrom(e.target.value)}
+              style={{ width: '100%', padding: '8px 10px', border: '1px solid var(--line)', borderRadius: 10, fontFamily: 'inherit', fontSize: 13.5, fontWeight: 600, background: 'var(--surface)', color: 'var(--ink)', boxSizing: 'border-box' }}
+            />
+          </div>
+          <div style={{ flex: 1 }}>
+            <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--muted)', marginBottom: 4 }}>Bis</div>
+            <input
+              type="date"
+              value={dateTo}
+              onChange={(e) => setDateTo(e.target.value)}
+              style={{ width: '100%', padding: '8px 10px', border: '1px solid var(--line)', borderRadius: 10, fontFamily: 'inherit', fontSize: 13.5, fontWeight: 600, background: 'var(--surface)', color: 'var(--ink)', boxSizing: 'border-box' }}
+            />
+          </div>
         </div>
       </div>
       <div className="sm-pad" style={{ paddingTop: 14 }}>

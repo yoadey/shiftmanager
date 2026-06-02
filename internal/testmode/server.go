@@ -65,9 +65,9 @@ func New(_ context.Context) (*Server, error) {
 
 	// --- Usecases ---
 	memberUC := usecase.NewMemberUsecase(memberRepo, auditRepo)
-	eventUC := usecase.NewEventUsecase(eventRepo, shiftRepo, regRepo, auditRepo)
+	eventUC := usecase.NewEventUsecase(eventRepo, shiftRepo, regRepo, auditRepo, emailSvc)
 	regUC := usecase.NewRegistrationUsecase(regRepo, shiftRepo, eventRepo, memberRepo, emailSvc, auditRepo, settingsRepo)
-	hourUC := usecase.NewHourUsecase(hourRepo, memberRepo, shiftRepo, auditRepo)
+	hourUC := usecase.NewHourUsecase(hourRepo, memberRepo, shiftRepo, auditRepo, emailSvc, eventRepo)
 	billingUC := usecase.NewBillingUsecase(hourRepo, memberRepo, settingsRepo, auditRepo)
 	settingsUC := usecase.NewSettingsUsecase(settingsRepo, auditRepo, memCache)
 	templateUC := usecase.NewEmailTemplateUsecase(templateRepo, emailLogRepo, emailSvc, auditRepo)

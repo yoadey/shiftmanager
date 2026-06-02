@@ -107,6 +107,8 @@ type HourRepository interface {
 type AuditRepository interface {
 	Insert(ctx context.Context, e *domain.AuditEntry) error
 	List(ctx context.Context, filter AuditFilter) ([]*domain.AuditEntry, error)
+	// DeleteBefore removes all audit entries with created_at before the given time (DS-009).
+	DeleteBefore(ctx context.Context, before time.Time) (int64, error)
 }
 
 // AuditFilter holds optional filters when querying the audit log.
@@ -128,6 +130,11 @@ type SettingsRepository interface {
 
 	GetBranding(ctx context.Context) (*domain.BrandingConfig, error)
 	UpdateBranding(ctx context.Context, b *domain.BrandingConfig) error
+
+	// Branding history (B-008).
+	InsertBrandingHistory(ctx context.Context, entry *domain.BrandingHistoryEntry) error
+	ListBrandingHistory(ctx context.Context, limit int) ([]*domain.BrandingHistoryEntry, error)
+	GetBrandingHistoryEntry(ctx context.Context, id uuid.UUID) (*domain.BrandingHistoryEntry, error)
 
 	GetFeeTiers(ctx context.Context, clubYearID uuid.UUID) ([]*domain.FeeTier, error)
 	ReplaceFeeTiers(ctx context.Context, clubYearID uuid.UUID, tiers []*domain.FeeTier) error

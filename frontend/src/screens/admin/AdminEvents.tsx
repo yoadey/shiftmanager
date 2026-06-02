@@ -2,7 +2,7 @@ import { useState } from 'react';
 import { Icon } from '@/components/ui/Icon';
 import { Badge } from '@/components/ui/Badge';
 import { useAppStore } from '@/store/app.store';
-import { useEvents } from '@/api/events';
+import { useEvents, useCopyEvent } from '@/api/events';
 import { calcOccupancy } from '@/hooks/useOccupancy';
 import { LoadingState, ErrorState } from '@/components/ui/States';
 import { EmptyState } from '@/screens/member/MemberDashboard';
@@ -29,9 +29,10 @@ function statusLabel(s: EventStatus): string {
 }
 
 export function AdminEvents() {
-  const { push } = useAppStore();
+  const { push, showToast } = useAppStore();
   const [createOpen, setCreateOpen] = useState(false);
   const eventsQ = useEvents();
+  const copyEvent = useCopyEvent();
 
   const evs = [...(eventsQ.data ?? [])].sort(
     (a, b) => (order[a.status] - order[b.status]) || (a.days?.[0]?.date ?? '').localeCompare(b.days?.[0]?.date ?? ''),
@@ -72,7 +73,24 @@ export function AdminEvents() {
                     {days[0] ? fmtDate(days[0].date, 'daymon') : 'Termin offen'}{days.length > 1 ? ` – ${fmtDate(days[days.length - 1].date, 'daymon')}` : ''} · {ev.location}
                   </div>
                 </div>
-                <Badge kind={statusKind[ev.status] ?? 'neutral'} dot={ev.status === 'veröffentlicht'}>{statusLabel(ev.status)}</Badge>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                  <button
+                    className="pressable"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      copyEvent.mutate(ev.id, {
+                        onSuccess: () => showToast('Veranstaltung wurde kopiert'),
+                        onError: () => showToast('Kopieren fehlgeschlagen', 'crit'),
+                      });
+                    }}
+                    disabled={copyEvent.isPending}
+                    style={{ width: 32, height: 32, borderRadius: '50%', border: '1px solid var(--line)', background: 'var(--surface)', display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer' }}
+                    title="Veranstaltung kopieren"
+                  >
+                    <Icon name="layers" size={15} color="var(--ink)" />
+                  </button>
+                  <Badge kind={statusKind[ev.status] ?? 'neutral'} dot={ev.status === 'veröffentlicht'}>{statusLabel(ev.status)}</Badge>
+                </div>
               </div>
               <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginTop: 12 }}>
                 <div style={{ flex: 1 }}>

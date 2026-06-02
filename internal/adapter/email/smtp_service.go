@@ -181,6 +181,15 @@ func (s *SMTPService) SendUnderstaffedNotice(ctx context.Context, to string, shi
 	return s.sendTemplate(ctx, to, domain.EmailTemplateUnderstaffed, shiftData(nil, shift, event, nil))
 }
 
+// SendHoursConfirmed notifies a member that their shift hours have been confirmed.
+func (s *SMTPService) SendHoursConfirmed(ctx context.Context, to string, member *domain.Member, shift *domain.Shift, event *domain.Event, hours float64) error {
+	extra := map[string]any{"Hours": fmt.Sprintf("%.1f", hours)}
+	if member != nil {
+		extra["MemberName"] = member.FirstName
+	}
+	return s.sendTemplate(ctx, to, domain.EmailTemplateShiftConfirmation, shiftData(nil, shift, event, extra))
+}
+
 // SendByTemplate renders an arbitrary stored template by name and sends it.
 func (s *SMTPService) SendByTemplate(ctx context.Context, to, templateName string, data map[string]any) error {
 	return s.sendTemplate(ctx, to, templateName, data)

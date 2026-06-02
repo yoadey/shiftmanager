@@ -1,5 +1,5 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { apiGet, apiPost, apiPut, apiDelete } from './client';
+import { apiGet, apiPost, apiPut, apiDelete, apiClient } from './client';
 import type { Event, EventTimeline } from '@/types';
 import { flatToEvent, timelineToEvent, type RawEvent, type RawTimeline } from './mappers';
 
@@ -53,18 +53,41 @@ export function useEventTimeline(id: string) {
 
 // ── Mutations ──────────────────────────────────────────────────────────────
 
+export interface CreateEventPayload {
+  name: string;
+  description: string;
+  location: string;
+  category: string;
+  status: string;
+  startDate: string;
+  endDate: string;
+  visibility?: string;
+}
+
 export function useCreateEvent() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: (data: Omit<Event, 'id'>) => apiPost<RawEvent>('/events', data),
+    mutationFn: (data: CreateEventPayload) => apiPost<RawEvent>('/events', data),
     onSuccess: () => qc.invalidateQueries({ queryKey: ['events'] }),
   });
 }
 
+type UpdateEventPayload = {
+  id: string;
+  name?: string;
+  description?: string;
+  location?: string;
+  category?: string;
+  startDate?: string;
+  endDate?: string;
+  visibility?: string;
+  status?: string;
+};
+
 export function useUpdateEvent() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: ({ id, ...data }: Partial<Event> & { id: string }) =>
+    mutationFn: ({ id, ...data }: UpdateEventPayload) =>
       apiPut<RawEvent>(`/events/${id}`, data),
     onSuccess: (_d, vars) => {
       qc.invalidateQueries({ queryKey: ['events'] });
@@ -89,5 +112,13 @@ export function usePublishEvent() {
       qc.invalidateQueries({ queryKey: ['events'] });
       qc.invalidateQueries({ queryKey: ['events', id] });
     },
+  });
+}
+
+export function useCopyEvent() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (id: string) => apiClient.post(`/events/${id}/copy`).then((r) => r.data),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['events'] }),
   });
 }

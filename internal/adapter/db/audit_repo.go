@@ -2,6 +2,7 @@ package db
 
 import (
 	"context"
+	"time"
 
 	"github.com/yoadey/shiftmanager/internal/domain"
 	"github.com/yoadey/shiftmanager/internal/port"
@@ -84,6 +85,12 @@ func (r *AuditRepo) List(ctx context.Context, filter port.AuditFilter) ([]*domai
 		entries = append(entries, e)
 	}
 	return entries, nil
+}
+
+// DeleteBefore removes all audit entries with changed_at before the given time (DS-009).
+func (r *AuditRepo) DeleteBefore(ctx context.Context, before time.Time) (int64, error) {
+	result := r.db.WithContext(ctx).Where("changed_at < ?", before).Delete(&AuditEntryModel{})
+	return result.RowsAffected, result.Error
 }
 
 func auditModelToDomain(m AuditEntryModel) *domain.AuditEntry {

@@ -263,11 +263,15 @@ func (h *AuthHandler) Me(w http.ResponseWriter, r *http.Request) {
 	userID := middleware.GetUserID(r.Context())
 	role := middleware.GetUserRole(r.Context())
 	email := middleware.GetUserEmail(r.Context())
+	firstName := middleware.GetUserFirstName(r.Context())
+	lastName := middleware.GetUserLastName(r.Context())
 
 	writeJSON(w, http.StatusOK, map[string]interface{}{
-		"id":    userID,
-		"role":  role,
-		"email": email,
+		"id":        userID,
+		"role":      role,
+		"email":     email,
+		"firstName": firstName,
+		"lastName":  lastName,
 	})
 }
 
@@ -289,8 +293,10 @@ func (h *AuthHandler) issueJWT(member *domain.Member) (string, error) {
 			ExpiresAt: jwt.NewNumericDate(now.Add(h.jwtExpiry)),
 			Issuer:    "shiftmanager",
 		},
-		Role:  member.Role,
-		Email: member.Email,
+		Role:      member.Role,
+		Email:     member.Email,
+		FirstName: member.FirstName,
+		LastName:  member.LastName,
 	}
 
 	token := jwt.NewWithClaims(jwt.SigningMethodHS256, claims)

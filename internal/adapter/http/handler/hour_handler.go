@@ -186,6 +186,38 @@ func (h *HourHandler) GetMemberAccount(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, account)
 }
 
+// ListClubYears returns all club years, newest first.
+// GET /api/v1/hours/club-years
+func (h *HourHandler) ListClubYears(w http.ResponseWriter, r *http.Request) {
+	years, err := h.uc.ListClubYears(r.Context())
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, years)
+}
+
+// CreateClubYear creates a new club year.
+// POST /api/v1/hours/club-years
+func (h *HourHandler) CreateClubYear(w http.ResponseWriter, r *http.Request) {
+	var body usecase.CreateClubYearInput
+	if err := decodeJSON(r, &body); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid request body")
+		return
+	}
+	if body.Label == "" {
+		writeError(w, http.StatusBadRequest, "label is required")
+		return
+	}
+	actorID := middleware.GetUserID(r.Context())
+	year, err := h.uc.CreateClubYear(r.Context(), actorID, body)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusCreated, year)
+}
+
 // GetYearSummary returns the hour summary for all active members for a year.
 // GET /api/v1/hours/summary?clubYearId=...
 func (h *HourHandler) GetYearSummary(w http.ResponseWriter, r *http.Request) {

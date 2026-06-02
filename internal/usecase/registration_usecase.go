@@ -139,14 +139,31 @@ func (uc *RegistrationUsecase) Register(ctx context.Context, actorID *uuid.UUID,
 		}
 	}
 	if emailTo != "" && uc.email != nil {
-		baseURL := "http://localhost:8080"
-		confirmURL := fmt.Sprintf("%s/api/v1/kiosk/confirm/%s", baseURL, token.String())
-		_ = uc.email.SendKioskConfirmation(ctx, emailTo, confirmURL, shift, event)
+		if input.GuestEmail != nil {
+			// Kiosk flow: send double-opt-in confirmation link.
+			baseURL := "http://localhost:8080"
+			confirmURL := fmt.Sprintf("%s/api/v1/kiosk/confirm/%s", baseURL, token.String())
+			_ = uc.email.SendKioskConfirmation(ctx, emailTo, confirmURL, shift, event)
+		} else if input.MemberID != nil {
+			// Member flow: send standard registration confirmation.
+			_ = uc.email.SendConfirmation(ctx, emailTo, reg, shift, event)
+		}
 	}
 
 	_ = uc.writeAudit(ctx, actorID, domain.AuditActionRegister, domain.AuditEntityRegistration, reg.ID.String(), nil, reg)
 
 	return reg, nil
+}
+
+// DeregisterByShift looks up the calling member's registration for the given shift
+// and then delegates to Deregister. This avoids requiring the client to know the
+// registration ID.
+func (uc *RegistrationUsecase) DeregisterByShift(ctx context.Context, memberID uuid.UUID, shiftID uuid.UUID, force bool) error {
+	reg, err := uc.registrations.FindByMemberAndShift(ctx, memberID, shiftID)
+	if err != nil {
+		return fmt.Errorf("keine Anmeldung für diese Schicht gefunden")
+	}
+	return uc.Deregister(ctx, &memberID, reg.ID, force)
 }
 
 // Deregister removes a registration if the deregistration deadline has not passed.
@@ -161,7 +178,7 @@ func (uc *RegistrationUsecase) Deregister(ctx context.Context, actorID *uuid.UUI
 		return err
 	}
 
-	if !force {
+	if !force && !shift.StartAt.IsZero() {
 		deadlineH, err := getSettingInt(ctx, uc.settings, domain.SettingKeyDeregisterDeadlineH, 24)
 		if err != nil {
 			deadlineH = 24

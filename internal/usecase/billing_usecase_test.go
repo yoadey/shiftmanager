@@ -72,8 +72,10 @@ func TestComputeYearBilling_NoFeeTiers(t *testing.T) {
 	year := &domain.ClubYear{ID: uuid.New(), Label: "2026", DefaultTargetHours: 10}
 	hours.addYear(year)
 	members.add(&domain.Member{ID: uuid.New(), IsActive: true})
-	_, err := uc.ComputeYearBilling(context.Background(), uuid.New(), year.ID)
-	assert.ErrorIs(t, err, domain.ErrNoFeeTiers)
+	report, err := uc.ComputeYearBilling(context.Background(), uuid.New(), year.ID)
+	require.NoError(t, err)
+	assert.Len(t, report.Results, 1)
+	assert.Equal(t, 0, report.Results[0].TotalCents)
 }
 
 func TestExportBillingCSV(t *testing.T) {

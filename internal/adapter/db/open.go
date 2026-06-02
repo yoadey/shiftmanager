@@ -41,5 +41,6 @@ func Migrate(db *gorm.DB) error {
 		&MemberFeeTierModel{},
 		&EmailTemplateModel{},
 		&EmailLogModel{},
+		&BrandingHistoryModel{},
 	)
 }

@@ -65,6 +65,7 @@ export type EventVisibility = import('@/api/generated/types.gen').EventVisibilit
 
 // Signup as stored in shift signups (UI view, state mapped from backend 'state')
 export interface Signup {
+  id?: string;      // registration ID — populated from API, required for deregistration
   memberId: string;
   status: 'angemeldet' | 'bestätigt' | 'reserviert' | 'nichterschienen';
   comment?: string;

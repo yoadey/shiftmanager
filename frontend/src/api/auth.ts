@@ -13,6 +13,8 @@ export interface MeResponse {
   id: string;
   role: UserRole;
   email: string;
+  firstName?: string;
+  lastName?: string;
 }
 
 /**

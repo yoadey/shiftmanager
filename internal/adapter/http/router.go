@@ -176,6 +176,7 @@ func NewRouter(h Handlers, cfg RouterConfig) http.Handler {
 					w.Put("/{id}", h.Event.Update)
 					w.Delete("/{id}", h.Event.Delete)
 					w.Post("/{id}/publish", h.Event.Publish)
+					w.Post("/{id}/copy", h.Event.CopyEvent)
 					w.Post("/{eventId}/shifts", h.Shift.CreateShift)
 				})
 			})
@@ -195,10 +196,15 @@ func NewRouter(h Handlers, cfg RouterConfig) http.Handler {
 			auth.Route("/hours", func(hr chi.Router) {
 				hr.Get("/me", h.Hour.GetMyAccount)
 				hr.Get("/account", h.Hour.GetMemberAccount)
+				hr.Get("/club-years", h.Hour.ListClubYears)
 				hr.Group(func(w chi.Router) {
 					w.Use(middleware.RequireRole(domain.RoleVeranstaltungsleiter))
 					w.Post("/confirm", h.Hour.ConfirmShiftHours)
 					w.Get("/summary", h.Hour.GetYearSummary)
+				})
+				hr.Group(func(w chi.Router) {
+					w.Use(middleware.RequireRole(domain.RoleVorstand))
+					w.Post("/club-years", h.Hour.CreateClubYear)
 				})
 				hr.Group(func(w chi.Router) {
 					w.Use(middleware.RequireRole(domain.RoleVorstand))
@@ -218,6 +224,8 @@ func NewRouter(h Handlers, cfg RouterConfig) http.Handler {
 					w.Use(middleware.RequireRole(domain.RoleVorstand))
 					w.Put("/", h.Settings.UpdateSettings)
 					w.Put("/branding", h.Settings.UpdateBranding)
+					w.Get("/branding/history", h.Settings.GetBrandingHistory)
+					w.Post("/branding/rollback/{id}", h.Settings.RollbackBranding)
 					w.Put("/fee-tiers", h.Settings.UpdateFeeTiers)
 					w.Get("/audit", h.Settings.GetAuditLog)
 					// Logo upload (B-004).

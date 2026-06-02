@@ -6,15 +6,15 @@ import { Button } from '@/components/ui/Button';
 import { Sheet } from '@/components/ui/Sheet';
 import { Stepper } from '@/components/ui/Stepper';
 import { useAppStore } from '@/store/app.store';
-import { useMember, useUpdateMember } from '@/api/members';
+import { useMember, useUpdateMember, useDeactivateMember } from '@/api/members';
 import { useMemberHours } from '@/api/hours';
 import { useSettings, useMemberFeeTiers, useUpdateMemberFeeTiers } from '@/api/settings';
 import { useStats } from '@/api/stats';
 import { LoadingState, ErrorState } from '@/components/ui/States';
-import { Input } from '@/components/forms/Field';
+import { Field, Input } from '@/components/forms/Field';
 import { fmtDate, hrs } from '@/screens/_demo';
 import { Section } from '@/screens/member/MemberDashboard';
-import type { MemberFeeTier } from '@/types';
+import type { Member, MemberFeeTier } from '@/types';
 
 interface HourRec {
   t: string;
@@ -141,10 +141,83 @@ function FeeTierSheet({ memberId, clubYearId, onClose }: { memberId: string; clu
   );
 }
 
+function EditSheet({ member, onClose }: { member: Member; onClose: () => void }) {
+  const { showToast } = useAppStore();
+  const update = useUpdateMember();
+  const deactivate = useDeactivateMember();
+  const [first, setFirst] = useState(member.first);
+  const [last, setLast] = useState(member.last);
+  const [email, setEmail] = useState(member.email);
+  const [since, setSince] = useState(member.since?.slice(0, 10) ?? '');
+  const [confirmDeactivate, setConfirmDeactivate] = useState(false);
+
+  const save = () => {
+    if (!first.trim() || !last.trim() || !email.trim()) return;
+    update.mutate(
+      { id: member.id, first: first.trim(), last: last.trim(), email: email.trim(), since },
+      {
+        onSuccess: () => { showToast('Mitglied gespeichert.'); onClose(); },
+        onError: () => showToast('Speichern fehlgeschlagen.', 'crit'),
+      },
+    );
+  };
+
+  const onDeactivate = () => {
+    deactivate.mutate(member.id, {
+      onSuccess: () => { showToast('Mitglied deaktiviert.'); onClose(); },
+      onError: () => showToast('Deaktivieren fehlgeschlagen.', 'crit'),
+    });
+  };
+
+  return (
+    <Sheet
+      onClose={onClose}
+      title="Mitglied bearbeiten"
+      foot={<Button icon="check" loading={update.isPending} onClick={save} disabled={!first.trim() || !last.trim() || !email.trim()}>Speichern</Button>}
+    >
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
+          <Field label="Vorname">
+            <Input value={first} onChange={(e) => setFirst(e.target.value)} autoFocus />
+          </Field>
+          <Field label="Nachname">
+            <Input value={last} onChange={(e) => setLast(e.target.value)} />
+          </Field>
+        </div>
+        <Field label="E-Mail-Adresse">
+          <Input type="email" value={email} onChange={(e) => setEmail(e.target.value)} />
+        </Field>
+        <Field label="Eintrittsdatum">
+          <Input type="date" value={since} onChange={(e) => setSince(e.target.value)} />
+        </Field>
+      </div>
+      {member.active !== false && (
+        <div style={{ marginTop: 20, paddingTop: 16, borderTop: '1px solid var(--line)' }}>
+          {!confirmDeactivate ? (
+            <button
+              onClick={() => setConfirmDeactivate(true)}
+              style={{ background: 'none', border: 'none', color: 'var(--crit)', fontWeight: 700, fontSize: 13.5, cursor: 'pointer', padding: 0 }}
+            >
+              Mitglied deaktivieren…
+            </button>
+          ) : (
+            <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+              <span style={{ fontSize: 13.5, fontWeight: 600, color: 'var(--ink-2)' }}>Wirklich deaktivieren?</span>
+              <Button size="sm" variant="ghost" onClick={() => setConfirmDeactivate(false)}>Abbrechen</Button>
+              <Button size="sm" loading={deactivate.isPending} onClick={onDeactivate} style={{ background: 'var(--crit)', color: '#fff' }}>Ja, deaktivieren</Button>
+            </div>
+          )}
+        </div>
+      )}
+    </Sheet>
+  );
+}
+
 export function MemberDetail({ id }: { id: string }) {
   const { back, push, showToast } = useAppStore();
   const [goalOpen, setGoalOpen] = useState(false);
   const [feeOpen, setFeeOpen] = useState(false);
+  const [editOpen, setEditOpen] = useState(false);
   const { data: stats } = useStats();
   const clubYearId = stats?.clubYearId ?? '';
   const activate = useUpdateMember();
@@ -194,6 +267,14 @@ export function MemberDetail({ id }: { id: string }) {
             <div style={{ color: 'var(--muted)', fontSize: 12, fontWeight: 600 }}>seit {fmtDate(m.since, 'short')}</div>
           </div>
           {m.active === false && <Badge kind="warn">Nicht freigeschaltet</Badge>}
+          <button
+            className="pressable"
+            onClick={() => setEditOpen(true)}
+            title="Mitglied bearbeiten"
+            style={{ width: 34, height: 34, borderRadius: '50%', border: '1px solid var(--line)', background: 'var(--surface-2)', display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer' }}
+          >
+            <Icon name="edit" size={16} color="var(--ink-2)" />
+          </button>
         </div>
         {m.active === false && (
           <div className="sm-card pad" style={{ marginTop: 12, display: 'flex', alignItems: 'center', gap: 12, background: 'var(--warn-bg)' }}>
@@ -257,6 +338,7 @@ export function MemberDetail({ id }: { id: string }) {
 
       {goalOpen && <GoalSheet memberId={id} value={goal} onClose={() => setGoalOpen(false)} />}
       {feeOpen && clubYearId && <FeeTierSheet memberId={id} clubYearId={clubYearId} onClose={() => setFeeOpen(false)} />}
+      {editOpen && <EditSheet member={m} onClose={() => setEditOpen(false)} />}
     </div>
   );
 }

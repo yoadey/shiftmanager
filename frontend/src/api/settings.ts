@@ -72,6 +72,34 @@ export function useUpdateFeeTiers() {
   });
 }
 
+// ── Branding history + rollback (B-008) ────────────────────────────────────
+
+export interface BrandingSnapshot {
+  id: string;
+  branding: BrandingConfig;
+  createdAt: string;
+}
+
+export function useBrandingHistory() {
+  return useQuery({
+    queryKey: ['branding-history'],
+    queryFn: () =>
+      apiGet<BrandingSnapshot[]>('/settings/branding/history'),
+  });
+}
+
+export function useRollbackBranding() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (id: string) =>
+      apiPost<BrandingConfig>(`/settings/branding/rollback/${id}`),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['branding'] });
+      qc.invalidateQueries({ queryKey: ['branding-history'] });
+    },
+  });
+}
+
 // ── Logo upload (B-004) ─────────────────────────────────────────────────────
 
 /**

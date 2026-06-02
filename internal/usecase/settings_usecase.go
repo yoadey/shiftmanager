@@ -4,6 +4,8 @@ import (
 	"context"
 	"fmt"
 	"strconv"
+	"strings"
+	"time"
 
 	"github.com/google/uuid"
 	"github.com/yoadey/shiftmanager/internal/domain"
@@ -31,14 +33,28 @@ func (uc *SettingsUsecase) GetSettings(ctx context.Context) (*domain.AppSettings
 
 	s := domain.DefaultAppSettings()
 
-	if v, ok := raw[domain.SettingKeyNameMode]; ok {
+	if v, ok := raw[domain.SettingKeyClubName]; ok && v != "" {
+		s.ClubName = v
+	}
+	if v, ok := raw[domain.SettingKeyClubYear]; ok && v != "" {
+		s.ClubYear = v
+	}
+	if v, ok := raw[domain.SettingKeyYearGoal]; ok {
+		if i, err := strconv.Atoi(v); err == nil {
+			s.YearGoal = i
+		}
+	}
+	if v, ok := raw[domain.SettingKeyFeeSchedule]; ok && v != "" {
+		s.FeeSchedule = parseFeeSchedule(v)
+	}
+	if v, ok := raw[domain.SettingKeyNameMode]; ok && v != "" {
 		s.NameMode = domain.NameMode(v)
 	}
 	if v, ok := raw[domain.SettingKeyKioskSearch]; ok {
 		s.KioskSearch = v == "true"
 	}
 	if v, ok := raw[domain.SettingKeyReservationHours]; ok {
-		if i, err := strconv.Atoi(v); err == nil {
+		if i, err := strconv.Atoi(v); err == nil && i > 0 {
 			s.ReservationHours = i
 		}
 	}
@@ -47,21 +63,21 @@ func (uc *SettingsUsecase) GetSettings(ctx context.Context) (*domain.AppSettings
 			s.DeregisterDeadlineH = i
 		}
 	}
-	if v, ok := raw[domain.SettingKeyBillingMode]; ok {
+	if v, ok := raw[domain.SettingKeyBillingMode]; ok && v != "" {
 		s.BillingMode = domain.BillingMode(v)
 	}
 	if v, ok := raw[domain.SettingKeyReminderHourOfDay]; ok {
-		if i, err := strconv.Atoi(v); err == nil {
+		if i, err := strconv.Atoi(v); err == nil && i >= 0 {
 			s.ReminderHourOfDay = i
 		}
 	}
 	if v, ok := raw[domain.SettingKeyReminderLeadWeeks]; ok {
-		if i, err := strconv.Atoi(v); err == nil {
+		if i, err := strconv.Atoi(v); err == nil && i > 0 {
 			s.ReminderLeadWeeks = i
 		}
 	}
 	if v, ok := raw[domain.SettingKeyBillingWarningLeadWeeks]; ok {
-		if i, err := strconv.Atoi(v); err == nil {
+		if i, err := strconv.Atoi(v); err == nil && i > 0 {
 			s.BillingWarningLeadWeeks = i
 		}
 	}
@@ -74,17 +90,40 @@ func (uc *SettingsUsecase) GetSettings(ctx context.Context) (*domain.AppSettings
 
 // UpdateSettings persists changed application settings.
 func (uc *SettingsUsecase) UpdateSettings(ctx context.Context, actorID uuid.UUID, input domain.AppSettings) (*domain.AppSettings, error) {
-	kv := map[string]string{
-		domain.SettingKeyNameMode:                string(input.NameMode),
-		domain.SettingKeyKioskSearch:             strconv.FormatBool(input.KioskSearch),
-		domain.SettingKeyReservationHours:        strconv.Itoa(input.ReservationHours),
-		domain.SettingKeyDeregisterDeadlineH:     strconv.Itoa(input.DeregisterDeadlineH),
-		domain.SettingKeyBillingMode:             string(input.BillingMode),
-		domain.SettingKeyReminderHourOfDay:       strconv.Itoa(input.ReminderHourOfDay),
-		domain.SettingKeyReminderLeadWeeks:       strconv.Itoa(input.ReminderLeadWeeks),
-		domain.SettingKeyBillingWarningLeadWeeks: strconv.Itoa(input.BillingWarningLeadWeeks),
-		domain.SettingKeyKioskLocked:             strconv.FormatBool(input.KioskLocked),
+	kv := map[string]string{}
+	if input.ClubName != "" {
+		kv[domain.SettingKeyClubName] = input.ClubName
 	}
+	if input.ClubYear != "" {
+		kv[domain.SettingKeyClubYear] = input.ClubYear
+	}
+	if input.YearGoal > 0 {
+		kv[domain.SettingKeyYearGoal] = strconv.Itoa(input.YearGoal)
+	}
+	if len(input.FeeSchedule) > 0 {
+		kv[domain.SettingKeyFeeSchedule] = formatFeeSchedule(input.FeeSchedule)
+	}
+	if input.NameMode != "" {
+		kv[domain.SettingKeyNameMode] = string(input.NameMode)
+	}
+	kv[domain.SettingKeyKioskSearch] = strconv.FormatBool(input.KioskSearch)
+	if input.ReservationHours > 0 {
+		kv[domain.SettingKeyReservationHours] = strconv.Itoa(input.ReservationHours)
+	}
+	kv[domain.SettingKeyDeregisterDeadlineH] = strconv.Itoa(input.DeregisterDeadlineH)
+	if input.BillingMode != "" {
+		kv[domain.SettingKeyBillingMode] = string(input.BillingMode)
+	}
+	if input.ReminderHourOfDay > 0 {
+		kv[domain.SettingKeyReminderHourOfDay] = strconv.Itoa(input.ReminderHourOfDay)
+	}
+	if input.ReminderLeadWeeks > 0 {
+		kv[domain.SettingKeyReminderLeadWeeks] = strconv.Itoa(input.ReminderLeadWeeks)
+	}
+	if input.BillingWarningLeadWeeks > 0 {
+		kv[domain.SettingKeyBillingWarningLeadWeeks] = strconv.Itoa(input.BillingWarningLeadWeeks)
+	}
+	kv[domain.SettingKeyKioskLocked] = strconv.FormatBool(input.KioskLocked)
 
 	for k, v := range kv {
 		if err := uc.settings.SetSetting(ctx, k, v); err != nil {
@@ -122,6 +161,16 @@ type BrandingUpdateResult struct {
 // UpdateBranding persists a new branding configuration and returns any WCAG
 // contrast warnings. Low-contrast colours produce a warning but are not rejected.
 func (uc *SettingsUsecase) UpdateBranding(ctx context.Context, actorID uuid.UUID, input domain.BrandingConfig) (*BrandingUpdateResult, error) {
+	// Save current config to history before overwriting (B-008).
+	if current, err := uc.settings.GetBranding(ctx); err == nil && current != nil {
+		histEntry := &domain.BrandingHistoryEntry{
+			ID:        uuid.New(),
+			Branding:  *current,
+			CreatedAt: timeNow(),
+		}
+		_ = uc.settings.InsertBrandingHistory(ctx, histEntry)
+	}
+
 	if err := uc.settings.UpdateBranding(ctx, &input); err != nil {
 		return nil, fmt.Errorf("update branding: %w", err)
 	}
@@ -244,10 +293,68 @@ func (uc *SettingsUsecase) GetAuditLog(ctx context.Context, filter port.AuditFil
 	return uc.audit.List(ctx, filter)
 }
 
-func (uc *SettingsUsecase) writeAudit(ctx context.Context, actorID *uuid.UUID, action, entity, entityID string, before, after interface{}) error {
+func (uc *SettingsUsecase) writeAudit(ctx context.Context, actorID *uuid.UUID, action, entity, entityID string, before, after any) error {
 	entry, err := domain.NewAuditEntry(actorID, action, entity, entityID, before, after)
 	if err != nil {
 		return err
 	}
 	return uc.audit.Insert(ctx, entry)
+}
+
+// formatFeeSchedule serialises a fee schedule slice as a comma-separated string.
+func formatFeeSchedule(fees []float32) string {
+	parts := make([]string, len(fees))
+	for i, f := range fees {
+		parts[i] = strconv.FormatFloat(float64(f), 'f', -1, 32)
+	}
+	return strings.Join(parts, ",")
+}
+
+// parseFeeSchedule deserialises a comma-separated fee schedule string.
+func parseFeeSchedule(s string) []float32 {
+	parts := strings.Split(s, ",")
+	out := make([]float32, 0, len(parts))
+	for _, p := range parts {
+		p = strings.TrimSpace(p)
+		if f, err := strconv.ParseFloat(p, 32); err == nil {
+			out = append(out, float32(f))
+		}
+	}
+	return out
+}
+
+// timeNow returns the current UTC time. Exposed as a variable for testing.
+var timeNow = func() time.Time { return time.Now().UTC() }
+
+// GetBrandingHistory returns recent branding configuration snapshots (B-008).
+func (uc *SettingsUsecase) GetBrandingHistory(ctx context.Context) ([]*domain.BrandingHistoryEntry, error) {
+	return uc.settings.ListBrandingHistory(ctx, 20)
+}
+
+// RollbackBranding restores a previous branding configuration snapshot (B-008).
+func (uc *SettingsUsecase) RollbackBranding(ctx context.Context, actorID uuid.UUID, id uuid.UUID) (*domain.BrandingConfig, error) {
+	entry, err := uc.settings.GetBrandingHistoryEntry(ctx, id)
+	if err != nil {
+		return nil, fmt.Errorf("get branding history entry: %w", err)
+	}
+
+	// Save current config to history before rolling back.
+	if current, err := uc.settings.GetBranding(ctx); err == nil && current != nil {
+		histEntry := &domain.BrandingHistoryEntry{
+			ID:        uuid.New(),
+			Branding:  *current,
+			CreatedAt: timeNow(),
+		}
+		_ = uc.settings.InsertBrandingHistory(ctx, histEntry)
+	}
+
+	if err := uc.settings.UpdateBranding(ctx, &entry.Branding); err != nil {
+		return nil, fmt.Errorf("rollback branding: %w", err)
+	}
+	if uc.cache != nil {
+		_ = uc.cache.Delete(ctx, "branding")
+	}
+	aid := actorID
+	_ = uc.writeAudit(ctx, &aid, domain.AuditActionUpdate, domain.AuditEntityBranding, "branding_config", nil, map[string]string{"rolledBackFrom": id.String()})
+	return &entry.Branding, nil
 }

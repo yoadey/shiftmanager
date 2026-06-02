@@ -1,10 +1,11 @@
-import React, { useState } from 'react';
+import React, { useState, useRef } from 'react';
 import { Icon } from '@/components/ui/Icon';
 import { Avatar } from '@/components/ui/Avatar';
-import { Input } from '@/components/forms/Field';
+import { Field, Input } from '@/components/forms/Field';
 import { useAppStore } from '@/store/app.store';
 import { useAuthStore } from '@/store/auth.store';
-import { useMembers, useExportMembersCSV } from '@/api/members';
+import { useMembers, useCreateMember, useExportMembersCSV, useImportMembersCSV, useImportMembersPreview } from '@/api/members';
+import type { ImportPreviewResult } from '@/api/members';
 import { useEvents } from '@/api/events';
 import { useSettings } from '@/api/settings';
 import { LoadingState, ErrorState } from '@/components/ui/States';
@@ -21,6 +22,22 @@ export function AdminMembers() {
   const eventsQ = useEvents();
   const { data: settings } = useSettings();
   const exportCsv = useExportMembersCSV();
+  const importCsv = useImportMembersCSV();
+  const importPreview = useImportMembersPreview();
+
+  // CSV import dialog state
+  const [importOpen, setImportOpen] = useState(false);
+  const [preview, setPreview] = useState<ImportPreviewResult | null>(null);
+  const [pendingFile, setPendingFile] = useState<File | null>(null);
+  const fileRef = useRef<HTMLInputElement>(null);
+
+  // Manual create dialog state
+  const [createOpen, setCreateOpen] = useState(false);
+  const [newFirst, setNewFirst] = useState('');
+  const [newLast, setNewLast] = useState('');
+  const [newEmail, setNewEmail] = useState('');
+  const [newSince, setNewSince] = useState(() => new Date().toISOString().slice(0, 10));
+  const createMember = useCreateMember();
 
   const members = membersQ.data ?? [];
   const yearGoal = settings?.yearGoal ?? 20;
@@ -53,6 +70,65 @@ export function AdminMembers() {
     exportCsv.mutate();
   };
 
+  const onPickFile = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    e.target.value = '';
+    setPendingFile(file);
+    setPreview(null);
+    importPreview.mutate(file, {
+      onSuccess: (result) => setPreview(result),
+      onError: () => showToast('Vorschau konnte nicht geladen werden.', 'crit'),
+    });
+  };
+
+  const onOpenImport = () => {
+    setPreview(null);
+    setPendingFile(null);
+    setImportOpen(true);
+  };
+
+  const onConfirmImport = () => {
+    if (!pendingFile) return;
+    importCsv.mutate(pendingFile, {
+      onSuccess: (result) => {
+        showToast(`${result.imported ?? 0} Mitglieder importiert.`);
+        setImportOpen(false);
+        setPreview(null);
+        setPendingFile(null);
+      },
+      onError: () => showToast('Import fehlgeschlagen.', 'crit'),
+    });
+  };
+
+  const onCloseImport = () => {
+    setImportOpen(false);
+    setPreview(null);
+    setPendingFile(null);
+  };
+
+  const onOpenCreate = () => {
+    setNewFirst('');
+    setNewLast('');
+    setNewEmail('');
+    setNewSince(new Date().toISOString().slice(0, 10));
+    setCreateOpen(true);
+  };
+
+  const onConfirmCreate = () => {
+    if (!newFirst.trim() || !newLast.trim() || !newEmail.trim()) return;
+    createMember.mutate(
+      { first: newFirst.trim(), last: newLast.trim(), email: newEmail.trim(), since: newSince },
+      {
+        onSuccess: () => {
+          showToast(`${newFirst} ${newLast} wurde angelegt.`);
+          setCreateOpen(false);
+        },
+        onError: () => showToast('Mitglied konnte nicht angelegt werden.', 'crit'),
+      },
+    );
+  };
+
   return (
     <div className="fade-in">
       <div className="sm-header">
@@ -60,13 +136,32 @@ export function AdminMembers() {
           <div className="sm-eyebrow">{members.length} Einträge</div>
           <div className="sm-title">Mitglieder</div>
         </div>
-        <button
-          className="pressable"
-          onClick={onExport}
-          style={{ width: 42, height: 42, borderRadius: '50%', border: '1px solid var(--line)', background: 'var(--surface)', display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', boxShadow: 'var(--shadow)' }}
-        >
-          <Icon name="download" size={20} color="var(--ink)" />
-        </button>
+        <div style={{ display: 'flex', gap: 8 }}>
+          <button
+            className="pressable"
+            onClick={onOpenCreate}
+            style={{ width: 42, height: 42, borderRadius: '50%', border: '1px solid var(--line)', background: 'var(--surface)', display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', boxShadow: 'var(--shadow)' }}
+            title="Mitglied manuell anlegen"
+          >
+            <Icon name="plus" size={20} color="var(--ink)" />
+          </button>
+          <button
+            className="pressable"
+            onClick={onOpenImport}
+            style={{ width: 42, height: 42, borderRadius: '50%', border: '1px solid var(--line)', background: 'var(--surface)', display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', boxShadow: 'var(--shadow)' }}
+            title="CSV importieren"
+          >
+            <Icon name="list" size={20} color="var(--ink)" />
+          </button>
+          <button
+            className="pressable"
+            onClick={onExport}
+            style={{ width: 42, height: 42, borderRadius: '50%', border: '1px solid var(--line)', background: 'var(--surface)', display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', boxShadow: 'var(--shadow)' }}
+            title="CSV exportieren"
+          >
+            <Icon name="download" size={20} color="var(--ink)" />
+          </button>
+        </div>
       </div>
       <div style={{ padding: '0 18px 4px' }}>
         <div style={{ position: 'relative' }}>
@@ -113,6 +208,108 @@ export function AdminMembers() {
         </div>
         )}
       </div>
+
+      {/* Manual create dialog */}
+      {createOpen && (
+        <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.45)', zIndex: 200, display: 'flex', alignItems: 'flex-end', justifyContent: 'center' }} onClick={() => setCreateOpen(false)}>
+          <div style={{ background: 'var(--surface)', borderRadius: '20px 20px 0 0', width: '100%', maxWidth: 520, padding: 24, paddingBottom: 32 }} onClick={(e) => e.stopPropagation()}>
+            <div style={{ fontFamily: 'Bricolage Grotesque', fontWeight: 700, fontSize: 19, marginBottom: 16 }}>Mitglied anlegen</div>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 10, marginBottom: 18 }}>
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
+                <Field label="Vorname">
+                  <Input placeholder="Max" value={newFirst} onChange={(e) => setNewFirst(e.target.value)} autoFocus />
+                </Field>
+                <Field label="Nachname">
+                  <Input placeholder="Mustermann" value={newLast} onChange={(e) => setNewLast(e.target.value)} />
+                </Field>
+              </div>
+              <Field label="E-Mail-Adresse">
+                <Input type="email" placeholder="max@beispiel.de" value={newEmail} onChange={(e) => setNewEmail(e.target.value)} />
+              </Field>
+              <Field label="Eintrittsdatum">
+                <Input type="date" value={newSince} onChange={(e) => setNewSince(e.target.value)} />
+              </Field>
+            </div>
+            <button
+              className="sm-btn"
+              onClick={onConfirmCreate}
+              disabled={createMember.isPending || !newFirst.trim() || !newLast.trim() || !newEmail.trim()}
+              style={{ width: '100%', marginBottom: 10 }}
+            >
+              {createMember.isPending ? 'Wird angelegt…' : 'Mitglied anlegen'}
+            </button>
+            <button className="sm-btn ghost" onClick={() => setCreateOpen(false)} style={{ width: '100%' }}>
+              Abbrechen
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* Hidden file input */}
+      <input ref={fileRef} type="file" accept=".csv,text/csv" onChange={onPickFile} style={{ display: 'none' }} />
+
+      {/* CSV Import Dialog */}
+      {importOpen && (
+        <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.45)', zIndex: 200, display: 'flex', alignItems: 'flex-end', justifyContent: 'center' }} onClick={onCloseImport}>
+          <div style={{ background: 'var(--surface)', borderRadius: '20px 20px 0 0', width: '100%', maxWidth: 520, padding: 24, paddingBottom: 32 }} onClick={(e) => e.stopPropagation()}>
+            <div style={{ fontFamily: 'Bricolage Grotesque', fontWeight: 700, fontSize: 19, marginBottom: 6 }}>CSV importieren</div>
+
+            {/* Step 1: file picker + preview */}
+            {!preview && (
+              <>
+                <div style={{ color: 'var(--muted)', fontSize: 13.5, fontWeight: 600, marginBottom: 16 }}>
+                  {importPreview.isPending
+                    ? 'Vorschau wird geladen…'
+                    : 'Wähle eine CSV-Datei mit den Spalten firstName, lastName, email.'}
+                </div>
+                <button
+                  className="sm-btn soft"
+                  onClick={() => fileRef.current?.click()}
+                  disabled={importPreview.isPending}
+                  style={{ width: '100%', marginBottom: 12 }}
+                >
+                  <Icon name="download" size={17} stroke={2.2} />
+                  {pendingFile ? pendingFile.name : 'Datei auswählen'}
+                </button>
+                <button className="sm-btn ghost" onClick={onCloseImport} style={{ width: '100%' }}>
+                  Abbrechen
+                </button>
+              </>
+            )}
+
+            {/* Step 2: preview summary + confirm */}
+            {preview && (
+              <>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 8, marginBottom: 18 }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', padding: '10px 14px', background: 'var(--surface-2)', borderRadius: 12, fontWeight: 700, fontSize: 14 }}>
+                    <span>Neu</span>
+                    <span style={{ color: 'var(--ok)' }}>{preview.toCreate.length}</span>
+                  </div>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', padding: '10px 14px', background: 'var(--surface-2)', borderRadius: 12, fontWeight: 700, fontSize: 14 }}>
+                    <span>Aktualisiert</span>
+                    <span style={{ color: 'var(--primary)' }}>{preview.toUpdate.length}</span>
+                  </div>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', padding: '10px 14px', background: 'var(--surface-2)', borderRadius: 12, fontWeight: 700, fontSize: 14 }}>
+                    <span>Unverändert</span>
+                    <span style={{ color: 'var(--muted)' }}>{preview.unchanged}</span>
+                  </div>
+                </div>
+                <button
+                  className="sm-btn"
+                  onClick={onConfirmImport}
+                  disabled={importCsv.isPending}
+                  style={{ width: '100%', marginBottom: 10 }}
+                >
+                  {importCsv.isPending ? 'Wird importiert…' : 'Importieren bestätigen'}
+                </button>
+                <button className="sm-btn ghost" onClick={onCloseImport} style={{ width: '100%' }}>
+                  Abbrechen
+                </button>
+              </>
+            )}
+          </div>
+        </div>
+      )}
     </div>
   );
 }

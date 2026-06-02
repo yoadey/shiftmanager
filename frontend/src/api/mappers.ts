@@ -92,6 +92,7 @@ const STATE_TO_STATUS: Record<string, Signup['status']> = {
 
 function toSignup(r: RawRegistration): Signup {
   return {
+    id: r.id ?? '',
     memberId: r.memberId ?? '',
     status: STATE_TO_STATUS[r.state ?? ''] ?? 'angemeldet',
     comment: r.comment || undefined,

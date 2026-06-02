@@ -193,3 +193,12 @@ type EmailLogModel struct {
 }
 
 func (EmailLogModel) TableName() string { return "email_log" }
+
+// BrandingHistoryModel is the GORM model for the "branding_history" table (B-008).
+type BrandingHistoryModel struct {
+	ID        string    `gorm:"column:id;type:text;primaryKey"`
+	Branding  string    `gorm:"column:branding;type:text"` // JSON-encoded BrandingConfig
+	CreatedAt time.Time `gorm:"column:created_at;index"`
+}
+
+func (BrandingHistoryModel) TableName() string { return "branding_history" }

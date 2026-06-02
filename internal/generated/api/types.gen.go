@@ -192,6 +192,7 @@ type AppSettings struct {
 	KioskSearch         bool                   `json:"kioskSearch"`
 	NameMode            AppSettingsNameMode    `json:"nameMode"`
 	ReservationHours    int                    `json:"reservationHours"`
+	ReminderLeadWeeks   int                    `json:"reminderLeadWeeks"`
 	YearGoal            float32                `json:"yearGoal"`
 }
 

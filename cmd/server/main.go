@@ -142,9 +142,9 @@ func run() error {
 
 	// --- Usecases ---
 	memberUC := usecase.NewMemberUsecase(memberRepo, auditRepo)
-	eventUC := usecase.NewEventUsecase(eventRepo, shiftRepo, regRepo, auditRepo)
+	eventUC := usecase.NewEventUsecase(eventRepo, shiftRepo, regRepo, auditRepo, emailSvc)
 	regUC := usecase.NewRegistrationUsecase(regRepo, shiftRepo, eventRepo, memberRepo, emailSvc, auditRepo, settingsRepo)
-	hourUC := usecase.NewHourUsecase(hourRepo, memberRepo, shiftRepo, auditRepo)
+	hourUC := usecase.NewHourUsecase(hourRepo, memberRepo, shiftRepo, auditRepo, emailSvc, eventRepo)
 	billingUC := usecase.NewBillingUsecase(hourRepo, memberRepo, settingsRepo, auditRepo)
 	settingsUC := usecase.NewSettingsUsecase(settingsRepo, auditRepo, memCache)
 	reminderUC := usecase.NewReminderUsecase(shiftRepo, regRepo, eventRepo, memberRepo, emailSvc, auditRepo, settingsRepo)
@@ -188,7 +188,7 @@ func run() error {
 		if err != nil {
 			return fmt.Errorf("get underlying sql.DB: %w", err)
 		}
-		sched := scheduler.New(sqlDB, regUC, reminderUC, notificationUC, log)
+		sched := scheduler.New(sqlDB, regUC, reminderUC, notificationUC, auditRepo, log)
 		sched.Start(rootCtx)
 		defer sched.Stop()
 	}

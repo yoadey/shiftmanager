@@ -1,4 +1,4 @@
-.PHONY: generate build test lint
+.PHONY: generate build test lint e2e e2e-ui dev-backend
 
 # ── Code generation (single source of truth: api/openapi.yaml) ───────────────
 #
@@ -41,3 +41,21 @@ test:
 lint:
 	go vet ./...
 	cd frontend && npx tsc --noEmit
+
+# ── E2E tests (Playwright) ────────────────────────────────────────────────────
+#
+# Prerequisites (running inside the devcontainer):
+#   1. The Go backend must be running:  make dev-backend   (or go run ./cmd/server)
+#   2. PostgreSQL is available via the devcontainer compose service (postgres:5432)
+#
+# The Playwright webServer config auto-starts the Vite dev server if needed.
+#
+e2e:
+	cd frontend && npm run e2e
+
+e2e-ui:
+	cd frontend && npm run e2e:ui
+
+# Starts the Go backend in the foreground (Ctrl-C to stop).
+dev-backend:
+	go run ./cmd/server
