@@ -15,6 +15,7 @@ type MemberModel struct {
 	OIDCSubject         *string    `gorm:"column:oidc_subject;type:text"`
 	Role                string     `gorm:"column:role;type:text"`
 	ReminderOptOut      bool       `gorm:"column:reminder_opt_out"`
+	NotifyNewEvents     bool       `gorm:"column:notify_new_events"`
 }
 
 func (MemberModel) TableName() string { return "members" }

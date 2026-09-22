@@ -6,6 +6,7 @@ package testmode
 import (
 	"context"
 	"net/http/httptest"
+	"time"
 
 	"github.com/rs/zerolog"
 	"github.com/yoadey/shiftmanager/internal/adapter/cache"
@@ -65,7 +66,7 @@ func New(_ context.Context) (*Server, error) {
 
 	// --- Usecases ---
 	memberUC := usecase.NewMemberUsecase(memberRepo, auditRepo)
-	eventUC := usecase.NewEventUsecase(eventRepo, shiftRepo, regRepo, auditRepo, emailSvc)
+	eventUC := usecase.NewEventUsecase(eventRepo, shiftRepo, regRepo, auditRepo, emailSvc, memberRepo)
 	regUC := usecase.NewRegistrationUsecase(regRepo, shiftRepo, eventRepo, memberRepo, emailSvc, auditRepo, settingsRepo)
 	hourUC := usecase.NewHourUsecase(hourRepo, memberRepo, shiftRepo, auditRepo, emailSvc, eventRepo)
 	billingUC := usecase.NewBillingUsecase(hourRepo, memberRepo, settingsRepo, auditRepo)
@@ -83,7 +84,7 @@ func New(_ context.Context) (*Server, error) {
 	_ = oidcadapter.Config{} // ensure import used
 
 	handlers := httpadapter.Handlers{
-		Auth:     handler.BuildAuthHandler(oidcSvc, memberRepo, auditRepo, TestJWTSecret, 0, "/auth/callback", ""),
+		Auth:     handler.BuildAuthHandler(oidcSvc, memberRepo, auditRepo, TestJWTSecret, 24*time.Hour, "/auth/callback", ""),
 		Member:   handler.NewMemberHandler(memberUC),
 		Event:    handler.NewEventHandler(eventUC),
 		Shift:    handler.NewShiftHandler(eventUC, regUC),

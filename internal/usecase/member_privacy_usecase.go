@@ -121,3 +121,19 @@ func (uc *MemberPrivacyUsecase) SetReminderOptOut(ctx context.Context, actorID u
 		map[string]bool{"reminderOptOut": optOut})
 	return nil
 }
+
+// SetNotifyNewEvents updates a member's own opt-in preference for the "new
+// event published" notification.
+func (uc *MemberPrivacyUsecase) SetNotifyNewEvents(ctx context.Context, actorID uuid.UUID, memberID uuid.UUID, notify bool) error {
+	if _, err := uc.members.GetByID(ctx, memberID); err != nil {
+		return err
+	}
+	if err := uc.members.SetNotifyNewEvents(ctx, memberID, notify); err != nil {
+		return fmt.Errorf("set notify-new-events: %w", err)
+	}
+
+	aid := actorID
+	_ = writeAuditEntry(ctx, uc.audit, &aid, domain.AuditActionUpdate, domain.AuditEntityMember, memberID.String(), nil,
+		map[string]bool{"notifyNewEvents": notify})
+	return nil
+}

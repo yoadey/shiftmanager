@@ -89,6 +89,10 @@ var defaultTemplates = map[string]struct{ Subject, Body string }{
 		"Schicht unterbesetzt: {{.EventName}}",
 		"Hallo,\n\ndie Schicht \"{{.ShiftName}}\" bei \"{{.EventName}}\" am {{.StartAt}} ist unterbesetzt.\n\nViele Gruesse\nTSC Schwarz-Gelb Aachen",
 	},
+	domain.EmailTemplateNewEvent: {
+		"Neue Veranstaltung: {{.EventName}}",
+		"Hallo,\n\nes gibt eine neue Veranstaltung: \"{{.EventName}}\".\nOrt: {{.Location}}\nBeginn: {{.StartAt}}\n\nSchau vorbei und melde dich fuer eine Schicht an!\n\nViele Gruesse\nTSC Schwarz-Gelb Aachen",
+	},
 }
 
 const dateLayout = "02.01.2006 15:04"

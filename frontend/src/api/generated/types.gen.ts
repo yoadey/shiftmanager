@@ -16,6 +16,7 @@ export type Member = {
   isActive: boolean;
   role: MemberRole;
   reminderOptOut?: boolean;
+  notifyNewEvents?: boolean;
   individualGoalHours?: number | null;
 };
 
@@ -37,12 +38,27 @@ export type MemberWrite = {
 
 export type MemberPreferences = {
   reminderOptOut: boolean;
+  /**
+   * Opt-in: receive an e-mail when a new event is published
+   */
+  notifyNewEvents?: boolean;
 };
 
 export type MeResponse = {
   id: Uuid;
   role: MemberRole;
   email: string;
+};
+
+export type TokenResponse = {
+  /**
+   * Freshly signed JWT
+   */
+  token: string;
+  /**
+   * Seconds until the new token expires
+   */
+  expiresIn: number;
 };
 
 export type EventStatus = "draft" | "published" | "cancelled" | "completed";
@@ -222,6 +238,12 @@ export type BrandingUpdateResult = {
   warnings?: Array<string>;
 };
 
+export type BrandingHistoryEntry = {
+  id: Uuid;
+  branding: BrandingConfig;
+  createdAt: string;
+};
+
 export type FeeTier = {
   id: Uuid;
   clubYearId: Uuid;
@@ -328,6 +350,32 @@ export type GetMeResponses = {
 };
 
 export type GetMeResponse = GetMeResponses[keyof GetMeResponses];
+
+export type RefreshTokenData = {
+  body?: never;
+  path?: never;
+  query?: never;
+  url: "/auth/refresh";
+};
+
+export type RefreshTokenErrors = {
+  /**
+   * Missing or invalid JWT
+   */
+  401: ErrorResponse;
+};
+
+export type RefreshTokenError = RefreshTokenErrors[keyof RefreshTokenErrors];
+
+export type RefreshTokenResponses = {
+  /**
+   * Freshly issued token
+   */
+  200: TokenResponse;
+};
+
+export type RefreshTokenResponse =
+  RefreshTokenResponses[keyof RefreshTokenResponses];
 
 export type LogoutData = {
   body?: never;

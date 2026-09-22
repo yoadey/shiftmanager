@@ -141,6 +141,9 @@ import type {
   PublishEventData,
   PublishEventErrors,
   PublishEventResponses,
+  RefreshTokenData,
+  RefreshTokenErrors,
+  RefreshTokenResponses,
   RegisterShiftData,
   RegisterShiftErrors,
   RegisterShiftResponses,
@@ -231,6 +234,22 @@ export const getMe = <ThrowOnError extends boolean = false>(
   (options?.client ?? client).get<GetMeResponses, GetMeErrors, ThrowOnError>({
     security: [{ scheme: "bearer", type: "http" }],
     url: "/auth/me",
+    ...options,
+  });
+
+/**
+ * Re-issue a JWT with a fresh expiry for the current session (A-004)
+ */
+export const refreshToken = <ThrowOnError extends boolean = false>(
+  options?: Options<RefreshTokenData, ThrowOnError>,
+) =>
+  (options?.client ?? client).post<
+    RefreshTokenResponses,
+    RefreshTokenErrors,
+    ThrowOnError
+  >({
+    security: [{ scheme: "bearer", type: "http" }],
+    url: "/auth/refresh",
     ...options,
   });
 

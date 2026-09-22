@@ -65,6 +65,19 @@ func post(t *testing.T, s *testmode.Server, path, tok, body string) *http.Respon
 	return resp
 }
 
+func put(t *testing.T, s *testmode.Server, path, tok, body string) *http.Response {
+	t.Helper()
+	req, err := http.NewRequest(http.MethodPut, s.URL+path, strings.NewReader(body))
+	require.NoError(t, err)
+	req.Header.Set("Content-Type", "application/json")
+	if tok != "" {
+		req.Header.Set("Authorization", "Bearer "+tok)
+	}
+	resp, err := http.DefaultClient.Do(req)
+	require.NoError(t, err)
+	return resp
+}
+
 func decode(t *testing.T, resp *http.Response, v any) {
 	t.Helper()
 	defer resp.Body.Close()
@@ -130,6 +143,34 @@ func TestAuthMeRequiresToken(t *testing.T) {
 	resp.Body.Close()
 }
 
+func TestAuthRefreshEndpoint(t *testing.T) {
+	s := startServer(t)
+	tok := token(t, s, "mitglied", db.MemberID.String(), "max@test.local")
+
+	resp := post(t, s, "/api/v1/auth/refresh", tok, "")
+	assert.Equal(t, http.StatusOK, resp.StatusCode)
+
+	var body struct {
+		Token     string `json:"token"`
+		ExpiresIn int    `json:"expiresIn"`
+	}
+	decode(t, resp, &body)
+	assert.NotEmpty(t, body.Token)
+	assert.Positive(t, body.ExpiresIn)
+
+	// The freshly issued token must itself be usable.
+	meResp := get(t, s, "/api/v1/auth/me", body.Token)
+	assert.Equal(t, http.StatusOK, meResp.StatusCode)
+	meResp.Body.Close()
+}
+
+func TestAuthRefreshRequiresToken(t *testing.T) {
+	s := startServer(t)
+	resp := post(t, s, "/api/v1/auth/refresh", "", "")
+	assert.Equal(t, http.StatusUnauthorized, resp.StatusCode)
+	resp.Body.Close()
+}
+
 func TestListMembers(t *testing.T) {
 	s := startServer(t)
 	tok := token(t, s, "vorstand", db.AdminID.String(), "admin@test.local")
@@ -162,6 +203,28 @@ func TestGetMember(t *testing.T) {
 	assert.Equal(t, "Max", m["firstName"])
 	assert.Equal(t, "Mustermann", m["lastName"])
 	assert.Equal(t, "max@test.local", m["email"])
+}
+
+func TestUpdatePreferences_NotifyNewEvents(t *testing.T) {
+	s := startServer(t)
+	tok := token(t, s, "mitglied", db.MemberID.String(), "max@test.local")
+
+	resp := put(t, s, "/api/v1/members/me/preferences", tok, `{"reminderOptOut":false,"notifyNewEvents":true}`)
+	require.Equal(t, http.StatusOK, resp.StatusCode)
+	var body struct {
+		ReminderOptOut  bool `json:"reminderOptOut"`
+		NotifyNewEvents bool `json:"notifyNewEvents"`
+	}
+	decode(t, resp, &body)
+	assert.False(t, body.ReminderOptOut)
+	assert.True(t, body.NotifyNewEvents)
+
+	// Persisted: reflected back via GET /members/{id}.
+	getResp := get(t, s, "/api/v1/members/"+db.MemberID.String(), tok)
+	require.Equal(t, http.StatusOK, getResp.StatusCode)
+	var m map[string]any
+	decode(t, getResp, &m)
+	assert.Equal(t, true, m["notifyNewEvents"])
 }
 
 func TestListEvents(t *testing.T) {

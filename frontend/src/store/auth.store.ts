@@ -3,13 +3,24 @@ import type { AuthUser } from '@/types';
 
 interface AuthState {
   token: string | null;
+  /** Epoch milliseconds at which `token` expires, or null if unknown. */
+  expiresAt: number | null;
   user: AuthUser | null;
-  login: (token: string, user: AuthUser) => void;
+  login: (token: string, user: AuthUser, expiresAt: number | null) => void;
+  /** Swaps in a freshly refreshed token without touching the user profile (A-004). */
+  setToken: (token: string, expiresAt: number | null) => void;
   logout: () => void;
+}
+
+function readExpiresAt(): number | null {
+  const raw = localStorage.getItem('sm_expires_at');
+  const n = raw ? Number(raw) : NaN;
+  return Number.isFinite(n) ? n : null;
 }
 
 export const useAuthStore = create<AuthState>((set) => ({
   token: localStorage.getItem('sm_token'),
+  expiresAt: readExpiresAt(),
   user: (() => {
     try {
       const raw = localStorage.getItem('sm_user');
@@ -19,15 +30,31 @@ export const useAuthStore = create<AuthState>((set) => ({
     }
   })(),
 
-  login: (token, user) => {
+  login: (token, user, expiresAt) => {
     localStorage.setItem('sm_token', token);
     localStorage.setItem('sm_user', JSON.stringify(user));
-    set({ token, user });
+    if (expiresAt !== null) {
+      localStorage.setItem('sm_expires_at', String(expiresAt));
+    } else {
+      localStorage.removeItem('sm_expires_at');
+    }
+    set({ token, user, expiresAt });
+  },
+
+  setToken: (token, expiresAt) => {
+    localStorage.setItem('sm_token', token);
+    if (expiresAt !== null) {
+      localStorage.setItem('sm_expires_at', String(expiresAt));
+    } else {
+      localStorage.removeItem('sm_expires_at');
+    }
+    set({ token, expiresAt });
   },
 
   logout: () => {
     localStorage.removeItem('sm_token');
     localStorage.removeItem('sm_user');
-    set({ token: null, user: null });
+    localStorage.removeItem('sm_expires_at');
+    set({ token: null, user: null, expiresAt: null });
   },
 }));

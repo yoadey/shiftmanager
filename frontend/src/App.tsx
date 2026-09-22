@@ -6,6 +6,7 @@ import { ErrorBoundary } from '@/components/ui/ErrorBoundary';
 import { TweaksPanel } from '@/components/tweaks/TweaksPanel';
 import { useAppStore } from '@/store/app.store';
 import { useBranding, useSettings } from '@/api/settings';
+import { useTokenRefresh } from '@/hooks/useTokenRefresh';
 
 // Screens — lazy loaded
 const MemberDashboard = lazy(() => import('@/screens/member/MemberDashboard').then(m => ({ default: m.MemberDashboard })));
@@ -91,6 +92,9 @@ export default function App() {
   const navKey = `${role}:${tab}:${navStack.map((n) => `${n.name}/${n.params?.id ?? ''}`).join('>')}`;
   const [isDesktop, setIsDesktop] = useState(() => window.innerWidth >= 900);
   const [createOpen, setCreateOpen] = useState(false);
+
+  // A-004: keep the session alive in the background while the app is open.
+  useTokenRefresh();
 
   // Branding (B-002/B-005/B-006) — applied at app root, falls back to defaults while loading.
   const { data: branding } = useBranding();

@@ -44,6 +44,10 @@ func (a memberGetterAdapter) GetByEmail(r *http.Request, email string) (*domain.
 	return a.repo.GetByEmail(reqCtx(r), email)
 }
 
+func (a memberGetterAdapter) GetByID(r *http.Request, id uuid.UUID) (*domain.Member, error) {
+	return a.repo.GetByID(reqCtx(r), id)
+}
+
 func (a memberGetterAdapter) GetByOIDCSubject(r *http.Request, provider, subject string) (*domain.Member, error) {
 	return a.repo.GetByOIDCSubject(reqCtx(r), provider, subject)
 }

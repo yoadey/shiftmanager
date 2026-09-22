@@ -24,6 +24,8 @@ type MemberRepository interface {
 	CountActive(ctx context.Context) (int, error)
 	// SetReminderOptOut updates a member's reminder opt-out preference (N-001).
 	SetReminderOptOut(ctx context.Context, id uuid.UUID, optOut bool) error
+	// SetNotifyNewEvents updates a member's "new event published" opt-in preference.
+	SetNotifyNewEvents(ctx context.Context, id uuid.UUID, notify bool) error
 	// Anonymize replaces PII with redacted placeholders for GDPR deletion (DS-004).
 	Anonymize(ctx context.Context, id uuid.UUID, leftAt time.Time) error
 }
