@@ -1,6 +1,15 @@
 import { Component, type ErrorInfo, type ReactNode } from 'react';
 import { Icon } from '@/components/ui/Icon';
 
+// Browsers phrase a failed dynamic import() of a since-removed hashed chunk
+// differently ("Failed to fetch dynamically imported module" in Chrome,
+// "error loading dynamically imported module" in Firefox, "Importing a
+// module script failed" in Safari) — matched loosely to cover all of them.
+function isStaleChunkError(error: Error): boolean {
+  const msg = error.message || '';
+  return /dynamically imported module|importing a module script failed/i.test(msg);
+}
+
 interface ErrorBoundaryProps {
   /** Short label describing the section, e.g. "Übersicht" or "die Mitgliederliste". */
   label?: string;
@@ -33,6 +42,18 @@ export class ErrorBoundary extends Component<ErrorBoundaryProps, ErrorBoundarySt
     // Surface the failure in the console for debugging without crashing the app.
     // eslint-disable-next-line no-console
     console.error(`[ErrorBoundary${this.props.label ? ` · ${this.props.label}` : ''}]`, error, info.componentStack);
+
+    // Defense in depth for the main.tsx `vite:preloadError` handler: if a
+    // stale hashed chunk 404s in a way that reaches here without that event
+    // having fired, reload once (same session guard) instead of leaving the
+    // user stuck on a "retry" that would fail identically.
+    if (isStaleChunkError(error)) {
+      const key = 'sm_reloaded_after_preload_error';
+      if (!sessionStorage.getItem(key)) {
+        sessionStorage.setItem(key, '1');
+        window.location.reload();
+      }
+    }
   }
 
   reset = (): void => this.setState({ error: null });
