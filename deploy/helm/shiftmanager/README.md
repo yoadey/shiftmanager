@@ -6,6 +6,28 @@ subcharts) for a turnkey install.
 
 ## TL;DR
 
+Every push to `main` builds the app image (`ghcr.io/yoadey/shiftmanager:latest`)
+and packages/pushes this chart to `oci://ghcr.io/yoadey/charts/shiftmanager`
+(see `.github/workflows/ci.yml`), with `appVersion` pinned to that `latest`
+image tag. For a quick test deployment, install straight from the registry —
+no checkout needed:
+
+```bash
+helm upgrade --install shiftmanager oci://ghcr.io/yoadey/charts/shiftmanager \
+  --version 0.1.0 \
+  --namespace shiftmanager --create-namespace \
+  --set app.jwtSecret="$(openssl rand -hex 32)" \
+  --set postgresql.auth.password="$(openssl rand -hex 16)" \
+  --set app.bootstrapAdminEmail="vorstand@mein-verein.de" \
+  --set app.oidc.issuer="https://id.example/realms/verein" \
+  --set app.oidc.clientId="shiftmanager" \
+  --set app.oidc.clientSecret="••••" \
+  --set app.baseUrl="https://schichten.example.de" \
+  --set app.oidc.redirectUrl="https://schichten.example.de/api/v1/auth/callback"
+```
+
+Or, working from a local checkout of this repo:
+
 ```bash
 # from the repo root
 helm dependency update ./deploy/helm/shiftmanager
@@ -24,7 +46,9 @@ helm upgrade --install shiftmanager ./deploy/helm/shiftmanager \
 
 > `helm dependency update` requires network access to
 > `oci://registry-1.docker.io/bitnamicharts`. In air-gapped clusters, vendor the
-> subchart `.tgz` files into `charts/` or disable them (see below).
+> subchart `.tgz` files into `charts/` or disable them (see below). The chart
+> published to `ghcr.io` already has its dependencies vendored, so this step
+> is only needed for a local checkout.
 
 ## Architecture
 
