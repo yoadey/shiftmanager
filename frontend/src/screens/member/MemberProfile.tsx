@@ -45,7 +45,6 @@ function LinkRow({ icon, label, sub, onClick }: { icon: string; label: string; s
 interface Prefs {
   week: boolean;
   day: boolean;
-  news: boolean;
 }
 
 export function MemberProfile() {
@@ -67,23 +66,43 @@ export function MemberProfile() {
     goal: null,
   };
   const memberMap = { [me.id]: { first: me.first, last: me.last } };
-  const [prefs, setPrefs] = useState<Prefs>({ week: true, day: true, news: false });
+  const [prefs, setPrefs] = useState<Prefs>({ week: true, day: true });
 
   // N-001: reminder opt-out is persisted; the local toggle reflects the inverse
-  // ("Erinnerungen aktiv" = !reminderOptOut). Hydrate from the live profile.
+  // ("Erinnerungen aktiv" = !reminderOptOut). The "new event" opt-in is
+  // persisted as-is. Both hydrate from the live profile.
   const [remindersOn, setRemindersOn] = useState(true);
+  const [newEventsOn, setNewEventsOn] = useState(false);
   useEffect(() => {
-    if (profile) setRemindersOn(!profile.reminderOptOut);
+    if (profile) {
+      setRemindersOn(!profile.reminderOptOut);
+      setNewEventsOn(!!profile.notifyNewEvents);
+    }
   }, [profile]);
 
   const toggleReminders = () => {
     const next = !remindersOn;
     setRemindersOn(next);
     // optOut is the inverse of "reminders on".
-    updatePrefs.mutate(!next, {
-      onSuccess: () => showToast(next ? 'Erinnerungen aktiviert.' : 'Erinnerungen deaktiviert.'),
-      onError: () => { setRemindersOn(!next); showToast('Einstellung konnte nicht gespeichert werden.', 'crit'); },
-    });
+    updatePrefs.mutate(
+      { reminderOptOut: !next, notifyNewEvents: newEventsOn },
+      {
+        onSuccess: () => showToast(next ? 'Erinnerungen aktiviert.' : 'Erinnerungen deaktiviert.'),
+        onError: () => { setRemindersOn(!next); showToast('Einstellung konnte nicht gespeichert werden.', 'crit'); },
+      },
+    );
+  };
+
+  const toggleNewEvents = () => {
+    const next = !newEventsOn;
+    setNewEventsOn(next);
+    updatePrefs.mutate(
+      { reminderOptOut: !remindersOn, notifyNewEvents: next },
+      {
+        onSuccess: () => showToast(next ? 'Benachrichtigung bei neuen Veranstaltungen aktiviert.' : 'Benachrichtigung bei neuen Veranstaltungen deaktiviert.'),
+        onError: () => { setNewEventsOn(!next); showToast('Einstellung konnte nicht gespeichert werden.', 'crit'); },
+      },
+    );
   };
 
   const onExport = () => {
@@ -117,7 +136,7 @@ export function MemberProfile() {
           <hr className="sm-divider" />
           <PrefRow label="Erinnerung 1 Tag vorher" sub="24 h vor Schichtbeginn" on={prefs.day} set={() => setPrefs((p) => ({ ...p, day: !p.day }))} />
           <hr className="sm-divider" />
-          <PrefRow label="Neue Veranstaltungen" sub="Bei Veröffentlichung benachrichtigen" on={prefs.news} set={() => setPrefs((p) => ({ ...p, news: !p.news }))} />
+          <PrefRow label="Neue Veranstaltungen" sub="Bei Veröffentlichung benachrichtigen" on={newEventsOn} set={toggleNewEvents} />
         </div>
         <div className="sm-hint" style={{ padding: '0 4px' }}>Pflicht-Mails (z. B. Absage einer Schicht) können nicht deaktiviert werden.</div>
 

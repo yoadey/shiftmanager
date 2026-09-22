@@ -79,12 +79,14 @@ func (h *PrivacyHandler) GDPRDelete(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]string{"status": "anonymized"})
 }
 
-// UpdatePreferences updates the authenticated member's own reminder opt-out (N-001).
+// UpdatePreferences updates the authenticated member's own reminder opt-out
+// (N-001) and "new event published" opt-in preference.
 // PUT /api/v1/members/me/preferences
 func (h *PrivacyHandler) UpdatePreferences(w http.ResponseWriter, r *http.Request) {
 	actorID := middleware.GetUserID(r.Context())
 	var body struct {
-		ReminderOptOut bool `json:"reminderOptOut"`
+		ReminderOptOut  bool `json:"reminderOptOut"`
+		NotifyNewEvents bool `json:"notifyNewEvents"`
 	}
 	if err := decodeJSON(r, &body); err != nil {
 		writeError(w, http.StatusBadRequest, "invalid request body")
@@ -94,5 +96,12 @@ func (h *PrivacyHandler) UpdatePreferences(w http.ResponseWriter, r *http.Reques
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]bool{"reminderOptOut": body.ReminderOptOut})
+	if err := h.uc.SetNotifyNewEvents(r.Context(), actorID, actorID, body.NotifyNewEvents); err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]bool{
+		"reminderOptOut":  body.ReminderOptOut,
+		"notifyNewEvents": body.NotifyNewEvents,
+	})
 }

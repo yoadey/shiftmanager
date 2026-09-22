@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/yoadey/shiftmanager/internal/adapter/http/middleware"
 	"github.com/yoadey/shiftmanager/internal/domain"
 	"github.com/yoadey/shiftmanager/internal/port"
 )
@@ -42,6 +43,19 @@ func newFakeStore() *fakeMemberStore {
 func (s *fakeMemberStore) GetByEmail(_ *http.Request, email string) (*domain.Member, error) {
 	if m, ok := s.byEmail[strings.ToLower(email)]; ok {
 		return m, nil
+	}
+	return nil, domain.ErrMemberNotFound
+}
+func (s *fakeMemberStore) GetByID(_ *http.Request, id uuid.UUID) (*domain.Member, error) {
+	for _, m := range s.byEmail {
+		if m.ID == id {
+			return m, nil
+		}
+	}
+	for _, m := range s.bySubject {
+		if m.ID == id {
+			return m, nil
+		}
 	}
 	return nil, domain.ErrMemberNotFound
 }
@@ -239,6 +253,55 @@ func TestCallback_BootstrapAdmin_PromotesExisting(t *testing.T) {
 	}
 	if len(store.updated) == 0 {
 		t.Error("promotion should persist via Update")
+	}
+}
+
+func TestRefresh_ActiveMember_IssuesNewToken(t *testing.T) {
+	store := newFakeStore()
+	member := &domain.Member{ID: uuid.New(), Email: "x@club.de", Role: domain.RoleMitglied, IsActive: true}
+	store.byEmail["x@club.de"] = member
+	h, _ := newHandler(store, &port.OIDCClaims{}, "")
+
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/auth/refresh", nil)
+	req = req.WithContext(context.WithValue(req.Context(), middleware.ContextKeyUserID, member.ID))
+	rec := httptest.NewRecorder()
+	h.Refresh(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", rec.Code, rec.Body.String())
+	}
+	if !strings.Contains(rec.Body.String(), `"token"`) || !strings.Contains(rec.Body.String(), `"expiresIn"`) {
+		t.Errorf("expected token+expiresIn in response, got %s", rec.Body.String())
+	}
+}
+
+func TestRefresh_InactiveMember_Unauthorized(t *testing.T) {
+	store := newFakeStore()
+	member := &domain.Member{ID: uuid.New(), Email: "x@club.de", Role: domain.RoleMitglied, IsActive: false}
+	store.byEmail["x@club.de"] = member
+	h, _ := newHandler(store, &port.OIDCClaims{}, "")
+
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/auth/refresh", nil)
+	req = req.WithContext(context.WithValue(req.Context(), middleware.ContextKeyUserID, member.ID))
+	rec := httptest.NewRecorder()
+	h.Refresh(rec, req)
+
+	if rec.Code != http.StatusUnauthorized {
+		t.Fatalf("expected 401, got %d", rec.Code)
+	}
+}
+
+func TestRefresh_UnknownMember_Unauthorized(t *testing.T) {
+	store := newFakeStore()
+	h, _ := newHandler(store, &port.OIDCClaims{}, "")
+
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/auth/refresh", nil)
+	req = req.WithContext(context.WithValue(req.Context(), middleware.ContextKeyUserID, uuid.New()))
+	rec := httptest.NewRecorder()
+	h.Refresh(rec, req)
+
+	if rec.Code != http.StatusUnauthorized {
+		t.Fatalf("expected 401, got %d", rec.Code)
 	}
 }
 

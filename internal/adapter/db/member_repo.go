@@ -115,8 +115,9 @@ func (r *MemberRepo) Update(ctx context.Context, m *domain.Member) error {
 			"role":             model.Role,
 			"is_active":        model.IsActive,
 			"joined_at":        model.JoinedAt,
-			"left_at":          model.LeftAt,
-			"reminder_opt_out": model.ReminderOptOut,
+			"left_at":           model.LeftAt,
+			"reminder_opt_out":  model.ReminderOptOut,
+			"notify_new_events": model.NotifyNewEvents,
 		})
 	if result.Error != nil {
 		return result.Error
@@ -200,6 +201,19 @@ func (r *MemberRepo) SetReminderOptOut(ctx context.Context, id uuid.UUID, optOut
 	return nil
 }
 
+func (r *MemberRepo) SetNotifyNewEvents(ctx context.Context, id uuid.UUID, notify bool) error {
+	result := r.db.WithContext(ctx).Model(&MemberModel{}).
+		Where("id = ?", id.String()).
+		Update("notify_new_events", notify)
+	if result.Error != nil {
+		return result.Error
+	}
+	if result.RowsAffected == 0 {
+		return domain.ErrMemberNotFound
+	}
+	return nil
+}
+
 func (r *MemberRepo) Anonymize(ctx context.Context, id uuid.UUID, leftAt time.Time) error {
 	idStr := id.String()
 	result := r.db.WithContext(ctx).Model(&MemberModel{}).
@@ -237,6 +251,7 @@ func toMemberModel(m *domain.Member) MemberModel {
 		OIDCSubject:         m.OIDCSubject,
 		Role:                m.Role,
 		ReminderOptOut:      m.ReminderOptOut,
+		NotifyNewEvents:     m.NotifyNewEvents,
 	}
 }
 
@@ -253,5 +268,6 @@ func toMemberDomain(m MemberModel) *domain.Member {
 		OIDCSubject:         m.OIDCSubject,
 		Role:                m.Role,
 		ReminderOptOut:      m.ReminderOptOut,
+		NotifyNewEvents:     m.NotifyNewEvents,
 	}
 }

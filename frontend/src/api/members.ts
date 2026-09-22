@@ -19,6 +19,7 @@ interface RawMember {
   individualGoalHours?: number | null;
   role?: string;
   reminderOptOut?: boolean;
+  notifyNewEvents?: boolean;
 }
 
 function toMember(r: RawMember): Member {
@@ -31,6 +32,7 @@ function toMember(r: RawMember): Member {
     goal: r.individualGoalHours ?? null,
     active: r.isActive,
     reminderOptOut: r.reminderOptOut,
+    notifyNewEvents: r.notifyNewEvents,
   };
 }
 
@@ -153,12 +155,17 @@ export function useExportMembersCSV() {
 
 // ── Privacy / GDPR (DS-003, DS-004, N-001) ──────────────────────────────────
 
-/** Updates the authenticated member's own reminder opt-out (N-001). */
+/**
+ * Updates the authenticated member's own preferences: reminder opt-out
+ * (N-001) and the "new event published" opt-in. The backend expects both
+ * fields on every write, so callers must pass the full desired state (not
+ * just the one being changed) to avoid clobbering the other.
+ */
 export function useUpdatePreferences() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: (reminderOptOut: boolean) =>
-      apiPut<{ reminderOptOut: boolean }>('/members/me/preferences', { reminderOptOut }),
+    mutationFn: (prefs: { reminderOptOut: boolean; notifyNewEvents: boolean }) =>
+      apiPut<{ reminderOptOut: boolean; notifyNewEvents: boolean }>('/members/me/preferences', prefs),
     onSuccess: () => qc.invalidateQueries({ queryKey: ['members'] }),
   });
 }

@@ -36,6 +36,7 @@ type AuthHandler struct {
 // up members and auto-registering / linking OIDC identities on first login.
 type memberStore interface {
 	GetByEmail(r *http.Request, email string) (*domain.Member, error)
+	GetByID(r *http.Request, id uuid.UUID) (*domain.Member, error)
 	GetByOIDCSubject(r *http.Request, provider, subject string) (*domain.Member, error)
 	Create(r *http.Request, m *domain.Member) error
 	Update(r *http.Request, m *domain.Member) error
@@ -272,6 +273,31 @@ func (h *AuthHandler) Me(w http.ResponseWriter, r *http.Request) {
 		"email":     email,
 		"firstName": firstName,
 		"lastName":  lastName,
+	})
+}
+
+// Refresh re-issues a JWT with a fresh expiry for the caller's current
+// session, without a full OIDC round-trip (A-004). The member is re-read
+// from the database so a role change or deactivation since the presented
+// token was issued takes effect immediately instead of only at next login.
+// POST /api/v1/auth/refresh
+func (h *AuthHandler) Refresh(w http.ResponseWriter, r *http.Request) {
+	userID := middleware.GetUserID(r.Context())
+	member, err := h.members.GetByID(r, userID)
+	if err != nil || !member.IsActive {
+		http.Error(w, `{"error":"account no longer active"}`, http.StatusUnauthorized)
+		return
+	}
+
+	jwtToken, err := h.issueJWT(member)
+	if err != nil {
+		http.Error(w, `{"error":"server_error"}`, http.StatusInternalServerError)
+		return
+	}
+
+	writeJSON(w, http.StatusOK, map[string]interface{}{
+		"token":     jwtToken,
+		"expiresIn": int(h.jwtExpiry.Seconds()),
 	})
 }
 
