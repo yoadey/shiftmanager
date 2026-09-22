@@ -1,0 +1,1 @@
+import{j as n}from"./index-DezqCZH0.js";function t({kind:a="neutral",dot:r=!0,children:s,style:e}){return n.jsxs("span",{className:`sm-badge b-${a}`,style:e,children:[r&&n.jsx("span",{className:"dot"}),s]})}const c={ok:"ok",warn:"warn",crit:"crit",full:"full"};function i({o:a}){return n.jsx(t,{kind:c[a.key]??"neutral",children:a.label})}export{t as B,i as O};

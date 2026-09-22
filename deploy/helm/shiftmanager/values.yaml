@@ -1,0 +1,266 @@
+# Default values for the ShiftManager chart.
+# Override only what you need: `helm install sm ./deploy/helm/shiftmanager -f my-values.yaml`
+
+# -- Override the chart name / fullname used for resource names.
+nameOverride: ""
+fullnameOverride: ""
+
+# Number of application replicas (ignored when autoscaling.enabled=true).
+replicaCount: 2
+
+image:
+  repository: ghcr.io/yoadey/shiftmanager
+  pullPolicy: IfNotPresent
+  # Defaults to the chart appVersion when empty. Pin to an immutable tag/digest
+  # in production (e.g. "1.4.0" or "sha256:...").
+  tag: ""
+
+# Secrets for pulling the image from a private registry.
+imagePullSecrets: []
+#  - name: ghcr-creds
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Application configuration (maps 1:1 to the backend's environment variables).
+# Non-sensitive values land in a ConfigMap; sensitive ones in a Secret.
+# ─────────────────────────────────────────────────────────────────────────────
+app:
+  # Public URL of the application (used for links in e-mails). Should match the
+  # ingress host, e.g. https://schichten.mein-verein.de
+  baseUrl: "http://localhost:8080"
+
+  logLevel: info        # trace | debug | info | warn | error
+  kioskEnabled: true
+  reservationHours: 48  # default reservation validity (K-010)
+  deregisterDeadlineH: 24
+  # Directory uploaded logos are stored in. Persisted via persistence.* below.
+  uploadDir: /data/uploads
+  # Go runtime soft memory limit; keep ~80% of the container memory limit.
+  goMemLimit: "200MiB"
+
+  # First-admin bootstrap: the member with this e-mail is auto-provisioned /
+  # promoted to an active administrator on first login. Clear once set up.
+  bootstrapAdminEmail: ""
+
+  oidc:
+    issuer: "https://keycloak.example.com/realms/verein"
+    clientId: "shiftmanager"
+    # Sensitive — stored in the generated Secret (or supply via existingSecret).
+    clientSecret: ""
+    # MUST be registered verbatim at the IdP. Note the /api/v1 prefix.
+    redirectUrl: "http://localhost:8080/api/v1/auth/callback"
+    # SPA route the backend redirects to after login (token in URL fragment).
+    loginRedirectUrl: "/auth/callback"
+
+  # Sensitive — JWT signing secret (min. 32 chars). REQUIRED.
+  # Generate: openssl rand -hex 32
+  jwtSecret: ""
+
+  smtp:
+    host: ""
+    port: 587
+    user: ""
+    password: ""   # sensitive
+    from: "ShiftManager <noreply@example.com>"
+
+  # Extra environment variables appended verbatim to the container.
+  extraEnv: []
+  #  - name: SOME_FLAG
+  #    value: "true"
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Secrets handling
+# Provide an existing Secret to manage sensitive values yourself (e.g. via
+# Sealed Secrets / External Secrets). It MUST contain the keys:
+#   JWT_SECRET, DATABASE_URL, OIDC_CLIENT_SECRET, SMTP_PASS, and optionally
+#   REDIS_URL. When set, the chart does not template its own Secret and does not
+#   derive DATABASE_URL/REDIS_URL from the bundled subcharts.
+# ─────────────────────────────────────────────────────────────────────────────
+existingSecret: ""
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Database
+# When postgresql.enabled=true the bundled Bitnami PostgreSQL is deployed and
+# DATABASE_URL is derived automatically from postgresql.auth below.
+# When disabled, set database.external.url to your DSN (or use existingSecret).
+# ─────────────────────────────────────────────────────────────────────────────
+database:
+  external:
+    # e.g. postgres://user:pass@db.host:5432/shiftmanager?sslmode=require
+    url: ""
+
+postgresql:
+  enabled: true
+  # Override only if you set a custom fullnameOverride on the subchart.
+  fullnameOverride: ""
+  auth:
+    username: shiftmanager
+    password: "change-me-postgres"   # set a strong value or use auth.existingSecret
+    database: shiftmanager
+  architecture: standalone
+  primary:
+    persistence:
+      enabled: true
+      size: 8Gi
+    resources:
+      requests:
+        cpu: 100m
+        memory: 256Mi
+      limits:
+        memory: 512Mi
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Redis (optional). The app falls back to an in-memory cache when no REDIS_URL
+# is configured, so Redis is OFF by default.
+# ─────────────────────────────────────────────────────────────────────────────
+redis:
+  enabled: false
+  fullnameOverride: ""
+  architecture: standalone
+  auth:
+    enabled: true
+    password: "change-me-redis"
+  master:
+    persistence:
+      enabled: false
+  external:
+    # Used only when redis.enabled=false; leave empty for the in-memory cache.
+    # e.g. redis://:password@redis.host:6379/0
+    url: ""
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Database migrations: run `/shiftmanager migrate` as an init container before
+# the app starts. Disable if you run migrations out-of-band.
+# ─────────────────────────────────────────────────────────────────────────────
+migration:
+  enabled: true
+  resources:
+    requests:
+      cpu: 50m
+      memory: 64Mi
+    limits:
+      memory: 128Mi
+
+# Persistence for uploaded logos (B-004). Without it, uploads are lost on
+# restart (emptyDir). ReadWriteOnce is enough for a single replica; use a
+# RWX storage class if you scale replicas and need shared uploads.
+persistence:
+  enabled: true
+  storageClass: ""
+  accessModes:
+    - ReadWriteOnce
+  size: 1Gi
+  # Use an existing PVC instead of creating one.
+  existingClaim: ""
+
+service:
+  type: ClusterIP
+  port: 80          # service port
+  targetPort: 8080  # container port (fixed in the image)
+  annotations: {}
+
+ingress:
+  enabled: false
+  className: ""
+  annotations: {}
+  #  cert-manager.io/cluster-issuer: letsencrypt-prod
+  #  nginx.ingress.kubernetes.io/proxy-body-size: "4m"
+  hosts:
+    - host: shiftmanager.example.com
+      paths:
+        - path: /
+          pathType: Prefix
+  tls: []
+  #  - secretName: shiftmanager-tls
+  #    hosts:
+  #      - shiftmanager.example.com
+
+resources:
+  requests:
+    cpu: 100m
+    memory: 128Mi
+  limits:
+    memory: 256Mi
+
+autoscaling:
+  enabled: false
+  minReplicas: 2
+  maxReplicas: 6
+  targetCPUUtilizationPercentage: 75
+  targetMemoryUtilizationPercentage: 0   # 0 = disabled
+
+podDisruptionBudget:
+  enabled: true
+  minAvailable: 1
+  # maxUnavailable: ""
+
+serviceAccount:
+  create: true
+  name: ""
+  annotations: {}
+
+# Pod- and container-level security contexts. Defaults match the distroless
+# nonroot image (uid/gid 65532) and keep the root filesystem read-only.
+podSecurityContext:
+  runAsNonRoot: true
+  runAsUser: 65532
+  runAsGroup: 65532
+  fsGroup: 65532
+  seccompProfile:
+    type: RuntimeDefault
+
+securityContext:
+  allowPrivilegeEscalation: false
+  readOnlyRootFilesystem: true
+  capabilities:
+    drop:
+      - ALL
+
+# Liveness/readiness probe tuning (paths are fixed: /health and /readyz).
+probes:
+  liveness:
+    initialDelaySeconds: 10
+    periodSeconds: 15
+    timeoutSeconds: 3
+    failureThreshold: 3
+  readiness:
+    initialDelaySeconds: 5
+    periodSeconds: 10
+    timeoutSeconds: 3
+    failureThreshold: 3
+
+# Restrict ingress/egress traffic to the pod. Off by default; enable in
+# hardened clusters and adjust to your CNI.
+networkPolicy:
+  enabled: false
+
+# Optional daily pg_dump backup CronJob (requires a reachable DATABASE_URL).
+backup:
+  enabled: false
+  schedule: "0 3 * * *"
+  image: postgres:16-alpine
+  retentionDays: 14
+  persistence:
+    enabled: true
+    storageClass: ""
+    accessModes:
+      - ReadWriteOnce
+    size: 5Gi
+    existingClaim: ""
+  resources:
+    requests:
+      cpu: 50m
+      memory: 64Mi
+    limits:
+      memory: 256Mi
+
+# Scheduling controls.
+nodeSelector: {}
+tolerations: []
+affinity: {}
+topologySpreadConstraints: []
+podAnnotations: {}
+podLabels: {}
+
+# Extra volumes/mounts if you need them (e.g. CA bundles).
+extraVolumes: []
+extraVolumeMounts: []

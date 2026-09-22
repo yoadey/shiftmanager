@@ -1,0 +1,105 @@
+# Example production overrides.
+#   helm upgrade --install sm ./deploy/helm/shiftmanager \
+#     -n shiftmanager --create-namespace -f values-production.yaml
+#
+# This example uses an EXTERNAL managed PostgreSQL, the bundled Redis, an
+# ingress with TLS, autoscaling, and an externally managed Secret.
+
+replicaCount: 3
+
+image:
+  tag: "1.4.0"   # pin an immutable tag (or use a digest)
+
+# All sensitive values come from a Secret you manage yourself. It must contain:
+#   JWT_SECRET, DATABASE_URL, OIDC_CLIENT_SECRET, SMTP_PASS, REDIS_URL
+existingSecret: "shiftmanager-secrets"
+
+app:
+  baseUrl: "https://schichten.mein-verein.de"
+  bootstrapAdminEmail: "vorstand@mein-verein.de"
+  oidc:
+    issuer: "https://id.mein-verein.de/realms/verein"
+    clientId: "shiftmanager"
+    redirectUrl: "https://schichten.mein-verein.de/api/v1/auth/callback"
+  smtp:
+    host: "smtp.mailgun.org"
+    port: 587
+    from: "ShiftManager <noreply@mein-verein.de>"
+
+# External managed database — disable the bundled chart.
+postgresql:
+  enabled: false
+database:
+  external:
+    # Only used if you do NOT supply DATABASE_URL via existingSecret.
+    url: ""
+
+# Bundled Redis for shared caching/sessions across replicas.
+redis:
+  enabled: true
+  auth:
+    enabled: true
+    # password also provided via existingSecret/REDIS_URL in this example
+  master:
+    persistence:
+      enabled: true
+      size: 2Gi
+
+persistence:
+  enabled: true
+  storageClass: "fast-rwx"   # RWX recommended when replicas > 1 share uploads
+  accessModes:
+    - ReadWriteMany
+  size: 2Gi
+
+ingress:
+  enabled: true
+  className: nginx
+  annotations:
+    cert-manager.io/cluster-issuer: letsencrypt-prod
+    nginx.ingress.kubernetes.io/proxy-body-size: "4m"
+  hosts:
+    - host: schichten.mein-verein.de
+      paths:
+        - path: /
+          pathType: Prefix
+  tls:
+    - secretName: shiftmanager-tls
+      hosts:
+        - schichten.mein-verein.de
+
+autoscaling:
+  enabled: true
+  minReplicas: 3
+  maxReplicas: 8
+  targetCPUUtilizationPercentage: 70
+
+podDisruptionBudget:
+  enabled: true
+  minAvailable: 2
+
+networkPolicy:
+  enabled: true
+
+backup:
+  enabled: true
+  schedule: "0 2 * * *"
+  retentionDays: 30
+  persistence:
+    enabled: true
+    size: 20Gi
+
+resources:
+  requests:
+    cpu: 250m
+    memory: 192Mi
+  limits:
+    memory: 320Mi
+
+topologySpreadConstraints:
+  - maxSkew: 1
+    topologyKey: kubernetes.io/hostname
+    whenUnsatisfiable: ScheduleAnyway
+    labelSelector:
+      matchLabels:
+        app.kubernetes.io/name: shiftmanager

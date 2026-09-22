@@ -1,0 +1,169 @@
+# ============================================================
+# ShiftManager — PostgreSQL 16 StatefulSet
+#
+# NOTE: For production workloads on k3s with a single node,
+# a StatefulSet with local-path storage is a practical choice.
+# For multi-node HA consider CloudNativePG or a managed DB.
+# ============================================================
+---
+# ConfigMap with postgresql.conf tuning for a small container
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: postgres-config
+  namespace: shiftmanager
+  labels:
+    app.kubernetes.io/name: shiftmanager
+    app.kubernetes.io/component: postgres
+data:
+  # Tuned for a container with ~768Mi memory limit
+  postgresql.conf: |
+    # Connections
+    max_connections = 50
+
+    # Memory
+    shared_buffers = 128MB
+    work_mem = 4MB
+    maintenance_work_mem = 32MB
+    effective_cache_size = 384MB
+
+    # Checkpoint / WAL
+    checkpoint_completion_target = 0.9
+    wal_buffers = 4MB
+    min_wal_size = 80MB
+    max_wal_size = 256MB
+
+    # Planner
+    random_page_cost = 1.1
+    effective_io_concurrency = 200
+
+    # Logging
+    log_min_duration_statement = 500
+    log_line_prefix = '%t [%p]: [%l-1] user=%u,db=%d,app=%a,client=%h '
+    log_checkpoints = on
+    log_lock_waits = on
+
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: postgres
+  namespace: shiftmanager
+  labels:
+    app.kubernetes.io/name: shiftmanager
+    app.kubernetes.io/component: postgres
+spec:
+  serviceName: postgres
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: shiftmanager
+      app.kubernetes.io/component: postgres
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: shiftmanager
+        app.kubernetes.io/component: postgres
+    spec:
+      containers:
+        - name: postgres
+          image: postgres:16-alpine
+          args:
+            - "-c"
+            - "config_file=/etc/postgresql/postgresql.conf"
+          env:
+            - name: POSTGRES_DB
+              value: shiftmanager
+            - name: POSTGRES_USER
+              value: shiftmanager
+            - name: POSTGRES_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: shiftmanager-secret
+                  key: POSTGRES_PASSWORD
+                  # Optional: create a separate DB secret or re-use shiftmanager-secret
+                  # with an additional POSTGRES_PASSWORD key
+          ports:
+            - name: postgres
+              containerPort: 5432
+              protocol: TCP
+          volumeMounts:
+            - name: pgdata
+              mountPath: /var/lib/postgresql/data
+            - name: postgres-config
+              mountPath: /etc/postgresql/postgresql.conf
+              subPath: postgresql.conf
+          resources:
+            requests:
+              cpu: "100m"
+              memory: "256Mi"
+            limits:
+              cpu: "500m"
+              memory: "768Mi"
+          livenessProbe:
+            exec:
+              command:
+                - pg_isready
+                - -U
+                - shiftmanager
+                - -d
+                - shiftmanager
+            initialDelaySeconds: 30
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 6
+          readinessProbe:
+            exec:
+              command:
+                - pg_isready
+                - -U
+                - shiftmanager
+                - -d
+                - shiftmanager
+            initialDelaySeconds: 5
+            periodSeconds: 5
+            timeoutSeconds: 3
+          securityContext:
+            allowPrivilegeEscalation: false
+            runAsNonRoot: true
+            runAsUser: 70  # postgres user in alpine image
+      volumes:
+        - name: postgres-config
+          configMap:
+            name: postgres-config
+  volumeClaimTemplates:
+    - metadata:
+        name: pgdata
+        labels:
+          app.kubernetes.io/name: shiftmanager
+          app.kubernetes.io/component: postgres
+      spec:
+        accessModes:
+          - ReadWriteOnce
+        resources:
+          requests:
+            storage: 10Gi
+        # Uses k3s default local-path StorageClass; change if using a different provisioner
+        # storageClassName: local-path
+
+---
+# Headless Service for StatefulSet DNS
+apiVersion: v1
+kind: Service
+metadata:
+  name: postgres
+  namespace: shiftmanager
+  labels:
+    app.kubernetes.io/name: shiftmanager
+    app.kubernetes.io/component: postgres
+spec:
+  type: ClusterIP
+  clusterIP: None
+  selector:
+    app.kubernetes.io/name: shiftmanager
+    app.kubernetes.io/component: postgres
+  ports:
+    - name: postgres
+      port: 5432
+      targetPort: postgres
+      protocol: TCP

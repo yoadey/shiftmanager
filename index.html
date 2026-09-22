@@ -1,0 +1,192 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1" />
+  <meta name="description" content="ShiftManager — Vereins-Helferschichten-Management für TSC Schwarz-Gelb Aachen" />
+  <meta name="theme-color" content="#2A2722" />
+  <title>ShiftManager — TSC Schwarz-Gelb Aachen</title>
+
+  <!-- Fonts -->
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,500;12..96,700;12..96,800&family=Manrope:wght@400;500;600;700;800&display=swap" rel="stylesheet" />
+
+  <!-- App styles -->
+  <link rel="stylesheet" href="project/styles.css" />
+
+  <style>
+    /* ── Stage & chrome ── */
+    html, body {
+      height: 100%;
+      margin: 0;
+      background: #2A2722;
+      font-family: 'Manrope', system-ui, sans-serif;
+      overflow: hidden;
+    }
+    #root { height: 100%; }
+
+    /* loading screen */
+    #sm-loading {
+      position: fixed; inset: 0; z-index: 9999;
+      display: flex; flex-direction: column;
+      align-items: center; justify-content: center; gap: 20px;
+      background: linear-gradient(180deg, #2A2722 0%, #1f1c18 100%);
+      transition: opacity .35s ease;
+    }
+    #sm-loading.hidden { opacity: 0; pointer-events: none; }
+    .sm-loader-logo {
+      width: 54px; height: 54px; border-radius: 16px;
+      background: #F4B63F; color: #1A1813;
+      display: flex; align-items: center; justify-content: center;
+      font-weight: 800; font-size: 22px; font-family: 'Bricolage Grotesque', sans-serif;
+      box-shadow: 0 8px 32px rgba(244,182,63,0.35);
+    }
+    .sm-loader-text {
+      font-family: 'Bricolage Grotesque', sans-serif;
+      font-weight: 800; font-size: 18px; color: #fff; letter-spacing: -0.01em;
+    }
+    .sm-loader-sub {
+      font-size: 13px; font-weight: 600; color: rgba(255,255,255,0.45);
+      margin-top: -12px;
+    }
+    .sm-spinner {
+      width: 28px; height: 28px; border-radius: 50%;
+      border: 3px solid rgba(244,182,63,0.25);
+      border-top-color: #F4B63F;
+      animation: spin .7s linear infinite;
+    }
+    @keyframes spin { to { transform: rotate(360deg); } }
+
+    /* ── Mobile stage (< 900 px) ── */
+    .stage {
+      height: 100vh; width: 100vw;
+      display: flex; flex-direction: column; align-items: center;
+      background:
+        radial-gradient(1200px 600px at 50% -10%, #3a352c 0%, transparent 60%),
+        linear-gradient(180deg, #2A2722 0%, #1f1c18 100%);
+      overflow: hidden;
+    }
+
+    /* role switcher bar */
+    .rolebar {
+      flex-shrink: 0; width: 100%; max-width: 520px;
+      display: flex; align-items: center; justify-content: space-between;
+      padding: 16px 22px 14px; gap: 12px;
+    }
+    .rb-brand {
+      display: flex; align-items: center; gap: 9px;
+      color: #fff; font-weight: 800; font-size: 16px;
+      font-family: 'Bricolage Grotesque', sans-serif; letter-spacing: -0.01em;
+    }
+    .rb-logo {
+      width: 30px; height: 30px; border-radius: 9px;
+      background: var(--primary, #F4B63F); color: #1A1813;
+      display: flex; align-items: center; justify-content: center;
+      font-weight: 800; font-size: 13px; font-family: 'Bricolage Grotesque', sans-serif;
+    }
+    .rb-seg {
+      display: flex; gap: 3px;
+      background: rgba(255,255,255,0.08);
+      border: 1px solid rgba(255,255,255,0.1);
+      border-radius: 999px; padding: 4px;
+    }
+    .rb-btn {
+      border: none; cursor: pointer; font-family: inherit;
+      font-weight: 700; font-size: 13px; padding: 8px 16px;
+      border-radius: 999px; background: transparent;
+      color: rgba(255,255,255,0.62); transition: all .16s;
+    }
+    .rb-btn.active { background: var(--primary, #F4B63F); color: #1A1813; }
+
+    /* phone frame scaler */
+    .scaler { transform-origin: top center; flex-shrink: 0; }
+
+    @media (max-width: 519px) {
+      .rolebar { padding: 10px 16px; }
+    }
+
+    /* ── Desktop stage (≥ 900 px) — see styles.css for .dt-* rules ── */
+    .stage.desktop {
+      flex-direction: row; align-items: stretch; justify-content: flex-start;
+      background: var(--bg, #FBF7EF); padding: 0;
+    }
+  </style>
+</head>
+
+<body>
+  <!-- Loading screen — hidden once React mounts -->
+  <div id="sm-loading">
+    <div class="sm-loader-logo">SG</div>
+    <div class="sm-loader-text">ShiftManager</div>
+    <div class="sm-loader-sub">TSC Schwarz-Gelb Aachen</div>
+    <div class="sm-spinner"></div>
+  </div>
+
+  <div id="root"></div>
+
+  <!-- React 18 (UMD, development build for prototype) -->
+  <script
+    src="https://unpkg.com/react@18.3.1/umd/react.development.js"
+    integrity="sha384-hD6/rw4ppMLGNu3tX5cjIb+uRZ7UkRJ6BPkLpg4hAu/6onKUg4lLsHAs9EBPT82L"
+    crossorigin="anonymous"></script>
+  <script
+    src="https://unpkg.com/react-dom@18.3.1/umd/react-dom.development.js"
+    integrity="sha384-u6aeetuaXnQ38mYT8rp6sbXaQe3NL9t+IBXmnYxwkUI2Hw4bsp2Wvmx4yRQF1uAm"
+    crossorigin="anonymous"></script>
+  <!-- Babel standalone — transpiles JSX in-browser (prototype only; prod uses Vite) -->
+  <script
+    src="https://unpkg.com/@babel/standalone@7.29.0/babel.min.js"
+    integrity="sha384-m08KidiNqLdpJqLq95G/LEi8Qvjl/xUYll3QILypMoQ65QorJ9Lvtp2RXYGBFj1y"
+    crossorigin="anonymous"></script>
+
+  <!-- 1. Demo data & helpers (plain JS, no JSX) -->
+  <script src="project/app/data.js"></script>
+
+  <!-- 2. Shared UI primitives: icons, buttons, overlays, context -->
+  <script type="text/babel" src="project/app/components.jsx"></script>
+
+  <!-- 3. Device frame (iOS 26 Liquid Glass shell for mobile view) -->
+  <script type="text/babel" src="project/frames/ios-frame.jsx"></script>
+
+  <!-- 4. Tweaks panel (brand colours, radius, warmth — maps to B-001…B-002) -->
+  <script type="text/babel" src="project/tweaks-panel.jsx"></script>
+
+  <!-- 5. Member screens: Dashboard, Discover, My Shifts, Profile -->
+  <script type="text/babel" src="project/app/member.jsx"></script>
+
+  <!-- 6. Event detail + shift registration flow (shared between member & admin) -->
+  <script type="text/babel" src="project/app/event.jsx"></script>
+
+  <!-- 7. Admin screens: Dashboard, Events list, Members list, Member detail -->
+  <script type="text/babel" src="project/app/admin.jsx"></script>
+
+  <!-- 8. Admin flows: Create-event wizard, manual booking, settings, audit log -->
+  <script type="text/babel" src="project/app/admin2.jsx"></script>
+
+  <!-- 9. App root: state, navigation, role switcher, responsive shell -->
+  <script type="text/babel" src="project/app/main.jsx"></script>
+
+  <!-- Hide loading screen once React has rendered -->
+  <script>
+    (function () {
+      // MutationObserver watches for React content; fallback timer covers slow devices.
+      var loader = document.getElementById('sm-loading');
+      var hidden = false;
+      function hide() {
+        if (hidden) return;
+        hidden = true;
+        loader.classList.add('hidden');
+        setTimeout(function () { loader.style.display = 'none'; }, 400);
+      }
+      var ob = new MutationObserver(function () {
+        var root = document.getElementById('root');
+        if (root && root.firstChild) { ob.disconnect(); hide(); }
+      });
+      ob.observe(document.getElementById('root'), { childList: true, subtree: true });
+      // Safety fallback
+      setTimeout(hide, 4000);
+    })();
+  </script>
+</body>
+</html>

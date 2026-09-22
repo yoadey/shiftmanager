@@ -1,0 +1,15 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(xargs cat)",
+      "Bash(npm install *)",
+      "Bash(npx playwright *)",
+      "Bash(xargs ls)",
+      "Bash(node -e ' *)",
+      "Bash(npx tsc *)",
+      "Bash(npm test *)",
+      "Bash(go build *)",
+      "Bash(go test *)"
+    ]
+  }
+}

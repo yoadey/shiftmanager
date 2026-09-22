@@ -1,0 +1,49 @@
+✅ {{ .Chart.Name }} {{ .Chart.AppVersion }} wurde als Release "{{ .Release.Name }}" installiert (Namespace {{ .Release.Namespace }}).
+
+1. Status prüfen:
+   kubectl get pods -n {{ .Release.Namespace }} -l app.kubernetes.io/instance={{ .Release.Name }} -w
+
+{{- if .Values.ingress.enabled }}
+
+2. Erreichbar über Ingress:
+{{- range .Values.ingress.hosts }}
+   http{{ if $.Values.ingress.tls }}s{{ end }}://{{ .host }}
+{{- end }}
+{{- else if eq .Values.service.type "LoadBalancer" }}
+
+2. Externe LoadBalancer-IP (kann einen Moment dauern):
+   kubectl get svc -n {{ .Release.Namespace }} {{ include "shiftmanager.fullname" . }} -w
+{{- else }}
+
+2. Port-Forward für lokalen Zugriff:
+   kubectl port-forward -n {{ .Release.Namespace }} svc/{{ include "shiftmanager.fullname" . }} 8080:{{ .Values.service.port }}
+   # danach: http://localhost:8080
+{{- end }}
+
+3. Login / Erst-Admin:
+   - OIDC_REDIRECT_URL ({{ .Values.app.oidc.redirectUrl }}) muss beim IdP registriert sein.
+{{- if .Values.app.bootstrapAdminEmail }}
+   - Bootstrap-Admin aktiv für: {{ .Values.app.bootstrapAdminEmail }} (wird beim ersten Login automatisch als Admin freigeschaltet).
+{{- else }}
+   - Kein BOOTSTRAP_ADMIN_EMAIL gesetzt: setze app.bootstrapAdminEmail, damit sich der erste Admin anmelden kann.
+{{- end }}
+
+4. Smoke-Test ausführen:
+   helm test {{ .Release.Name }} -n {{ .Release.Namespace }}
+
+{{- if not .Values.existingSecret }}
+{{- if not .Values.app.jwtSecret }}
+
+⚠️  app.jwtSecret ist leer — die Installation schlägt fehl. Generiere eines:
+   openssl rand -hex 32
+{{- end }}
+{{- end }}
+{{- if and (not .Values.postgresql.enabled) (not .Values.existingSecret) (not .Values.database.external.url) }}
+
+⚠️  PostgreSQL ist deaktiviert, aber weder database.external.url noch existingSecret gesetzt.
+{{- end }}
+{{- if .Values.postgresql.enabled }}
+
+ℹ️  Mitgelieferte PostgreSQL ist aktiv (Release "{{ .Release.Name }}-postgresql"). Für Produktion
+   ein starkes postgresql.auth.password setzen oder eine externe DB verwenden.
+{{- end }}

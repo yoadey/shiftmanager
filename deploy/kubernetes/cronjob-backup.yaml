@@ -1,0 +1,130 @@
+# ============================================================
+# ShiftManager — Daily PostgreSQL Backup CronJob
+#
+# Runs pg_dump daily at 03:00 UTC and uploads the compressed
+# dump to a PVC (default) or an S3-compatible object store.
+#
+# To use S3 upload instead of PVC:
+#   1. Add AWS_ACCESS_KEY_ID / AWS_SECRET_ACCESS_KEY / S3_BUCKET
+#      to a new secret named "shiftmanager-backup-secret"
+#   2. Replace the "upload stub" step below with:
+#        aws s3 cp /backup/dump.sql.gz s3://$S3_BUCKET/backups/$(date +%Y-%m-%d).sql.gz
+#      (add the awscli package to the init step)
+#
+# Retention: remove the "find /backup -mtime +7 -delete" line
+# or adjust the mtime value to change how long backups are kept.
+# ============================================================
+---
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: postgres-backup
+  namespace: shiftmanager
+  labels:
+    app.kubernetes.io/name: shiftmanager
+    app.kubernetes.io/component: backup
+spec:
+  # Daily at 03:00 UTC
+  schedule: "0 3 * * *"
+  concurrencyPolicy: Forbid
+  successfulJobsHistoryLimit: 3
+  failedJobsHistoryLimit: 3
+  jobTemplate:
+    spec:
+      backoffLimit: 2
+      template:
+        metadata:
+          labels:
+            app.kubernetes.io/name: shiftmanager
+            app.kubernetes.io/component: backup
+        spec:
+          restartPolicy: OnFailure
+          containers:
+            - name: pg-dump
+              image: postgres:16-alpine
+              command:
+                - /bin/sh
+                - -c
+                - |
+                  set -e
+                  TIMESTAMP=$(date +%Y-%m-%dT%H-%M-%SZ)
+                  DUMP_FILE="/backup/shiftmanager-${TIMESTAMP}.sql.gz"
+
+                  echo "Starting backup at ${TIMESTAMP}..."
+                  pg_dump "$DATABASE_URL" | gzip > "$DUMP_FILE"
+                  echo "Dump written to $DUMP_FILE"
+
+                  # --- Upload to object storage (stub) ---
+                  # TODO: Uncomment and configure one of the following:
+                  #
+                  # Option A — S3 / MinIO:
+                  #   aws s3 cp "$DUMP_FILE" "s3://${S3_BUCKET}/backups/$(basename $DUMP_FILE)"
+                  #
+                  # Option B — Restic to any backend:
+                  #   restic backup "$DUMP_FILE"
+                  #
+                  # For now the dump stays on the PVC below.
+                  echo "Upload step skipped — configure S3/restic above."
+
+                  # Remove backups older than 7 days from the PVC
+                  find /backup -name "shiftmanager-*.sql.gz" -mtime +7 -delete
+                  echo "Old backups pruned. Done."
+              env:
+                - name: DATABASE_URL
+                  valueFrom:
+                    secretKeyRef:
+                      name: shiftmanager-secret
+                      key: DATABASE_URL
+                # Uncomment when using S3 upload:
+                # - name: S3_BUCKET
+                #   valueFrom:
+                #     secretKeyRef:
+                #       name: shiftmanager-backup-secret
+                #       key: S3_BUCKET
+                # - name: AWS_ACCESS_KEY_ID
+                #   valueFrom:
+                #     secretKeyRef:
+                #       name: shiftmanager-backup-secret
+                #       key: AWS_ACCESS_KEY_ID
+                # - name: AWS_SECRET_ACCESS_KEY
+                #   valueFrom:
+                #     secretKeyRef:
+                #       name: shiftmanager-backup-secret
+                #       key: AWS_SECRET_ACCESS_KEY
+              volumeMounts:
+                - name: backup-storage
+                  mountPath: /backup
+              resources:
+                requests:
+                  cpu: "50m"
+                  memory: "32Mi"
+                limits:
+                  cpu: "200m"
+                  memory: "64Mi"
+              securityContext:
+                allowPrivilegeEscalation: false
+                runAsNonRoot: true
+                runAsUser: 70  # postgres user
+          volumes:
+            - name: backup-storage
+              persistentVolumeClaim:
+                claimName: postgres-backup-pvc
+
+---
+# PVC for storing backup dumps locally on the node.
+# Replace with an emptyDir or remove entirely if using object storage only.
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: postgres-backup-pvc
+  namespace: shiftmanager
+  labels:
+    app.kubernetes.io/name: shiftmanager
+    app.kubernetes.io/component: backup
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 5Gi
+  # storageClassName: local-path  # Uncomment for k3s local-path provisioner

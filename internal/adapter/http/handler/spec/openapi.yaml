@@ -1,0 +1,1371 @@
+openapi: "3.0.3"
+info:
+  title: ShiftManager API
+  version: "1.0.0"
+  description: REST API for the ShiftManager club volunteer-hours system.
+
+servers:
+  - url: /api/v1
+
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+
+  schemas:
+    # ── Identity ──────────────────────────────────────────────────────────────
+    UUID:
+      type: string
+      format: uuid
+      example: "550e8400-e29b-41d4-a716-446655440000"
+
+    # ── Member ────────────────────────────────────────────────────────────────
+    Member:
+      type: object
+      required: [id, firstName, lastName, email, joinedAt, isActive, role]
+      properties:
+        id:            { $ref: '#/components/schemas/UUID' }
+        firstName:     { type: string, example: "Max" }
+        lastName:      { type: string, example: "Mustermann" }
+        email:         { type: string, format: email }
+        joinedAt:      { type: string, format: date-time }
+        leftAt:        { type: string, format: date-time, nullable: true }
+        isActive:      { type: boolean }
+        role:          { $ref: '#/components/schemas/MemberRole' }
+        reminderOptOut: { type: boolean }
+        individualGoalHours: { type: number, nullable: true }
+
+    MemberRole:
+      type: string
+      enum: [mitglied, vorstand, veranstaltungsleiter, admin]
+
+    MemberWrite:
+      type: object
+      properties:
+        firstName:  { type: string }
+        lastName:   { type: string }
+        email:      { type: string, format: email }
+        isActive:   { type: boolean }
+        role:       { $ref: '#/components/schemas/MemberRole' }
+        joinedAt:   { type: string, format: date-time }
+        individualGoalHours: { type: number, nullable: true }
+
+    MemberPreferences:
+      type: object
+      required: [reminderOptOut]
+      properties:
+        reminderOptOut: { type: boolean }
+
+    # ── Auth ──────────────────────────────────────────────────────────────────
+    MeResponse:
+      type: object
+      required: [id, role, email]
+      properties:
+        id:    { $ref: '#/components/schemas/UUID' }
+        role:  { $ref: '#/components/schemas/MemberRole' }
+        email: { type: string, format: email }
+
+    # ── Event ─────────────────────────────────────────────────────────────────
+    EventStatus:
+      type: string
+      enum: [draft, published, cancelled, completed]
+
+    EventVisibility:
+      type: string
+      enum: [public, members, hidden]
+
+    Event:
+      type: object
+      required: [id, name, status, visibility]
+      properties:
+        id:          { $ref: '#/components/schemas/UUID' }
+        name:        { type: string }
+        description: { type: string }
+        location:    { type: string }
+        category:    { type: string }
+        status:      { $ref: '#/components/schemas/EventStatus' }
+        visibility:  { $ref: '#/components/schemas/EventVisibility' }
+        createdAt:   { type: string, format: date-time }
+        updatedAt:   { type: string, format: date-time }
+
+    EventWrite:
+      type: object
+      required: [name, status, visibility]
+      properties:
+        name:        { type: string }
+        description: { type: string }
+        location:    { type: string }
+        category:    { type: string }
+        status:      { $ref: '#/components/schemas/EventStatus' }
+        visibility:  { $ref: '#/components/schemas/EventVisibility' }
+
+    # ── Shift ─────────────────────────────────────────────────────────────────
+    Shift:
+      type: object
+      required: [id, eventId, name, startAt, endAt, minHelpers, maxHelpers]
+      properties:
+        id:                    { $ref: '#/components/schemas/UUID' }
+        eventId:               { $ref: '#/components/schemas/UUID' }
+        name:                  { type: string }
+        startAt:               { type: string, format: date-time }
+        endAt:                 { type: string, format: date-time }
+        minHelpers:            { type: integer }
+        maxHelpers:            { type: integer }
+        requiredQualification: { type: string }
+
+    ShiftWrite:
+      type: object
+      required: [name, startAt, endAt, minHelpers, maxHelpers]
+      properties:
+        name:                  { type: string }
+        startAt:               { type: string, format: date-time }
+        endAt:                 { type: string, format: date-time }
+        minHelpers:            { type: integer }
+        maxHelpers:            { type: integer }
+        requiredQualification: { type: string }
+
+    ShiftOccupancy:
+      type: object
+      required: [registered, confirmed, min, max]
+      properties:
+        registered: { type: integer }
+        confirmed:  { type: integer }
+        min:        { type: integer }
+        max:        { type: integer }
+
+    Signup:
+      type: object
+      required: [id, memberId, state]
+      properties:
+        id:       { $ref: '#/components/schemas/UUID' }
+        memberId: { $ref: '#/components/schemas/UUID' }
+        state:    { type: string }
+        comment:  { type: string }
+
+    ShiftDay:
+      type: object
+      required: [date, shifts]
+      properties:
+        date:   { type: string, format: date }
+        shifts:
+          type: array
+          items: { $ref: '#/components/schemas/ShiftWithOccupancy' }
+
+    ShiftWithOccupancy:
+      allOf:
+        - $ref: '#/components/schemas/Shift'
+        - type: object
+          properties:
+            occupancy: { $ref: '#/components/schemas/ShiftOccupancy' }
+            signups:
+              type: array
+              items: { $ref: '#/components/schemas/Signup' }
+
+    EventTimeline:
+      type: object
+      required: [event, days]
+      properties:
+        event: { $ref: '#/components/schemas/Event' }
+        days:
+          type: array
+          items: { $ref: '#/components/schemas/ShiftDay' }
+
+    # ── Registration ──────────────────────────────────────────────────────────
+    RegisterShiftRequest:
+      type: object
+      properties:
+        comment:    { type: string }
+        otherEmail: { type: string, format: email }
+
+    KioskRegisterRequest:
+      type: object
+      properties:
+        email:    { type: string, format: email, description: "Guest e-mail address" }
+        memberId: { $ref: '#/components/schemas/UUID', description: "Known member ID" }
+        comment:  { type: string }
+
+    ConfirmResult:
+      type: object
+      required: [message]
+      properties:
+        message:   { type: string }
+        eventName: { type: string }
+        shiftName: { type: string }
+
+    # ── Hours ─────────────────────────────────────────────────────────────────
+    HourEntryStatus:
+      type: string
+      enum: [pending, confirmed, rejected]
+
+    HourEntry:
+      type: object
+      required: [id, memberId, clubYearId, hours, type, status, description, createdAt]
+      properties:
+        id:          { $ref: '#/components/schemas/UUID' }
+        memberId:    { $ref: '#/components/schemas/UUID' }
+        clubYearId:  { $ref: '#/components/schemas/UUID' }
+        hours:       { type: number }
+        type:        { type: string, enum: [shift, manual] }
+        status:      { $ref: '#/components/schemas/HourEntryStatus' }
+        bookedBy:    { $ref: '#/components/schemas/UUID', nullable: true }
+        description: { type: string }
+        createdAt:   { type: string, format: date-time }
+        # UI convenience fields
+        manual:      { type: boolean }
+        desc:        { type: string }
+        date:        { type: string, format: date }
+        eventName:   { type: string }
+        shiftName:   { type: string }
+
+    MemberHourAccount:
+      type: object
+      required: [confirmed, reserved, goal, entries]
+      properties:
+        confirmed: { type: number }
+        reserved:  { type: number }
+        goal:      { type: number }
+        entries:
+          type: array
+          items: { $ref: '#/components/schemas/HourEntry' }
+
+    ManualBookingRequest:
+      type: object
+      required: [memberId, hours, desc]
+      properties:
+        memberId:    { $ref: '#/components/schemas/UUID' }
+        clubYearId:  { $ref: '#/components/schemas/UUID', description: "Defaults to active year" }
+        hours:       { type: number }
+        desc:        { type: string, description: "Reason for the manual entry" }
+        description: { type: string, description: "Alias for desc" }
+        status:      { $ref: '#/components/schemas/HourEntryStatus' }
+
+    ConfirmShiftHoursRequest:
+      type: object
+      required: [memberId, shiftId, hours]
+      properties:
+        memberId:    { $ref: '#/components/schemas/UUID' }
+        shiftId:     { $ref: '#/components/schemas/UUID' }
+        clubYearId:  { $ref: '#/components/schemas/UUID', description: "Defaults to active year" }
+        hours:       { type: number }
+        description: { type: string }
+
+    # ── Club Year ─────────────────────────────────────────────────────────────
+    ClubYear:
+      type: object
+      required: [id, label, startDate, endDate, defaultTargetHours, isActive]
+      properties:
+        id:                 { $ref: '#/components/schemas/UUID' }
+        label:              { type: string }
+        startDate:          { type: string, format: date-time }
+        endDate:            { type: string, format: date-time }
+        defaultTargetHours: { type: number }
+        isActive:           { type: boolean }
+
+    # ── Settings ──────────────────────────────────────────────────────────────
+    AppSettings:
+      type: object
+      required: [clubName, yearGoal, clubYear, nameMode, reservationHours, billingMode, kioskSearch, feeSchedule, deregisterDeadlineH]
+      properties:
+        clubName:           { type: string }
+        yearGoal:           { type: number }
+        clubYear:           { type: string }
+        nameMode:           { type: string, enum: [abbrev, full] }
+        reservationHours:   { type: integer }
+        billingMode:        { type: string, enum: [auto, manuell] }
+        kioskSearch:        { type: boolean }
+        feeSchedule:
+          type: array
+          items: { type: number }
+        deregisterDeadlineH: { type: integer }
+        kioskLocked:         { type: boolean }
+
+    BrandingConfig:
+      type: object
+      required: [primaryColor, clubName]
+      properties:
+        primaryColor: { type: string }
+        logoUrl:      { type: string, nullable: true }
+        clubName:     { type: string }
+
+    BrandingUpdateResult:
+      type: object
+      required: [branding]
+      properties:
+        branding:  { $ref: '#/components/schemas/BrandingConfig' }
+        warnings:
+          type: array
+          items: { type: string }
+
+    FeeTier:
+      type: object
+      required: [id, clubYearId, position, amountCents]
+      properties:
+        id:          { $ref: '#/components/schemas/UUID' }
+        clubYearId:  { $ref: '#/components/schemas/UUID' }
+        position:    { type: integer }
+        amountCents: { type: integer }
+
+    MemberFeeTier:
+      type: object
+      required: [id, clubYearId, position, amountCents]
+      properties:
+        id:          { $ref: '#/components/schemas/UUID' }
+        memberId:    { $ref: '#/components/schemas/UUID' }
+        clubYearId:  { $ref: '#/components/schemas/UUID' }
+        position:    { type: integer }
+        amountCents: { type: integer }
+
+    # ── Audit ─────────────────────────────────────────────────────────────────
+    AuditEntry:
+      type: object
+      required: [id, action, entity, entityId, createdAt]
+      properties:
+        id:        { $ref: '#/components/schemas/UUID' }
+        actorId:   { $ref: '#/components/schemas/UUID', nullable: true }
+        action:    { type: string }
+        entity:    { type: string }
+        entityId:  { type: string }
+        before:    { type: object, nullable: true }
+        after:     { type: object, nullable: true }
+        createdAt: { type: string, format: date-time }
+
+    # ── Email ─────────────────────────────────────────────────────────────────
+    EmailTemplate:
+      type: object
+      required: [name, subject, body]
+      properties:
+        name:    { type: string }
+        subject: { type: string }
+        body:    { type: string }
+
+    EmailLogEntry:
+      type: object
+      required: [id, to, subject, status, createdAt]
+      properties:
+        id:        { $ref: '#/components/schemas/UUID' }
+        to:        { type: string, format: email }
+        template:  { type: string }
+        subject:   { type: string }
+        body:      { type: string }
+        status:    { type: string, enum: [sent, failed] }
+        error:     { type: string }
+        createdAt: { type: string, format: date-time }
+
+    # ── Stats ─────────────────────────────────────────────────────────────────
+    SystemStats:
+      type: object
+      required: [clubYearId, clubYearLabel, totalConfirmedHours, openShifts, upcomingShifts, activeMembers, membersBelowTarget]
+      properties:
+        clubYearId:           { $ref: '#/components/schemas/UUID' }
+        clubYearLabel:        { type: string }
+        totalConfirmedHours:  { type: number }
+        openShifts:           { type: integer }
+        upcomingShifts:       { type: integer }
+        activeMembers:        { type: integer }
+        membersBelowTarget:   { type: integer }
+
+    # ── Generic ───────────────────────────────────────────────────────────────
+    MessageResponse:
+      type: object
+      required: [message]
+      properties:
+        message: { type: string }
+
+    ErrorResponse:
+      type: object
+      required: [error]
+      properties:
+        error: { type: string }
+
+
+  responses:
+    Unauthorized:
+      description: Missing or invalid JWT
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/ErrorResponse' }
+    Forbidden:
+      description: Insufficient role
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/ErrorResponse' }
+    NotFound:
+      description: Resource not found
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/ErrorResponse' }
+    BadRequest:
+      description: Invalid request
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/ErrorResponse' }
+
+security:
+  - bearerAuth: []
+
+paths:
+  # ── Auth ────────────────────────────────────────────────────────────────────
+  /auth/login:
+    get:
+      operationId: authLogin
+      tags: [auth]
+      summary: Begin OIDC login flow
+      security: []
+      responses:
+        "302": { description: Redirect to OIDC provider }
+
+  /auth/callback:
+    get:
+      operationId: authCallback
+      tags: [auth]
+      summary: OIDC authorization-code callback
+      security: []
+      parameters:
+        - { name: code, in: query, required: false, schema: { type: string } }
+        - { name: state, in: query, required: false, schema: { type: string } }
+      responses:
+        "302": { description: Redirect to SPA with token in fragment }
+
+  /auth/me:
+    get:
+      operationId: getMe
+      tags: [auth]
+      summary: Return the currently authenticated user
+      responses:
+        "200":
+          description: Authenticated user
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/MeResponse' }
+        "401": { $ref: '#/components/responses/Unauthorized' }
+
+  /auth/logout:
+    post:
+      operationId: logout
+      tags: [auth]
+      summary: Invalidate the session
+      responses:
+        "200":
+          description: Logged out
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/MessageResponse' }
+        "401": { $ref: '#/components/responses/Unauthorized' }
+
+  # ── Members ─────────────────────────────────────────────────────────────────
+  /members:
+    get:
+      operationId: listMembers
+      tags: [members]
+      summary: List all members
+      parameters:
+        - { name: search, in: query, schema: { type: string } }
+        - { name: isActive, in: query, schema: { type: boolean } }
+      responses:
+        "200":
+          description: Member list
+          content:
+            application/json:
+              schema: { type: array, items: { $ref: '#/components/schemas/Member' } }
+        "401": { $ref: '#/components/responses/Unauthorized' }
+    post:
+      operationId: createMember
+      tags: [members]
+      summary: Create a member (Vorstand+)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/MemberWrite' }
+      responses:
+        "201":
+          description: Created member
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Member' }
+        "401": { $ref: '#/components/responses/Unauthorized' }
+        "403": { $ref: '#/components/responses/Forbidden' }
+
+  /members/import:
+    post:
+      operationId: importMembers
+      tags: [members]
+      summary: Import members from CSV (Vorstand+)
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              required: [file]
+              properties:
+                file: { type: string, format: binary }
+      responses:
+        "200":
+          description: Import result
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  imported: { type: integer }
+        "401": { $ref: '#/components/responses/Unauthorized' }
+        "403": { $ref: '#/components/responses/Forbidden' }
+
+  /members/export:
+    get:
+      operationId: exportMembers
+      tags: [members]
+      summary: Export members as CSV
+      responses:
+        "200":
+          description: CSV file
+          content:
+            text/csv:
+              schema: { type: string, format: binary }
+        "401": { $ref: '#/components/responses/Unauthorized' }
+
+  /members/me/preferences:
+    put:
+      operationId: updateMyPreferences
+      tags: [members]
+      summary: Update own reminder opt-out preference
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/MemberPreferences' }
+      responses:
+        "200":
+          description: Updated preferences
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/MemberPreferences' }
+        "401": { $ref: '#/components/responses/Unauthorized' }
+
+  /members/{id}:
+    parameters:
+      - { name: id, in: path, required: true, schema: { $ref: '#/components/schemas/UUID' } }
+    get:
+      operationId: getMember
+      tags: [members]
+      summary: Get a single member
+      responses:
+        "200":
+          description: Member
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Member' }
+        "401": { $ref: '#/components/responses/Unauthorized' }
+        "404": { $ref: '#/components/responses/NotFound' }
+    put:
+      operationId: updateMember
+      tags: [members]
+      summary: Update a member (Vorstand+)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/MemberWrite' }
+      responses:
+        "200":
+          description: Updated member
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Member' }
+        "401": { $ref: '#/components/responses/Unauthorized' }
+        "403": { $ref: '#/components/responses/Forbidden' }
+    delete:
+      operationId: deactivateMember
+      tags: [members]
+      summary: Deactivate (soft-delete) a member (Vorstand+)
+      responses:
+        "204": { description: Deactivated }
+        "401": { $ref: '#/components/responses/Unauthorized' }
+        "403": { $ref: '#/components/responses/Forbidden' }
+
+  /members/{id}/export-data:
+    parameters:
+      - { name: id, in: path, required: true, schema: { $ref: '#/components/schemas/UUID' } }
+    get:
+      operationId: exportMemberData
+      tags: [members]
+      summary: GDPR data export (own data or Vorstand+)
+      responses:
+        "200":
+          description: Export JSON
+          content:
+            application/json:
+              schema: { type: object }
+        "401": { $ref: '#/components/responses/Unauthorized' }
+        "403": { $ref: '#/components/responses/Forbidden' }
+
+  /members/{id}/gdpr-delete:
+    parameters:
+      - { name: id, in: path, required: true, schema: { $ref: '#/components/schemas/UUID' } }
+    post:
+      operationId: gdprDeleteMember
+      tags: [members]
+      summary: Anonymize a member (GDPR, Vorstand+)
+      responses:
+        "200":
+          description: Anonymized
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/MessageResponse' }
+        "401": { $ref: '#/components/responses/Unauthorized' }
+        "403": { $ref: '#/components/responses/Forbidden' }
+
+  # ── Events ──────────────────────────────────────────────────────────────────
+  /events:
+    get:
+      operationId: listEvents
+      tags: [events]
+      summary: List events
+      parameters:
+        - { name: status, in: query, schema: { $ref: '#/components/schemas/EventStatus' } }
+        - { name: visibility, in: query, schema: { $ref: '#/components/schemas/EventVisibility' } }
+        - { name: from, in: query, schema: { type: string, format: date } }
+        - { name: to, in: query, schema: { type: string, format: date } }
+        - { name: limit, in: query, schema: { type: integer, default: 50 } }
+        - { name: offset, in: query, schema: { type: integer, default: 0 } }
+      responses:
+        "200":
+          description: Events
+          content:
+            application/json:
+              schema: { type: array, items: { $ref: '#/components/schemas/Event' } }
+        "401": { $ref: '#/components/responses/Unauthorized' }
+    post:
+      operationId: createEvent
+      tags: [events]
+      summary: Create an event (Veranstaltungsleiter+)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/EventWrite' }
+      responses:
+        "201":
+          description: Created event
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Event' }
+        "401": { $ref: '#/components/responses/Unauthorized' }
+        "403": { $ref: '#/components/responses/Forbidden' }
+
+  /events/{id}:
+    parameters:
+      - { name: id, in: path, required: true, schema: { $ref: '#/components/schemas/UUID' } }
+    get:
+      operationId: getEvent
+      tags: [events]
+      summary: Get event with full shift timeline
+      responses:
+        "200":
+          description: Event timeline
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/EventTimeline' }
+        "401": { $ref: '#/components/responses/Unauthorized' }
+        "404": { $ref: '#/components/responses/NotFound' }
+    put:
+      operationId: updateEvent
+      tags: [events]
+      summary: Update an event (Veranstaltungsleiter+)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/EventWrite' }
+      responses:
+        "200":
+          description: Updated event
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Event' }
+        "401": { $ref: '#/components/responses/Unauthorized' }
+        "403": { $ref: '#/components/responses/Forbidden' }
+    delete:
+      operationId: deleteEvent
+      tags: [events]
+      summary: Delete an event (Veranstaltungsleiter+, draft/cancelled only)
+      responses:
+        "204": { description: Deleted }
+        "401": { $ref: '#/components/responses/Unauthorized' }
+        "403": { $ref: '#/components/responses/Forbidden' }
+
+  /events/{id}/publish:
+    parameters:
+      - { name: id, in: path, required: true, schema: { $ref: '#/components/schemas/UUID' } }
+    post:
+      operationId: publishEvent
+      tags: [events]
+      summary: Publish a draft event (Veranstaltungsleiter+)
+      responses:
+        "200":
+          description: Published event
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Event' }
+        "401": { $ref: '#/components/responses/Unauthorized' }
+        "403": { $ref: '#/components/responses/Forbidden' }
+
+  /events/{id}/timeline:
+    parameters:
+      - { name: id, in: path, required: true, schema: { $ref: '#/components/schemas/UUID' } }
+    get:
+      operationId: getEventTimeline
+      tags: [events]
+      summary: Get just the shift timeline for an event
+      responses:
+        "200":
+          description: Event timeline
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/EventTimeline' }
+        "401": { $ref: '#/components/responses/Unauthorized' }
+        "404": { $ref: '#/components/responses/NotFound' }
+
+  /events/{eventId}/shifts:
+    parameters:
+      - { name: eventId, in: path, required: true, schema: { $ref: '#/components/schemas/UUID' } }
+    post:
+      operationId: createShift
+      tags: [shifts]
+      summary: Add a shift to an event (Veranstaltungsleiter+)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/ShiftWrite' }
+      responses:
+        "201":
+          description: Created shift
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Shift' }
+        "401": { $ref: '#/components/responses/Unauthorized' }
+        "403": { $ref: '#/components/responses/Forbidden' }
+
+  # ── Shifts ───────────────────────────────────────────────────────────────────
+  /shifts/{id}:
+    parameters:
+      - { name: id, in: path, required: true, schema: { $ref: '#/components/schemas/UUID' } }
+    put:
+      operationId: updateShift
+      tags: [shifts]
+      summary: Update a shift (Veranstaltungsleiter+)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/ShiftWrite' }
+      responses:
+        "200":
+          description: Updated shift
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Shift' }
+        "401": { $ref: '#/components/responses/Unauthorized' }
+        "403": { $ref: '#/components/responses/Forbidden' }
+    delete:
+      operationId: deleteShift
+      tags: [shifts]
+      summary: Delete a shift (Veranstaltungsleiter+)
+      responses:
+        "204": { description: Deleted }
+        "401": { $ref: '#/components/responses/Unauthorized' }
+        "403": { $ref: '#/components/responses/Forbidden' }
+
+  /shifts/{id}/register:
+    parameters:
+      - { name: id, in: path, required: true, schema: { $ref: '#/components/schemas/UUID' } }
+    post:
+      operationId: registerShift
+      tags: [shifts]
+      summary: Register the authenticated member for a shift
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/RegisterShiftRequest' }
+      responses:
+        "201":
+          description: Registration created
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/MessageResponse' }
+        "401": { $ref: '#/components/responses/Unauthorized' }
+        "409": { description: Already registered }
+    delete:
+      operationId: deregisterShift
+      tags: [shifts]
+      summary: Cancel the authenticated member's registration
+      parameters:
+        - { name: registrationId, in: query, required: true, schema: { $ref: '#/components/schemas/UUID' } }
+        - { name: force, in: query, schema: { type: boolean } }
+      responses:
+        "204": { description: Deregistered }
+        "401": { $ref: '#/components/responses/Unauthorized' }
+
+  /shifts/{id}/confirm:
+    parameters:
+      - { name: id, in: path, required: true, schema: { $ref: '#/components/schemas/UUID' } }
+    post:
+      operationId: confirmShiftRegistration
+      tags: [shifts]
+      summary: Confirm a registration (Veranstaltungsleiter+)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [registrationId]
+              properties:
+                registrationId: { $ref: '#/components/schemas/UUID' }
+      responses:
+        "200":
+          description: Confirmed
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/MessageResponse' }
+        "401": { $ref: '#/components/responses/Unauthorized' }
+        "403": { $ref: '#/components/responses/Forbidden' }
+
+  # ── Hours ───────────────────────────────────────────────────────────────────
+  /hours/me:
+    get:
+      operationId: getMyHours
+      tags: [hours]
+      summary: Get the authenticated member's hour account (active club year)
+      responses:
+        "200":
+          description: Hour account with entries
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/MemberHourAccount' }
+        "401": { $ref: '#/components/responses/Unauthorized' }
+
+  /hours/account:
+    get:
+      operationId: getMemberAccount
+      tags: [hours]
+      summary: Get a member's hour account by memberId+clubYearId query params
+      parameters:
+        - { name: memberId, in: query, required: true, schema: { $ref: '#/components/schemas/UUID' } }
+        - { name: clubYearId, in: query, required: true, schema: { $ref: '#/components/schemas/UUID' } }
+      responses:
+        "200":
+          description: Hour account
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/MemberHourAccount' }
+        "401": { $ref: '#/components/responses/Unauthorized' }
+
+  /hours/confirm:
+    post:
+      operationId: confirmShiftHours
+      tags: [hours]
+      summary: Record confirmed hours after a shift (Veranstaltungsleiter+)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/ConfirmShiftHoursRequest' }
+      responses:
+        "201":
+          description: Hour entry created
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/HourEntry' }
+        "401": { $ref: '#/components/responses/Unauthorized' }
+        "403": { $ref: '#/components/responses/Forbidden' }
+
+  /hours/summary:
+    get:
+      operationId: getYearSummary
+      tags: [hours]
+      summary: Year-end hour summary for all members (Veranstaltungsleiter+)
+      parameters:
+        - { name: clubYearId, in: query, required: true, schema: { $ref: '#/components/schemas/UUID' } }
+      responses:
+        "200":
+          description: Summary rows
+          content:
+            application/json:
+              schema: { type: array, items: { type: object } }
+        "401": { $ref: '#/components/responses/Unauthorized' }
+        "403": { $ref: '#/components/responses/Forbidden' }
+
+  /hours/manual:
+    post:
+      operationId: manualBooking
+      tags: [hours]
+      summary: Create a manual hour entry (Vorstand+)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/ManualBookingRequest' }
+      responses:
+        "201":
+          description: Hour entry created
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/HourEntry' }
+        "401": { $ref: '#/components/responses/Unauthorized' }
+        "403": { $ref: '#/components/responses/Forbidden' }
+
+  /hours/{memberId}:
+    parameters:
+      - { name: memberId, in: path, required: true, schema: { $ref: '#/components/schemas/UUID' } }
+    get:
+      operationId: getMemberHours
+      tags: [hours]
+      summary: Get any member's hour account (active club year)
+      responses:
+        "200":
+          description: Hour account with entries
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/MemberHourAccount' }
+        "401": { $ref: '#/components/responses/Unauthorized' }
+
+  /hours/{id}:
+    parameters:
+      - { name: id, in: path, required: true, schema: { $ref: '#/components/schemas/UUID' } }
+    put:
+      operationId: correctHourEntry
+      tags: [hours]
+      summary: Correct an hour entry (Vorstand+)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [hours, description]
+              properties:
+                hours:       { type: number }
+                description: { type: string }
+      responses:
+        "200":
+          description: Corrected entry
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/HourEntry' }
+        "401": { $ref: '#/components/responses/Unauthorized' }
+        "403": { $ref: '#/components/responses/Forbidden' }
+    delete:
+      operationId: deleteHourEntry
+      tags: [hours]
+      summary: Delete an hour entry (Vorstand+)
+      responses:
+        "204": { description: Deleted }
+        "401": { $ref: '#/components/responses/Unauthorized' }
+        "403": { $ref: '#/components/responses/Forbidden' }
+
+  # ── Stats ────────────────────────────────────────────────────────────────────
+  /stats:
+    get:
+      operationId: getStats
+      tags: [stats]
+      summary: System-wide statistics (Veranstaltungsleiter+)
+      responses:
+        "200":
+          description: Statistics
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/SystemStats' }
+        "401": { $ref: '#/components/responses/Unauthorized' }
+        "403": { $ref: '#/components/responses/Forbidden' }
+
+  # ── Settings ─────────────────────────────────────────────────────────────────
+  /settings:
+    get:
+      operationId: getSettings
+      tags: [settings]
+      summary: Get application settings
+      responses:
+        "200":
+          description: Settings
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/AppSettings' }
+        "401": { $ref: '#/components/responses/Unauthorized' }
+    put:
+      operationId: updateSettings
+      tags: [settings]
+      summary: Update settings (Vorstand+)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/AppSettings' }
+      responses:
+        "200":
+          description: Updated settings
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/AppSettings' }
+        "401": { $ref: '#/components/responses/Unauthorized' }
+        "403": { $ref: '#/components/responses/Forbidden' }
+
+  /settings/branding:
+    get:
+      operationId: getBranding
+      tags: [settings]
+      summary: Get club branding
+      security: []
+      responses:
+        "200":
+          description: Branding
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/BrandingConfig' }
+    put:
+      operationId: updateBranding
+      tags: [settings]
+      summary: Update branding (Vorstand+); returns WCAG contrast warnings
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/BrandingConfig' }
+      responses:
+        "200":
+          description: Branding + warnings
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/BrandingUpdateResult' }
+        "401": { $ref: '#/components/responses/Unauthorized' }
+        "403": { $ref: '#/components/responses/Forbidden' }
+
+  /settings/fee-tiers:
+    get:
+      operationId: getFeeTiers
+      tags: [settings]
+      summary: Get fee tiers
+      responses:
+        "200":
+          description: Fee tiers
+          content:
+            application/json:
+              schema: { type: array, items: { $ref: '#/components/schemas/FeeTier' } }
+        "401": { $ref: '#/components/responses/Unauthorized' }
+    put:
+      operationId: updateFeeTiers
+      tags: [settings]
+      summary: Update fee tiers (Vorstand+)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { type: array, items: { $ref: '#/components/schemas/FeeTier' } }
+      responses:
+        "200":
+          description: Updated tiers
+          content:
+            application/json:
+              schema: { type: array, items: { $ref: '#/components/schemas/FeeTier' } }
+        "401": { $ref: '#/components/responses/Unauthorized' }
+        "403": { $ref: '#/components/responses/Forbidden' }
+
+  /settings/audit:
+    get:
+      operationId: getAuditLog
+      tags: [settings]
+      summary: Get audit log (Vorstand+)
+      parameters:
+        - { name: limit, in: query, schema: { type: integer, default: 100 } }
+        - { name: offset, in: query, schema: { type: integer, default: 0 } }
+      responses:
+        "200":
+          description: Audit entries
+          content:
+            application/json:
+              schema: { type: array, items: { $ref: '#/components/schemas/AuditEntry' } }
+        "401": { $ref: '#/components/responses/Unauthorized' }
+        "403": { $ref: '#/components/responses/Forbidden' }
+
+  /settings/logo:
+    post:
+      operationId: uploadLogo
+      tags: [settings]
+      summary: Upload club logo PNG/SVG (Vorstand+)
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              required: [file]
+              properties:
+                file: { type: string, format: binary }
+      responses:
+        "200":
+          description: Updated branding
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/BrandingConfig' }
+        "401": { $ref: '#/components/responses/Unauthorized' }
+        "403": { $ref: '#/components/responses/Forbidden' }
+
+  /settings/email-templates:
+    get:
+      operationId: listEmailTemplates
+      tags: [settings]
+      summary: List email templates (Vorstand+)
+      responses:
+        "200":
+          description: Templates
+          content:
+            application/json:
+              schema: { type: array, items: { $ref: '#/components/schemas/EmailTemplate' } }
+        "401": { $ref: '#/components/responses/Unauthorized' }
+        "403": { $ref: '#/components/responses/Forbidden' }
+
+  /settings/email-templates/{name}:
+    parameters:
+      - { name: name, in: path, required: true, schema: { type: string } }
+    get:
+      operationId: getEmailTemplate
+      tags: [settings]
+      summary: Get an email template (Vorstand+)
+      responses:
+        "200":
+          description: Template
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/EmailTemplate' }
+        "401": { $ref: '#/components/responses/Unauthorized' }
+        "403": { $ref: '#/components/responses/Forbidden' }
+    put:
+      operationId: updateEmailTemplate
+      tags: [settings]
+      summary: Update an email template (Vorstand+)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/EmailTemplate' }
+      responses:
+        "200":
+          description: Updated template
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/EmailTemplate' }
+        "401": { $ref: '#/components/responses/Unauthorized' }
+        "403": { $ref: '#/components/responses/Forbidden' }
+
+  /settings/email-log:
+    get:
+      operationId: getEmailLog
+      tags: [settings]
+      summary: Get email send log (Vorstand+)
+      parameters:
+        - { name: limit, in: query, schema: { type: integer, default: 100 } }
+        - { name: offset, in: query, schema: { type: integer, default: 0 } }
+      responses:
+        "200":
+          description: Log entries
+          content:
+            application/json:
+              schema: { type: array, items: { $ref: '#/components/schemas/EmailLogEntry' } }
+        "401": { $ref: '#/components/responses/Unauthorized' }
+        "403": { $ref: '#/components/responses/Forbidden' }
+
+  /settings/email-log/{id}/resend:
+    parameters:
+      - { name: id, in: path, required: true, schema: { $ref: '#/components/schemas/UUID' } }
+    post:
+      operationId: resendEmail
+      tags: [settings]
+      summary: Resend a logged email (Vorstand+)
+      responses:
+        "200":
+          description: Resent
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/MessageResponse' }
+        "401": { $ref: '#/components/responses/Unauthorized' }
+        "403": { $ref: '#/components/responses/Forbidden' }
+
+  /settings/members/{id}/fee-tiers:
+    parameters:
+      - { name: id, in: path, required: true, schema: { $ref: '#/components/schemas/UUID' } }
+      - { name: clubYearId, in: query, required: true, schema: { $ref: '#/components/schemas/UUID' } }
+    get:
+      operationId: getMemberFeeTiers
+      tags: [settings]
+      summary: Get per-member fee tier overrides (Vorstand+)
+      responses:
+        "200":
+          description: Overrides
+          content:
+            application/json:
+              schema: { type: array, items: { $ref: '#/components/schemas/MemberFeeTier' } }
+        "401": { $ref: '#/components/responses/Unauthorized' }
+        "403": { $ref: '#/components/responses/Forbidden' }
+    put:
+      operationId: updateMemberFeeTiers
+      tags: [settings]
+      summary: Set per-member fee tier overrides (Vorstand+)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [tiers]
+              properties:
+                tiers: { type: array, items: { $ref: '#/components/schemas/MemberFeeTier' } }
+      responses:
+        "200":
+          description: Updated
+          content:
+            application/json:
+              schema: { type: array, items: { $ref: '#/components/schemas/MemberFeeTier' } }
+        "401": { $ref: '#/components/responses/Unauthorized' }
+        "403": { $ref: '#/components/responses/Forbidden' }
+
+  # ── Billing ──────────────────────────────────────────────────────────────────
+  /billing/{clubYearId}:
+    parameters:
+      - { name: clubYearId, in: path, required: true, schema: { $ref: '#/components/schemas/UUID' } }
+    get:
+      operationId: getBilling
+      tags: [billing]
+      summary: Compute billing for a club year (Vorstand+)
+      responses:
+        "200":
+          description: Billing report
+          content:
+            application/json:
+              schema: { type: object }
+        "401": { $ref: '#/components/responses/Unauthorized' }
+        "403": { $ref: '#/components/responses/Forbidden' }
+
+  /billing/{clubYearId}/export.csv:
+    parameters:
+      - { name: clubYearId, in: path, required: true, schema: { $ref: '#/components/schemas/UUID' } }
+    get:
+      operationId: exportBillingCsv
+      tags: [billing]
+      summary: Export billing as CSV (Vorstand+)
+      responses:
+        "200":
+          description: CSV file
+          content:
+            text/csv:
+              schema: { type: string, format: binary }
+        "401": { $ref: '#/components/responses/Unauthorized' }
+        "403": { $ref: '#/components/responses/Forbidden' }
+
+  /billing/{clubYearId}/export.pdf:
+    parameters:
+      - { name: clubYearId, in: path, required: true, schema: { $ref: '#/components/schemas/UUID' } }
+    get:
+      operationId: exportBillingPdf
+      tags: [billing]
+      summary: Export billing as PDF (Vorstand+)
+      responses:
+        "200":
+          description: PDF file
+          content:
+            application/pdf:
+              schema: { type: string, format: binary }
+        "401": { $ref: '#/components/responses/Unauthorized' }
+        "403": { $ref: '#/components/responses/Forbidden' }
+
+  # ── Kiosk (public, no auth) ───────────────────────────────────────────────────
+  /kiosk/events:
+    get:
+      operationId: listKioskEvents
+      tags: [kiosk]
+      summary: List all published events (no auth)
+      security: []
+      responses:
+        "200":
+          description: Published events
+          content:
+            application/json:
+              schema: { type: array, items: { $ref: '#/components/schemas/Event' } }
+        "403": { description: Kiosk locked }
+
+  /kiosk/events/{id}:
+    parameters:
+      - { name: id, in: path, required: true, schema: { $ref: '#/components/schemas/UUID' } }
+    get:
+      operationId: getKioskEventTimeline
+      tags: [kiosk]
+      summary: Get published event timeline (no auth)
+      security: []
+      responses:
+        "200":
+          description: Event timeline
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/EventTimeline' }
+        "403": { description: Kiosk locked }
+        "404": { $ref: '#/components/responses/NotFound' }
+
+  /kiosk/members:
+    get:
+      operationId: searchKioskMembers
+      tags: [kiosk]
+      summary: Search active members by name (no auth, kioskSearch must be enabled)
+      security: []
+      parameters:
+        - { name: q, in: query, required: true, schema: { type: string, minLength: 2 } }
+      responses:
+        "200":
+          description: Matching members
+          content:
+            application/json:
+              schema: { type: array, items: { $ref: '#/components/schemas/Member' } }
+        "400": { $ref: '#/components/responses/BadRequest' }
+        "403": { description: Kiosk locked }
+
+  /kiosk/shifts/{id}/register:
+    parameters:
+      - { name: id, in: path, required: true, schema: { $ref: '#/components/schemas/UUID' } }
+    post:
+      operationId: kioskRegister
+      tags: [kiosk]
+      summary: Register for a shift via kiosk (no auth); sends confirmation email
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/KioskRegisterRequest' }
+      responses:
+        "201":
+          description: Registration pending email confirmation
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/MessageResponse' }
+        "403": { description: Kiosk locked }
+        "409": { description: Already registered }
+        "422": { description: Shift fully booked }
+
+  /kiosk/confirm/{token}:
+    parameters:
+      - { name: token, in: path, required: true, schema: { $ref: '#/components/schemas/UUID' } }
+    get:
+      operationId: confirmKioskRegistration
+      tags: [kiosk]
+      summary: Confirm a kiosk registration via email token (no auth)
+      security: []
+      responses:
+        "200":
+          description: Confirmed
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ConfirmResult' }
+        "400": { $ref: '#/components/responses/BadRequest' }

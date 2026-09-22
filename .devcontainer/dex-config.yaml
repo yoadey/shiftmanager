@@ -1,0 +1,24 @@
+# Der Issuer MUSS identisch sein mit dem, was die App aufruft
+issuer: http://host.docker.internal:5556/dex
+
+storage:
+  type: memory
+
+web:
+  http: 0.0.0.0:5556
+
+# Hier registrierst du deine Go-Anwendung
+staticClients:
+- id: shiftmanager-app
+  secret: super-secret-local-token
+  name: 'Shiftmanager Dev'
+  redirectURIs:
+  - 'http://localhost:5173/api/v1/auth/callback' # Die URL deines Backends, die der Browser aufruft
+
+enablePasswordDB: true
+staticPasswords:
+- email: "admin@example.com"
+  # Das Passwort ist im Klartext "password"
+  hash: "$2a$12$P5k.YP2l8wcADJ.JV3i8UevSNROVNkH1iOJyYHqxtxHLhFABVRwKC"
+  username: "admin"
+  userID: "08a8684b-db88-4b73-90a9-3cd1661f5466"

@@ -1,0 +1,48 @@
+# ============================================================
+# ShiftManager — Ingress (Traefik + cert-manager)
+#
+# Prerequisites:
+#   - Traefik ingress controller installed (standard with k3s)
+#   - cert-manager installed with a ClusterIssuer named
+#     "letsencrypt-prod" (see: https://cert-manager.io/docs/)
+#
+# Before applying:
+#   1. Replace "shiftmanager.example.com" with your actual domain
+#   2. Ensure DNS points to your cluster's external IP
+# ============================================================
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: shiftmanager
+  namespace: shiftmanager
+  labels:
+    app.kubernetes.io/name: shiftmanager
+    app.kubernetes.io/component: api
+  annotations:
+    # Route only on the HTTPS entrypoint
+    traefik.ingress.kubernetes.io/router.entrypoints: websecure
+    # Enable TLS on this router
+    traefik.ingress.kubernetes.io/router.tls: "true"
+    # cert-manager will provision and renew the TLS certificate
+    cert-manager.io/cluster-issuer: "letsencrypt-prod"
+    # Redirect all HTTP traffic to HTTPS
+    traefik.ingress.kubernetes.io/router.middlewares: shiftmanager-redirect-https@kubernetescrd
+spec:
+  ingressClassName: traefik
+  tls:
+    - hosts:
+        # TODO: Replace with your actual domain
+        - shiftmanager.example.com
+      secretName: shiftmanager-tls
+  rules:
+    - host: shiftmanager.example.com  # TODO: Replace with your actual domain
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: shiftmanager-api
+                port:
+                  name: http

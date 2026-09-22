@@ -1,0 +1,102 @@
+{
+    "name": "ShiftManager",
+    "dockerComposeFile": "docker-compose.yml",
+    "service": "app",
+    "workspaceFolder": "/workspace",
+    "shutdownAction": "stopCompose",
+    "features": {
+        "ghcr.io/devcontainers/features/git:1": {},
+        "ghcr.io/devcontainers/features/github-cli:1": {},
+        "ghcr.io/devcontainers/features/node:2": {
+            "version": "lts",
+            "npmVersion": "11.16.0"
+        }
+    },
+    "customizations": {
+        "vscode": {
+            "extensions": [
+                "golang.Go",
+                "dbaeumer.vscode-eslint",
+                "esbenp.prettier-vscode",
+                "ms-vscode.vscode-typescript-next",
+                "tamasfe.even-better-toml",
+                "mtxr.sqltools",
+                "mtxr.sqltools-driver-pg",
+                "redhat.vscode-yaml",
+                "ms-azuretools.vscode-docker",
+                "eamodio.gitlens",
+                "usernamehw.errorlens",
+                "streetsidesoftware.code-spell-checker"
+            ],
+            "settings": {
+                "go.toolsEnvVars": {
+                    "GOFLAGS": "-buildvcs=false"
+                },
+                "[go]": {
+                    "editor.defaultFormatter": "golang.Go"
+                },
+                "[typescript]": {
+                    "editor.defaultFormatter": "esbenp.prettier-vscode"
+                },
+                "[typescriptreact]": {
+                    "editor.defaultFormatter": "esbenp.prettier-vscode"
+                },
+                "[javascript]": {
+                    "editor.defaultFormatter": "esbenp.prettier-vscode"
+                },
+                "editor.formatOnSave": true,
+                "editor.codeActionsOnSave": {
+                    "source.organizeImports": "explicit"
+                },
+                "go.lintTool": "golangci-lint",
+                "go.useLanguageServer": true,
+                "gopls": {
+                    "completeUnimported": true,
+                    "usePlaceholders": true
+                },
+                "files.exclude": {
+                    "**/.git": true,
+                    "**/node_modules": true
+                }
+            }
+        }
+    },
+    "forwardPorts": [
+        5173,
+        8080,
+        2345,
+        5432,
+        6379
+    ],
+    "portsAttributes": {
+        "5556": {
+            "onAutoForward": "ignore"
+        },
+        "2345": {
+            "label": "Delve Debugger",
+            "onAutoForward": "silent"
+        },
+        "4000": {
+            "label": "OIDC Mock4000"
+        },
+        "5173": {
+            "label": "Vite Frontend",
+            "onAutoForward": "notify"
+        },
+        "5432": {
+            "label": "PostgreSQL",
+            "onAutoForward": "silent"
+        },
+        "6379": {
+            "label": "Redis",
+            "onAutoForward": "silent"
+        },
+        "8080": {
+            "label": "Go Backend",
+            "onAutoForward": "notify"
+        }
+    },
+    "postCreateCommand": "bash .devcontainer/post-create.sh",
+    "postStartCommand": "echo 'Container ready. Backend: go run cmd/server/main.go | Frontend: cd frontend && npm run dev'",
+    "remoteUser": "root"
+}

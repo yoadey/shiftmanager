@@ -1,0 +1,79 @@
+name: Deploy
+
+on:
+  push:
+    branches:
+      - main
+
+# Prevent concurrent deployments
+concurrency:
+  group: deploy-production
+  cancel-in-progress: false
+
+jobs:
+  deploy-k8s:
+    name: Deploy to Kubernetes
+    runs-on: ubuntu-latest
+    # Only run after CI passes (relies on branch protection requiring CI)
+    environment: production
+    permissions:
+      contents: read
+      packages: read
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up kubectl
+        uses: azure/setup-kubectl@v4
+        with:
+          version: "latest"
+
+      - name: Configure kubeconfig
+        # KUBECONFIG secret should contain the base64-encoded kubeconfig file.
+        # Create it with:
+        #   cat ~/.kube/config | base64 -w 0
+        # Then add as a repository secret named KUBECONFIG.
+        run: |
+          mkdir -p ~/.kube
+          echo "${{ secrets.KUBECONFIG }}" | base64 -d > ~/.kube/config
+          chmod 600 ~/.kube/config
+
+      - name: Compute image tag
+        id: tag
+        run: echo "sha=sha-${{ github.sha }}" >> "$GITHUB_OUTPUT"
+
+      - name: Update image tag in deployment manifest
+        # Pin the deployment to the exact commit SHA built by the CI job.
+        # This ensures we deploy the image that passed all CI checks.
+        run: |
+          sed -i "s|ghcr.io/yoadey/shiftmanager:latest|ghcr.io/yoadey/shiftmanager:${{ steps.tag.outputs.sha }}|g" \
+            deploy/kubernetes/deployment.yaml
+
+      - name: Apply Kubernetes manifests
+        run: |
+          kubectl apply -f deploy/kubernetes/namespace.yaml
+          kubectl apply -f deploy/kubernetes/configmap.yaml
+          # NOTE: secret.yaml contains placeholder values and should NOT be
+          # applied here. Manage secrets via Sealed Secrets or External Secrets.
+          # If you store the real secret in a separate file, apply it here:
+          # kubectl apply -f deploy/kubernetes/secret.yaml
+          kubectl apply -f deploy/kubernetes/postgres-statefulset.yaml
+          kubectl apply -f deploy/kubernetes/redis-deployment.yaml
+          kubectl apply -f deploy/kubernetes/deployment.yaml
+          kubectl apply -f deploy/kubernetes/service.yaml
+          kubectl apply -f deploy/kubernetes/ingress.yaml
+          kubectl apply -f deploy/kubernetes/hpa.yaml
+          kubectl apply -f deploy/kubernetes/pdb.yaml
+          kubectl apply -f deploy/kubernetes/networkpolicy.yaml
+          kubectl apply -f deploy/kubernetes/cronjob-backup.yaml
+
+      - name: Wait for rollout
+        run: |
+          kubectl rollout status deployment/shiftmanager-api \
+            --namespace shiftmanager \
+            --timeout=300s
+
+      - name: Verify deployment
+        run: |
+          kubectl get pods --namespace shiftmanager
+          echo "Deployment complete. Image: ghcr.io/yoadey/shiftmanager:${{ steps.tag.outputs.sha }}"
