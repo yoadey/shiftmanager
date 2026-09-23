@@ -98,6 +98,9 @@ type RegistrationRepository interface {
 	FindByMemberAndShift(ctx context.Context, memberID uuid.UUID, shiftID uuid.UUID) (*domain.Registration, error)
 	FindByGuestEmailAndShift(ctx context.Context, guestEmail string, shiftID uuid.UUID) (*domain.Registration, error)
 	CountActiveByShift(ctx context.Context, shiftID uuid.UUID) (int, error)
+	// ConfirmRegisteredByShift transitions all registrations in state "registered"
+	// for the given shift to "confirmed". Returns the number of rows affected.
+	ConfirmRegisteredByShift(ctx context.Context, shiftID uuid.UUID) (int, error)
 	Update(ctx context.Context, r *domain.Registration) error
 	Delete(ctx context.Context, id uuid.UUID) error
 	ListUnconfirmedExpiredReservations(ctx context.Context, before time.Time) ([]*domain.Registration, error)
@@ -117,12 +120,18 @@ type HourRepository interface {
 	// atomic operation (insert + deactivate every other year), so "exactly
 	// one active club year" holds even under concurrent calls.
 	CreateActiveClubYear(ctx context.Context, y *domain.ClubYear) error
+	UpdateClubYear(ctx context.Context, y *domain.ClubYear) error
+	DeleteClubYear(ctx context.Context, id uuid.UUID) error
 	GetActiveClubYear(ctx context.Context) (*domain.ClubYear, error)
 	GetClubYearByID(ctx context.Context, id uuid.UUID) (*domain.ClubYear, error)
 	ListClubYears(ctx context.Context) ([]*domain.ClubYear, error)
 
 	GetHourTarget(ctx context.Context, memberID, clubYearID uuid.UUID) (*domain.HourTarget, error)
 	UpsertHourTarget(ctx context.Context, t *domain.HourTarget) error
+
+	// DeactivateAllClubYears sets is_active = false on every club year.
+	// Call this before activating a new one to enforce the single-active invariant.
+	DeactivateAllClubYears(ctx context.Context) error
 }
 
 // AuditRepository defines persistence operations for the audit log.

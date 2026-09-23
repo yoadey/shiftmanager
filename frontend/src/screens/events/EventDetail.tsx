@@ -1,19 +1,29 @@
 import { useRef, useState } from 'react';
 import { Icon } from '@/components/ui/Icon';
 import { Avatar } from '@/components/ui/Avatar';
-import { Badge, OccBadge } from '@/components/ui/Badge';
+import { OccBadge } from '@/components/ui/Badge';
 import { Button } from '@/components/ui/Button';
 import { OccFill } from '@/components/ui/OccFill';
 import { Sheet } from '@/components/ui/Sheet';
 import { Field, Input, Textarea, Select } from '@/components/forms/Field';
 import { useAppStore } from '@/store/app.store';
 import { useAuthStore } from '@/store/auth.store';
-import { useRegisterShift, useDeregisterShift, useCreateShift, useUpdateShift, useDeleteShift } from '@/api/shifts';
+import {
+  useRegisterShift,
+  useDeregisterShift,
+  useCreateShift,
+  useUpdateShift,
+  useDeleteShift,
+  usePatchRegistration,
+  useForceDeleteRegistration,
+  useAddMemberToShift,
+} from '@/api/shifts';
 import {
   useEvent,
   useEventTimeline,
   useUpdateEvent,
   useDeleteEvent,
+  useCompleteEvent,
   useEventAttachments,
   useUploadEventAttachment,
   useDeleteEventAttachment,
@@ -24,7 +34,7 @@ import { calcOccupancy } from '@/hooks/useOccupancy';
 import { useNameFormat } from '@/hooks/useNameFormat';
 import { LoadingState, ErrorState } from '@/components/ui/States';
 import { fmtDate, hrs, durH, catGradient } from '@/screens/_demo';
-import type { Event, Shift, Member, EventAttachment } from '@/types';
+import type { Event, Shift, Signup, Member, EventAttachment } from '@/types';
 
 const dotColor: Record<string, string> = {
   ok: 'var(--ok)',
@@ -46,17 +56,241 @@ function MiniStat({ label, val, accent }: { label: string; val: number; accent?:
   );
 }
 
-function ShiftRow({ sh, onRegister, onDeregister, memberMap }: { sh: Shift; onRegister: () => void; onDeregister: () => void; memberMap: Record<string, Member> }) {
+const MINUTES = [0, 5, 10, 15, 20, 25, 30, 35, 40, 45, 50, 55];
+
+function decimalToHhMm(decimal: number): [number, number] {
+  const h = Math.floor(decimal);
+  const m = Math.round(((decimal % 1) * 60) / 5) * 5;
+  return [h, Math.min(m, 55)];
+}
+
+function TimePickerSheet({ hh, mm, dur, onSave, onClose }: {
+  hh: number; mm: number; dur: number;
+  onSave: (h: number, m: number) => void;
+  onClose: () => void;
+}) {
+  const [h, setH] = useState(hh);
+  const [m, setM] = useState(mm);
+  return (
+    <Sheet variant="dialog" onClose={onClose}>
+      <div style={{ textAlign: 'center', padding: '4px 0 4px' }}>
+        <div style={{ fontSize: 38, fontWeight: 800, fontFamily: 'Bricolage Grotesque', margin: '4px 0 20px', letterSpacing: '-1px' }}>
+          {h}<span style={{ fontSize: 22, color: 'var(--muted)', fontWeight: 700 }}>&thinsp;h&thinsp;</span>
+          {String(m).padStart(2, '0')}<span style={{ fontSize: 22, color: 'var(--muted)', fontWeight: 700 }}>&thinsp;min</span>
+        </div>
+
+        <div style={{ marginBottom: 20 }}>
+          <div style={{ fontSize: 11, fontWeight: 800, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '.06em', marginBottom: 10 }}>Stunden</div>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 18, justifyContent: 'center' }}>
+            <button onClick={() => setH(Math.max(0, h - 1))} className="pressable"
+              style={{ width: 52, height: 52, borderRadius: 14, border: '1.5px solid var(--line)', background: 'var(--surface)', cursor: 'pointer', fontSize: 24, fontWeight: 700, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>−</button>
+            <span style={{ fontWeight: 800, fontSize: 30, minWidth: 48, textAlign: 'center', fontFamily: 'Bricolage Grotesque' }}>{h}</span>
+            <button onClick={() => setH(Math.min(23, h + 1))} className="pressable"
+              style={{ width: 52, height: 52, borderRadius: 14, border: '1.5px solid var(--line)', background: 'var(--surface)', cursor: 'pointer', fontSize: 24, fontWeight: 700, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>+</button>
+          </div>
+        </div>
+
+        <div style={{ marginBottom: 16 }}>
+          <div style={{ fontSize: 11, fontWeight: 800, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '.06em', marginBottom: 10 }}>Minuten</div>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 7 }}>
+            {MINUTES.map((min) => (
+              <button key={min} onClick={() => setM(min)} className="pressable"
+                style={{ padding: '11px 0', borderRadius: 11, border: m === min ? '2px solid var(--primary)' : '1.5px solid var(--line)', background: m === min ? 'color-mix(in srgb, var(--primary) 12%, var(--surface))' : 'var(--surface)', cursor: 'pointer', fontWeight: 700, fontSize: 14, fontFamily: 'inherit', color: m === min ? 'var(--primary)' : 'var(--ink)' }}>
+                :{String(min).padStart(2, '0')}
+              </button>
+            ))}
+          </div>
+        </div>
+
+        <div style={{ fontSize: 12, color: 'var(--muted)', fontWeight: 600, marginBottom: 18 }}>
+          Schichtdauer: {hrs(dur)}
+        </div>
+
+        <div style={{ display: 'flex', gap: 10 }}>
+          <Button variant="ghost" onClick={onClose}>Abbrechen</Button>
+          <Button icon="check" onClick={() => onSave(h, m)}>Übernehmen</Button>
+        </div>
+      </div>
+    </Sheet>
+  );
+}
+
+function RegistrationRow({
+  s, shift, eventId, memberMap,
+}: {
+  s: Signup; shift: Shift; eventId: string; memberMap: Record<string, Member>;
+}) {
+  const formatName = useNameFormat();
+  const { showToast } = useAppStore();
+  const patch = usePatchRegistration();
+  const forceDelete = useForceDeleteRegistration();
+
+  const dur = durH(shift.start, shift.end);
+  const [[hh, mm], setHhMm] = useState<[number, number]>(() =>
+    decimalToHhMm(s.hours != null ? s.hours : dur)
+  );
+  const [timeOpen, setTimeOpen] = useState(false);
+  const [deleteConfirm, setDeleteConfirm] = useState(false);
+
+  const isConfirmed = s.status === 'bestätigt';
+  const isNoShow = s.status === 'nichterschienen';
+
+  const doSaveHours = (h: number, m: number) => {
+    patch.mutate({ registrationId: s.id ?? '', eventId, bookedHours: h + m / 60 },
+      { onError: () => showToast('Fehler.', 'crit') });
+  };
+
+  const onTimeSave = (h: number, m: number) => {
+    setHhMm([h, m]);
+    doSaveHours(h, m);
+    setTimeOpen(false);
+  };
+
+  const onConfirm = () => {
+    const bookedH = hh + mm / 60;
+    patch.mutate({
+      registrationId: s.id ?? '', eventId,
+      state: isConfirmed ? 'registered' : 'confirmed',
+      bookedHours: !isConfirmed && bookedH > 0 ? bookedH : undefined,
+    }, { onError: () => showToast('Fehler.', 'crit') });
+  };
+
+  const onNoShow = () => {
+    patch.mutate({
+      registrationId: s.id ?? '', eventId,
+      state: isNoShow ? 'registered' : 'no_show',
+    }, { onError: () => showToast('Fehler.', 'crit') });
+  };
+
+  const onRemove = () => {
+    forceDelete.mutate({ registrationId: s.id ?? '', eventId },
+      { onError: () => showToast('Entfernen fehlgeschlagen.', 'crit') });
+  };
+
+  const member = memberMap[s.memberId];
+  const displayName = s.guest ?? (member ? formatName(member, { viewerFull: true }) : '—');
+  const bg = isNoShow
+    ? 'color-mix(in srgb, var(--crit) 8%, var(--surface))'
+    : isConfirmed
+      ? 'color-mix(in srgb, var(--ok) 8%, var(--surface))'
+      : 'var(--surface-2)';
+
+  return (
+    <>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 5, padding: '6px 8px', borderRadius: 10, border: '1px solid var(--line)', background: bg }}>
+        <Avatar memberId={s.memberId} members={memberMap} size={24} />
+        <span style={{ fontSize: 12.5, fontWeight: 700, flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+          {displayName}
+        </span>
+        {!isNoShow && (
+          <button onClick={() => setTimeOpen(true)} title="Zeit bearbeiten" className="pressable"
+            style={{ padding: '3px 9px', borderRadius: 8, border: '1px solid var(--line)', background: 'var(--surface)', fontSize: 12.5, fontWeight: 800, fontFamily: 'inherit', cursor: 'pointer', flexShrink: 0, whiteSpace: 'nowrap' }}>
+            {hh}:{String(mm).padStart(2, '0')}
+          </button>
+        )}
+        <button onClick={onConfirm} title={isConfirmed ? 'Bestätigung aufheben' : 'Anwesend bestätigen'} className="pressable"
+          style={{ width: 28, height: 28, borderRadius: 8, border: isConfirmed ? 'none' : '1px solid var(--ok)', background: isConfirmed ? 'var(--ok)' : 'transparent', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+          <Icon name="check" size={13} stroke={2.4} color={isConfirmed ? '#fff' : 'var(--ok)'} />
+        </button>
+        <button onClick={onNoShow} title={isNoShow ? 'Status zurücksetzen' : 'Nicht erschienen markieren'} className="pressable"
+          style={{ width: 28, height: 28, borderRadius: 8, border: isNoShow ? 'none' : '1px solid var(--crit)', background: isNoShow ? 'var(--crit)' : 'transparent', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+          <Icon name="x" size={13} stroke={2.4} color={isNoShow ? '#fff' : 'var(--crit)'} />
+        </button>
+        <button onClick={() => setDeleteConfirm(true)} title="Entfernen" className="pressable"
+          style={{ width: 28, height: 28, borderRadius: 8, border: '1px solid var(--line)', background: 'transparent', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+          <Icon name="trash" size={13} stroke={2} color="var(--muted)" />
+        </button>
+      </div>
+      {timeOpen && (
+        <TimePickerSheet hh={hh} mm={mm} dur={dur} onSave={onTimeSave} onClose={() => setTimeOpen(false)} />
+      )}
+      {deleteConfirm && (
+        <Sheet variant="dialog" onClose={() => setDeleteConfirm(false)}>
+          <div style={{ textAlign: 'center', padding: '6px 4px 4px' }}>
+            <div style={{ width: 54, height: 54, borderRadius: '50%', background: 'var(--crit-bg)', display: 'flex', alignItems: 'center', justifyContent: 'center', margin: '0 auto 14px' }}>
+              <Icon name="trash" size={26} stroke={2.4} color="var(--crit)" />
+            </div>
+            <h3 style={{ fontSize: 19, fontWeight: 800 }}>Person entfernen?</h3>
+            <p style={{ color: 'var(--ink-2)', fontSize: 14, fontWeight: 600, margin: '8px 0 18px', lineHeight: 1.45 }}>
+              {displayName} wird aus der Schicht entfernt.
+            </p>
+            <div style={{ display: 'flex', gap: 10 }}>
+              <Button variant="ghost" onClick={() => setDeleteConfirm(false)}>Abbrechen</Button>
+              <Button variant="danger" onClick={() => { setDeleteConfirm(false); onRemove(); }}>Entfernen</Button>
+            </div>
+          </div>
+        </Sheet>
+      )}
+    </>
+  );
+}
+
+function AddMemberSheet({
+  shift, eventId, members, onClose,
+}: {
+  shift: Shift; eventId: string; members: Member[]; onClose: () => void;
+}) {
+  const { showToast } = useAppStore();
+  const formatName = useNameFormat();
+  const addMember = useAddMemberToShift();
+  const [search, setSearch] = useState('');
+
+  const existingIds = new Set(shift.signups.map((s) => s.memberId));
+  const filtered = members.filter((m) => {
+    if (existingIds.has(m.id)) return false;
+    if (m.active === false) return false;
+    const q = search.toLowerCase();
+    if (!q) return true;
+    return `${m.first} ${m.last}`.toLowerCase().includes(q) || m.email.toLowerCase().includes(q);
+  });
+
+  const add = (memberId: string) => {
+    addMember.mutate({ shiftId: shift.id, memberId, eventId }, {
+      onSuccess: () => showToast('Helfer hinzugefügt.'),
+      onError: () => showToast('Hinzufügen fehlgeschlagen.', 'crit'),
+    });
+    onClose();
+  };
+
+  return (
+    <Sheet onClose={onClose} title="Helfer hinzufügen">
+      <Field label="Suche">
+        <Input placeholder="Name oder E-Mail…" value={search} onChange={(e) => setSearch(e.target.value)} />
+      </Field>
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 6, marginTop: 4 }}>
+        {filtered.length === 0 && (
+          <span style={{ fontSize: 13, color: 'var(--muted)', fontWeight: 600, padding: '10px 0' }}>
+            {search ? 'Keine Mitglieder gefunden.' : 'Alle Mitglieder bereits eingetragen.'}
+          </span>
+        )}
+        {filtered.slice(0, 50).map((m) => (
+          <button key={m.id} onClick={() => add(m.id)} className="pressable"
+            style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '10px 12px', borderRadius: 12, border: '1px solid var(--line)', background: 'var(--surface)', cursor: 'pointer', fontFamily: 'inherit', textAlign: 'left', width: '100%' }}
+          >
+            <div style={{ flex: 1, minWidth: 0 }}>
+              <div style={{ fontWeight: 700, fontSize: 14 }}>{formatName(m, { viewerFull: true })}</div>
+              <div style={{ fontSize: 12, color: 'var(--muted)', fontWeight: 600 }}>{m.email}</div>
+            </div>
+            <Icon name="plus" size={16} stroke={2.4} color="var(--primary)" />
+          </button>
+        ))}
+      </div>
+    </Sheet>
+  );
+}
+
+function ShiftRow({ sh, eventId, onRegister, onDeregister, memberMap }: { sh: Shift; eventId: string; onRegister: () => void; onDeregister: () => void; memberMap: Record<string, Member> }) {
   const { role } = useAppStore();
   const { user } = useAuthStore();
-  const formatName = useNameFormat();
   const uid = user?.id ?? '';
   const o = calcOccupancy(sh);
   const mine = sh.signups.find((s) => s.memberId === uid && (s.status === 'angemeldet' || s.status === 'reserviert'));
   const isBoard = role === 'vorstand';
   const [open, setOpen] = useState(false);
+  const [addingMember, setAddingMember] = useState(false);
 
   return (
+    <>
     <div className="tl-shift">
       <span className="tl-dot" style={{ background: dotColor[o.key] }} />
       <div className="sm-card" style={{ padding: 13, border: mine ? '1.5px solid var(--primary)' : '1px solid var(--line)' }}>
@@ -100,19 +334,18 @@ function ShiftRow({ sh, onRegister, onDeregister, memberMap }: { sh: Shift; onRe
               <Icon name="users" size={15} stroke={2.2} />{o.count} eingetragen<Icon name={open ? 'chevD' : 'chevR'} size={14} stroke={2.4} />
             </button>
             {open && (
-              <div style={{ marginTop: 8, display: 'flex', flexDirection: 'column', gap: 7 }}>
+              <div style={{ marginTop: 8, display: 'flex', flexDirection: 'column', gap: 6 }}>
                 {sh.signups.length === 0 && <span style={{ fontSize: 12.5, color: 'var(--muted)', fontWeight: 600 }}>Noch niemand eingetragen.</span>}
-                {sh.signups.map((s, i) => (
-                  <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 9 }}>
-                    <Avatar memberId={s.memberId} members={memberMap} size={28} />
-                    <span style={{ fontSize: 13, fontWeight: 700, flex: 1 }}>{formatName(memberMap[s.memberId], { viewerFull: true })}</span>
-                    {s.status === 'bestätigt'
-                      ? <Badge kind="ok">{hrs(s.hours ?? 0)}</Badge>
-                      : s.status === 'nichterschienen'
-                        ? <Badge kind="crit">Nicht da</Badge>
-                        : <Badge kind="info">Angemeldet</Badge>}
-                  </div>
+                {sh.signups.map((s) => (
+                  <RegistrationRow
+                    key={s.id ?? s.memberId}
+                    s={s}
+                    shift={sh}
+                    eventId={eventId}
+                    memberMap={memberMap}
+                  />
                 ))}
+                <Button variant="soft" size="sm" icon="plus" onClick={() => setAddingMember(true)}>Helfer hinzufügen</Button>
               </div>
             )}
           </div>
@@ -129,6 +362,16 @@ function ShiftRow({ sh, onRegister, onDeregister, memberMap }: { sh: Shift; onRe
         )}
       </div>
     </div>
+
+    {addingMember && (
+      <AddMemberSheet
+        shift={sh}
+        eventId={eventId}
+        members={Object.values(memberMap)}
+        onClose={() => setAddingMember(false)}
+      />
+    )}
+    </>
   );
 }
 
@@ -483,6 +726,35 @@ function EditEventSheet({ ev, onClose }: { ev: Event; onClose: () => void }) {
   );
 }
 
+function CompleteEventDialog({ ev, onClose }: { ev: Event; onClose: () => void }) {
+  const { showToast } = useAppStore();
+  const completeEvent = useCompleteEvent();
+  const confirm = () => {
+    completeEvent.mutate(ev.id, {
+      onSuccess: () => showToast('Veranstaltung abgeschlossen. Alle angemeldeten Schichten wurden bestätigt.', 'ok'),
+      onError: () => showToast('Abschließen fehlgeschlagen.', 'crit'),
+    });
+    onClose();
+  };
+  return (
+    <Sheet variant="dialog" onClose={onClose}>
+      <div style={{ textAlign: 'center', padding: '6px 4px 4px' }}>
+        <div style={{ width: 54, height: 54, borderRadius: '50%', background: 'color-mix(in srgb, var(--ok) 15%, var(--surface))', display: 'flex', alignItems: 'center', justifyContent: 'center', margin: '0 auto 14px' }}>
+          <Icon name="check" size={26} stroke={2.4} color="var(--ok)" />
+        </div>
+        <h3 style={{ fontSize: 19, fontWeight: 800 }}>Veranstaltung abschließen?</h3>
+        <p style={{ color: 'var(--ink-2)', fontSize: 14, fontWeight: 600, margin: '8px 0 18px', lineHeight: 1.45 }}>
+          „{ev.name}" wird als <b>abgeschlossen</b> markiert. Alle angemeldeten Helferschichten werden automatisch bestätigt.
+        </p>
+        <div style={{ display: 'flex', gap: 10 }}>
+          <Button variant="ghost" onClick={onClose}>Abbrechen</Button>
+          <Button variant="primary" icon="check" onClick={confirm}>Abschließen</Button>
+        </div>
+      </div>
+    </Sheet>
+  );
+}
+
 function DeleteEventDialog({ ev, onClose, onDeleted }: { ev: Event; onClose: () => void; onDeleted: () => void }) {
   const { showToast } = useAppStore();
   const deleteEvent = useDeleteEvent();
@@ -651,10 +923,12 @@ export function EventDetail({ id }: { id: string }) {
   const { back } = useAppStore();
   const { role } = useAppStore();
   const isBoard = role === 'vorstand';
+  const isOrganizer = isBoard;
   const [sheet, setSheet] = useState<Shift | null>(null);
   const [confirmOff, setConfirmOff] = useState<Shift | null>(null);
   const [editOpen, setEditOpen] = useState(false);
   const [deleteOpen, setDeleteOpen] = useState(false);
+  const [completeOpen, setCompleteOpen] = useState(false);
 
   const eventQ = useEvent(id);
   const timelineQ = useEventTimeline(id);
@@ -692,24 +966,38 @@ export function EventDetail({ id }: { id: string }) {
             >
               <Icon name="chevL" size={20} stroke={2.4} color="var(--ink)" />
             </button>
-            {isBoard && (
+            {isOrganizer && (
               <div style={{ display: 'flex', gap: 8, marginLeft: 'auto' }}>
-                <button
-                  onClick={() => setEditOpen(true)}
-                  className="pressable"
-                  title="Veranstaltung bearbeiten"
-                  style={{ width: 40, height: 40, borderRadius: '50%', border: 'none', background: 'rgba(255,255,255,0.92)', display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer' }}
-                >
-                  <Icon name="edit" size={18} stroke={2.2} color="var(--ink)" />
-                </button>
-                <button
-                  onClick={() => setDeleteOpen(true)}
-                  className="pressable"
-                  title="Veranstaltung löschen"
-                  style={{ width: 40, height: 40, borderRadius: '50%', border: 'none', background: 'rgba(255,255,255,0.92)', display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer' }}
-                >
-                  <Icon name="trash" size={18} stroke={2.2} color="var(--crit)" />
-                </button>
+                {isOrganizer && (ev.status === 'published' || ev.status === 'veröffentlicht') && (
+                  <button
+                    onClick={() => setCompleteOpen(true)}
+                    className="pressable"
+                    title="Veranstaltung abschließen"
+                    style={{ width: 40, height: 40, borderRadius: '50%', border: 'none', background: 'rgba(255,255,255,0.92)', display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer' }}
+                  >
+                    <Icon name="check" size={18} stroke={2.4} color="var(--ok)" />
+                  </button>
+                )}
+                {isBoard && (
+                  <>
+                    <button
+                      onClick={() => setEditOpen(true)}
+                      className="pressable"
+                      title="Veranstaltung bearbeiten"
+                      style={{ width: 40, height: 40, borderRadius: '50%', border: 'none', background: 'rgba(255,255,255,0.92)', display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer' }}
+                    >
+                      <Icon name="edit" size={18} stroke={2.2} color="var(--ink)" />
+                    </button>
+                    <button
+                      onClick={() => setDeleteOpen(true)}
+                      className="pressable"
+                      title="Veranstaltung löschen"
+                      style={{ width: 40, height: 40, borderRadius: '50%', border: 'none', background: 'rgba(255,255,255,0.92)', display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer' }}
+                    >
+                      <Icon name="trash" size={18} stroke={2.2} color="var(--crit)" />
+                    </button>
+                  </>
+                )}
               </div>
             )}
           </div>
@@ -756,6 +1044,7 @@ export function EventDetail({ id }: { id: string }) {
                 <ShiftRow
                   key={sh.id}
                   sh={sh}
+                  eventId={id}
                   memberMap={memberMap}
                   onRegister={() => setSheet(sh)}
                   onDeregister={() => setConfirmOff(sh)}
@@ -770,6 +1059,7 @@ export function EventDetail({ id }: { id: string }) {
       {confirmOff && <DeregisterDialog sh={confirmOff} onClose={() => setConfirmOff(null)} deregisterDeadlineH={deregisterDeadlineH} />}
       {editOpen && <EditEventSheet ev={ev} onClose={() => setEditOpen(false)} />}
       {deleteOpen && <DeleteEventDialog ev={ev} onClose={() => setDeleteOpen(false)} onDeleted={back} />}
+      {completeOpen && <CompleteEventDialog ev={ev} onClose={() => setCompleteOpen(false)} />}
     </div>
   );
 }

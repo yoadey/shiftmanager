@@ -232,6 +232,38 @@ func (uc *EventUsecase) PublishEvent(ctx context.Context, actorID uuid.UUID, id 
 	return e, nil
 }
 
+// CompleteEvent transitions a published event to completed and bulk-confirms all
+// registrations that are still in the "registered" state across all its shifts.
+func (uc *EventUsecase) CompleteEvent(ctx context.Context, actorID uuid.UUID, id uuid.UUID) (*domain.Event, error) {
+	e, err := uc.events.GetByID(ctx, id)
+	if err != nil {
+		return nil, err
+	}
+	if !e.CanComplete() {
+		return nil, domain.ErrEventNotCompletable
+	}
+
+	if err := uc.events.UpdateStatus(ctx, id, domain.EventStatusCompleted); err != nil {
+		return nil, fmt.Errorf("complete event: %w", err)
+	}
+	e.Status = domain.EventStatusCompleted
+
+	shifts, err := uc.shifts.FindByEventID(ctx, id)
+	if err != nil {
+		return nil, fmt.Errorf("load shifts: %w", err)
+	}
+	for _, s := range shifts {
+		if _, err := uc.registrations.ConfirmRegisteredByShift(ctx, s.ID); err != nil {
+			return nil, fmt.Errorf("confirm registrations for shift %s: %w", s.ID, err)
+		}
+	}
+
+	aid := actorID
+	_ = uc.writeAudit(ctx, &aid, domain.AuditActionUpdate, domain.AuditEntityEvent, id.String(), nil, map[string]string{"status": "completed"})
+
+	return e, nil
+}
+
 // notifyNewEvent sends the opt-in "new event published" mail (KANN) to every
 // active member who opted in. Best-effort: a failed lookup or send never
 // fails the publish.

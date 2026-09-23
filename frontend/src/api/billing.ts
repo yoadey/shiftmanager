@@ -1,6 +1,6 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { apiGet, apiPost, apiClient } from './client';
-import type { ClubYear } from '@/types';
+import type { ClubYear, FeeTier } from '@/types';
 
 // ── Club Years ─────────────────────────────────────────────────────────────────
 
@@ -26,6 +26,38 @@ export function useCreateClubYear() {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: (data: CreateClubYearInput) => apiPost<ClubYear>('/hours/club-years', data),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['club-years'] });
+      qc.invalidateQueries({ queryKey: ['stats'] });
+      qc.invalidateQueries({ queryKey: ['billing'] });
+    },
+  });
+}
+
+export interface UpdateClubYearInput {
+  label: string;
+  startDate: string;
+  endDate: string;
+  defaultTargetHours: number;
+  setActive?: boolean;
+}
+
+export function useUpdateClubYear() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ id, data }: { id: string; data: UpdateClubYearInput }) =>
+      apiClient.put<ClubYear>(`/hours/club-years/${id}`, data).then((r) => r.data),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['club-years'] });
+      qc.invalidateQueries({ queryKey: ['billing'] });
+    },
+  });
+}
+
+export function useDeleteClubYear() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (id: string) => apiClient.delete(`/hours/club-years/${id}`),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['club-years'] });
       qc.invalidateQueries({ queryKey: ['stats'] });
@@ -66,6 +98,34 @@ export interface YearBillingReport {
   results: BillingResult[];
   totalCents: number;
   computedAt: string;
+}
+
+// ── Per-year fee tiers ─────────────────────────────────────────────────────────
+
+export function useClubYearFeeTiers(clubYearId: string | undefined) {
+  return useQuery({
+    queryKey: ['fee-tiers', clubYearId],
+    queryFn: () =>
+      apiGet<FeeTier[]>(`/settings/fee-tiers?clubYearId=${encodeURIComponent(clubYearId!)}`),
+    enabled: !!clubYearId,
+  });
+}
+
+export function useUpdateClubYearFeeTiers() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ clubYearId, tiers }: { clubYearId: string; tiers: Omit<FeeTier, 'id' | 'clubYearId'>[] }) =>
+      apiClient
+        .put<FeeTier[]>(
+          `/settings/fee-tiers?clubYearId=${encodeURIComponent(clubYearId)}`,
+          { tiers },
+        )
+        .then((r) => r.data),
+    onSuccess: (_data, vars) => {
+      qc.invalidateQueries({ queryKey: ['fee-tiers', vars.clubYearId] });
+      qc.invalidateQueries({ queryKey: ['billing', vars.clubYearId] });
+    },
+  });
 }
 
 // ── Queries ────────────────────────────────────────────────────────────────────

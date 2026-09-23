@@ -45,11 +45,17 @@ function collectMy(events: Event[], uid: string): { up: ShiftRec[]; past: ShiftR
     ev.days.forEach((day) =>
       day.shifts.forEach((sh) => {
         const su = sh.signups.find(
-          (s) => s.memberId === uid && (s.status === 'angemeldet' || s.status === 'reserviert'),
+          (s) =>
+            s.memberId === uid &&
+            (s.status === 'angemeldet' ||
+              s.status === 'reserviert' ||
+              s.status === 'bestätigt' ||
+              s.status === 'nichterschienen'),
         );
         if (!su) return;
         const rec: ShiftRec = { ev, day, sh, su, dur: durH(sh.start, sh.end) };
-        if (day.date >= today && su.status !== 'bestätigt' && su.status !== 'nichterschienen') {
+        const isUpcoming = day.date >= today && (su.status === 'angemeldet' || su.status === 'reserviert');
+        if (isUpcoming) {
           up.push(rec);
         } else {
           past.push(rec);
@@ -168,7 +174,7 @@ export function MemberDashboard() {
   const uid = user?.id ?? '';
   const events = eventsQ.data ?? [];
   const clubName = branding?.clubName ?? settings?.clubName ?? '';
-  const clubYear = settings?.clubYear ?? new Date().getFullYear().toString();
+  const clubYear = hoursQ.data?.clubYearLabel ?? settings?.clubYear ?? new Date().getFullYear().toString();
   const firstName = user?.first ?? user?.name?.split(' ')[0] ?? '';
   const memberMap = user ? { [uid]: { first: firstName, last: user.last ?? user.name?.split(' ')[1] ?? '' } } : {};
 
@@ -209,7 +215,7 @@ export function MemberDashboard() {
         <div className="sm-card pad" style={{ padding: 18 }}>
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 14 }}>
             <span style={{ fontWeight: 700, fontSize: 14.5, color: 'var(--ink-2)' }}>Stundenkonto</span>
-            <Badge kind="primary" dot={false}>Vereinsjahr {clubYear}</Badge>
+            <Badge kind="primary" dot={false}>Abrechnungsjahr {clubYear}</Badge>
           </div>
           <div style={{ display: 'flex', alignItems: 'baseline', gap: 8 }}>
             <span style={{ fontFamily: 'Bricolage Grotesque', fontSize: 46, fontWeight: 800, lineHeight: 1, letterSpacing: '-0.03em' }}>

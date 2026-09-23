@@ -17,7 +17,9 @@ func newBillingUC() (*BillingUsecase, *fakeHourRepo, *fakeMemberRepo, *fakeSetti
 	members := newFakeMemberRepo()
 	settings := newFakeSettingsRepo()
 	audit := newFakeAuditRepo()
-	return NewBillingUsecase(hours, members, settings, audit), hours, members, settings, audit
+	shifts := newFakeShiftRepo()
+	regs := newFakeRegistrationRepo()
+	return NewBillingUsecase(hours, members, settings, audit, shifts, regs), hours, members, settings, audit
 }
 
 func seedBilling(t *testing.T) (*BillingUsecase, *fakeHourRepo, *fakeMemberRepo, *fakeSettingsRepo, *fakeAuditRepo, *domain.ClubYear, uuid.UUID) {

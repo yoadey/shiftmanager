@@ -123,6 +123,17 @@ export function useCopyEvent() {
   });
 }
 
+export function useCompleteEvent() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (id: string) => apiPost<RawEvent>(`/events/${id}/complete`),
+    onSuccess: (_d, id) => {
+      qc.invalidateQueries({ queryKey: ['events'] });
+      qc.invalidateQueries({ queryKey: ['events', id] });
+    },
+  });
+}
+
 // ── Recurrence (V-007) ────────────────────────────────────────────────────────
 
 export interface GenerateRecurrencePayload {

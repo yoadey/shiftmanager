@@ -16,10 +16,12 @@ import (
 
 // BillingUsecase handles year-end billing computation and export.
 type BillingUsecase struct {
-	hours    port.HourRepository
-	members  port.MemberRepository
-	settings port.SettingsRepository
-	audit    port.AuditRepository
+	hours         port.HourRepository
+	members       port.MemberRepository
+	settings      port.SettingsRepository
+	audit         port.AuditRepository
+	shifts        port.ShiftRepository
+	registrations port.RegistrationRepository
 }
 
 // NewBillingUsecase creates a new BillingUsecase.
@@ -28,12 +30,16 @@ func NewBillingUsecase(
 	members port.MemberRepository,
 	settings port.SettingsRepository,
 	audit port.AuditRepository,
+	shifts port.ShiftRepository,
+	registrations port.RegistrationRepository,
 ) *BillingUsecase {
 	return &BillingUsecase{
-		hours:    hours,
-		members:  members,
-		settings: settings,
-		audit:    audit,
+		hours:         hours,
+		members:       members,
+		settings:      settings,
+		audit:         audit,
+		shifts:        shifts,
+		registrations: registrations,
 	}
 }
 
@@ -55,6 +61,19 @@ func (uc *BillingUsecase) ComputeYearBilling(ctx context.Context, actorID uuid.U
 		tierValues[i] = *t
 	}
 
+	// Fall back to the global feeSchedule setting when no per-year tiers are defined.
+	if len(tierValues) == 0 {
+		if raw, err := uc.settings.GetSetting(ctx, domain.SettingKeyFeeSchedule); err == nil && raw != "" {
+			schedule := parseFeeSchedule(raw)
+			for i, euros := range schedule {
+				tierValues = append(tierValues, domain.FeeTier{
+					Position:    i + 1,
+					AmountCents: int(euros * 100),
+				})
+			}
+		}
+	}
+
 	active := true
 	members, err := uc.members.List(ctx, port.MemberFilter{IsActive: &active})
 	if err != nil {
@@ -66,10 +85,48 @@ func (uc *BillingUsecase) ComputeYearBilling(ctx context.Context, actorID uuid.U
 		return nil, fmt.Errorf("load hour entries: %w", err)
 	}
 
+	// Confirmed hours from manual HourEntry records; track which (member,shift) pairs
+	// are already covered so confirmed registrations don't double-count.
+	type memberShiftKey struct{ member, shift uuid.UUID }
+	coveredByEntry := make(map[memberShiftKey]bool)
 	confirmedByMember := make(map[uuid.UUID]float64)
+
 	for _, e := range allEntries {
 		if e.Status == domain.HourEntryStatusConfirmed {
 			confirmedByMember[e.MemberID] += e.Hours
+			if e.ShiftID != nil {
+				coveredByEntry[memberShiftKey{e.MemberID, *e.ShiftID}] = true
+			}
+		}
+	}
+
+	// Also count hours from confirmed shift registrations that are not already
+	// covered by a manual HourEntry, so billing reflects completed shifts immediately
+	// without requiring a separate manual confirmation step.
+	if uc.shifts != nil && uc.registrations != nil {
+		shiftsInYear, err := uc.shifts.FindShiftsStartingBetween(ctx, year.StartDate, year.EndDate.Add(time.Minute))
+		if err == nil {
+			for _, s := range shiftsInYear {
+				hours := s.EndAt.Sub(s.StartAt).Hours()
+				if hours <= 0 {
+					continue
+				}
+				regs, err := uc.registrations.FindByShiftID(ctx, s.ID)
+				if err != nil {
+					continue
+				}
+				for _, reg := range regs {
+					if reg.State != domain.RegistrationStateConfirmed || reg.MemberID == nil {
+						continue
+					}
+					key := memberShiftKey{*reg.MemberID, s.ID}
+					if coveredByEntry[key] {
+						continue
+					}
+					confirmedByMember[*reg.MemberID] += hours
+					coveredByEntry[key] = true
+				}
+			}
 		}
 	}
 
