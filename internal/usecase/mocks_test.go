@@ -20,6 +20,9 @@ import (
 type fakeMemberRepo struct {
 	members map[uuid.UUID]*domain.Member
 	links   []*domain.OIDCLink
+	// failNextList, when true, makes the next single List call fail and
+	// then resets itself.
+	failNextList bool
 }
 
 var _ port.MemberRepository = (*fakeMemberRepo)(nil)
@@ -65,6 +68,10 @@ func (f *fakeMemberRepo) GetByOIDCSubject(ctx context.Context, provider, subject
 }
 
 func (f *fakeMemberRepo) List(ctx context.Context, filter port.MemberFilter) ([]*domain.Member, error) {
+	if f.failNextList {
+		f.failNextList = false
+		return nil, fmt.Errorf("simulated db failure")
+	}
 	var out []*domain.Member
 	for _, m := range f.members {
 		if filter.IsActive != nil && m.IsActive != *filter.IsActive {
@@ -531,6 +538,10 @@ type fakeHourRepo struct {
 	years    map[uuid.UUID]*domain.ClubYear
 	targets  map[string]*domain.HourTarget // key memberID|yearID
 	activeYr *domain.ClubYear
+	// failNextGetActiveClubYear, when true, makes the next single
+	// GetActiveClubYear call fail with a non-ErrClubYearNotFound error, to
+	// simulate a real DB failure rather than "no active year exists yet".
+	failNextGetActiveClubYear bool
 }
 
 var _ port.HourRepository = (*fakeHourRepo)(nil)
@@ -615,6 +626,10 @@ func (f *fakeHourRepo) CreateClubYear(ctx context.Context, y *domain.ClubYear) e
 }
 
 func (f *fakeHourRepo) GetActiveClubYear(ctx context.Context) (*domain.ClubYear, error) {
+	if f.failNextGetActiveClubYear {
+		f.failNextGetActiveClubYear = false
+		return nil, fmt.Errorf("simulated db failure")
+	}
 	if f.activeYr == nil {
 		return nil, domain.ErrClubYearNotFound
 	}
@@ -638,6 +653,20 @@ func (f *fakeHourRepo) ListClubYears(ctx context.Context) ([]*domain.ClubYear, e
 		out = append(out, &cp)
 	}
 	return out, nil
+}
+
+func (f *fakeHourRepo) CreateActiveClubYear(ctx context.Context, y *domain.ClubYear) error {
+	y.IsActive = true
+	f.addYear(y)
+	for id, other := range f.years {
+		if id == y.ID || !other.IsActive {
+			continue
+		}
+		cp := *other
+		cp.IsActive = false
+		f.years[id] = &cp
+	}
+	return nil
 }
 
 func (f *fakeHourRepo) GetHourTarget(ctx context.Context, memberID, clubYearID uuid.UUID) (*domain.HourTarget, error) {

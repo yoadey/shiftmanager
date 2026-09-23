@@ -120,13 +120,16 @@ func (e EventVisibility) Valid() bool {
 
 // Defines values for HourEntryType.
 const (
-	HourEntryTypeManual HourEntryType = "manual"
-	HourEntryTypeShift  HourEntryType = "shift"
+	HourEntryTypeCarryover HourEntryType = "carryover"
+	HourEntryTypeManual    HourEntryType = "manual"
+	HourEntryTypeShift     HourEntryType = "shift"
 )
 
 // Valid indicates whether the value is a known member of the HourEntryType enum.
 func (e HourEntryType) Valid() bool {
 	switch e {
+	case HourEntryTypeCarryover:
+		return true
 	case HourEntryTypeManual:
 		return true
 	case HourEntryTypeShift:

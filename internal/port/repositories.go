@@ -113,6 +113,10 @@ type HourRepository interface {
 	DeleteEntry(ctx context.Context, id uuid.UUID) error
 
 	CreateClubYear(ctx context.Context, y *domain.ClubYear) error
+	// CreateActiveClubYear creates y as the sole active club year in one
+	// atomic operation (insert + deactivate every other year), so "exactly
+	// one active club year" holds even under concurrent calls.
+	CreateActiveClubYear(ctx context.Context, y *domain.ClubYear) error
 	GetActiveClubYear(ctx context.Context) (*domain.ClubYear, error)
 	GetClubYearByID(ctx context.Context, id uuid.UUID) (*domain.ClubYear, error)
 	ListClubYears(ctx context.Context) ([]*domain.ClubYear, error)

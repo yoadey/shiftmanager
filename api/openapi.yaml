@@ -242,7 +242,7 @@ components:
         memberId:    { $ref: '#/components/schemas/UUID' }
         clubYearId:  { $ref: '#/components/schemas/UUID' }
         hours:       { type: number }
-        type:        { type: string, enum: [shift, manual] }
+        type:        { type: string, enum: [shift, manual, carryover] }
         status:      { $ref: '#/components/schemas/HourEntryStatus' }
         bookedBy:    { $ref: '#/components/schemas/UUID', nullable: true }
         description: { type: string }
@@ -297,6 +297,11 @@ components:
         endDate:            { type: string, format: date-time }
         defaultTargetHours: { type: number }
         isActive:           { type: boolean }
+        carryOverEnabled:
+          type: boolean
+          description: >-
+            Whether excess confirmed hours (beyond target) in this year are
+            credited to members in whichever club year is opened next (S-006).
 
     # ── Settings ──────────────────────────────────────────────────────────────
     AppSettings:

@@ -58,6 +58,7 @@ export function AdminSettings() {
   const [newYearStart, setNewYearStart] = useState(`${currentYear}-01-01`);
   const [newYearEnd, setNewYearEnd] = useState(`${currentYear}-12-31`);
   const [newYearGoal, setNewYearGoal] = useState(20);
+  const [newYearCarryOver, setNewYearCarryOver] = useState(false);
 
   const openYearDialog = () => {
     const y = new Date().getFullYear().toString();
@@ -65,6 +66,7 @@ export function AdminSettings() {
     setNewYearStart(`${y}-01-01`);
     setNewYearEnd(`${y}-12-31`);
     setNewYearGoal(s.yearGoal ?? 20);
+    setNewYearCarryOver(false);
     setYearDialogOpen(true);
   };
 
@@ -76,6 +78,7 @@ export function AdminSettings() {
         endDate: new Date(newYearEnd + 'T23:59:59Z').toISOString(),
         defaultTargetHours: newYearGoal,
         setActive: true,
+        carryOverEnabled: newYearCarryOver,
       },
       {
         onSuccess: () => { showToast(`Vereinsjahr ${newYearLabel} angelegt.`); setYearDialogOpen(false); },
@@ -176,6 +179,11 @@ export function AdminSettings() {
                 {new Date(y.startDate).toLocaleDateString('de-DE', { day: '2-digit', month: '2-digit', year: 'numeric' })} – {new Date(y.endDate).toLocaleDateString('de-DE', { day: '2-digit', month: '2-digit', year: 'numeric' })}
               </span>
               <span style={{ color: 'var(--muted)', fontSize: 12, fontWeight: 600 }}>· Ziel: {y.defaultTargetHours} h</span>
+              {y.carryOverEnabled && (
+                <span title="Überzählige Stunden werden ins Folgejahr übertragen" style={{ display: 'flex', alignItems: 'center' }}>
+                  <Icon name="repeat" size={13} color="var(--muted)" />
+                </span>
+              )}
             </div>
           ))}
           <button
@@ -217,6 +225,13 @@ export function AdminSettings() {
                     <span style={{ fontWeight: 700, color: 'var(--muted)' }}>h</span>
                   </div>
                 </Field>
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '2px 0' }}>
+                  <div>
+                    <div style={{ fontWeight: 700, fontSize: 14 }}>Überzählige Stunden übertragen</div>
+                    <div className="sm-hint">Stunden über dem Ziel dieses Jahres werden dem nächsten Vereinsjahr gutgeschrieben.</div>
+                  </div>
+                  <Toggle on={newYearCarryOver} onClick={() => setNewYearCarryOver((v) => !v)} />
+                </div>
               </div>
               <div className="sm-hint" style={{ marginBottom: 14 }}>Das neue Jahr wird sofort als aktives Vereinsjahr gesetzt.</div>
               <button

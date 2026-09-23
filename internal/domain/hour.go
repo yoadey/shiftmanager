@@ -13,6 +13,9 @@ type HourEntryType string
 const (
 	HourEntryTypeShift  HourEntryType = "shift"
 	HourEntryTypeManual HourEntryType = "manual"
+	// HourEntryTypeCarryOver marks an entry created automatically when a new
+	// club year is opened and the previous one had carry-over enabled (S-006).
+	HourEntryTypeCarryOver HourEntryType = "carryover"
 )
 
 // HourEntryStatus reflects whether hours have been confirmed.
@@ -45,6 +48,10 @@ type ClubYear struct {
 	EndDate            time.Time `json:"endDate"`
 	DefaultTargetHours float64   `json:"defaultTargetHours"`
 	IsActive           bool      `json:"isActive"`
+	// CarryOverEnabled configures whether each member's excess confirmed
+	// hours (beyond their target) in this year are credited to them in
+	// whichever club year is opened next (S-006).
+	CarryOverEnabled bool `json:"carryOverEnabled"`
 }
 
 // IsOpen returns true when the current time falls within the club year.
@@ -54,10 +61,10 @@ func (y *ClubYear) IsOpen(now time.Time) bool {
 
 // HourTarget stores a per-member override of the default year goal.
 type HourTarget struct {
-	ID         uuid.UUID `json:"id"`
-	MemberID   uuid.UUID `json:"memberId"`
-	ClubYearID uuid.UUID `json:"clubYearId"`
-	TargetHours float64  `json:"targetHours"`
+	ID          uuid.UUID `json:"id"`
+	MemberID    uuid.UUID `json:"memberId"`
+	ClubYearID  uuid.UUID `json:"clubYearId"`
+	TargetHours float64   `json:"targetHours"`
 }
 
 // MemberHourAccount is a summary of a member's hours for a year.
@@ -80,7 +87,7 @@ type YearSummaryRow struct {
 
 // Errors for hour operations.
 var (
-	ErrHourEntryNotFound = fmt.Errorf("hour entry not found")
-	ErrClubYearNotFound  = fmt.Errorf("club year not found")
+	ErrHourEntryNotFound    = fmt.Errorf("hour entry not found")
+	ErrClubYearNotFound     = fmt.Errorf("club year not found")
 	ErrHourAlreadyConfirmed = fmt.Errorf("hour entry is already confirmed")
 )

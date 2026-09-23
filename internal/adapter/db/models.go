@@ -119,6 +119,7 @@ type ClubYearModel struct {
 	EndDate            time.Time `gorm:"column:end_date"`
 	DefaultTargetHours float64   `gorm:"column:default_target_hours"`
 	IsActive           bool      `gorm:"column:is_active"`
+	CarryOverEnabled   bool      `gorm:"column:carry_over_enabled"`
 }
 
 func (ClubYearModel) TableName() string { return "club_years" }

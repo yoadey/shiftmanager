@@ -40,6 +40,7 @@ const (
 	AuditActionGDPRExport = "gdpr_export"
 	AuditActionGDPRDelete = "gdpr_delete"
 	AuditActionResend     = "resend"
+	AuditActionCarryOver  = "carry_over"
 )
 
 // Common audit entity constants.

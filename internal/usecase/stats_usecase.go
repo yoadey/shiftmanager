@@ -93,13 +93,7 @@ func (uc *StatsUsecase) GetStats(ctx context.Context) (*SystemStats, error) {
 		return nil, fmt.Errorf("list members: %w", err)
 	}
 	for _, m := range members {
-		target := year.DefaultTargetHours
-		if m.IndividualGoalHours != nil {
-			target = *m.IndividualGoalHours
-		}
-		if ht, err := uc.hours.GetHourTarget(ctx, m.ID, year.ID); err == nil && ht != nil {
-			target = ht.TargetHours
-		}
+		target := resolveTargetHours(ctx, uc.hours, m, year)
 		if confirmedByMember[m.ID] < target {
 			stats.MembersBelowTarget++
 		}

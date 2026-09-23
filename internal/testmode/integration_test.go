@@ -644,3 +644,98 @@ func TestGenerateRecurrence_UnknownEvent404s(t *testing.T) {
 		`{"frequency": "weekly", "until": "2026-07-25T00:00:00Z"}`)
 	assert.Equal(t, http.StatusNotFound, resp.StatusCode)
 }
+
+// S-006: a club year opened with carryOverEnabled credits members' excess
+// confirmed hours (beyond target) to whichever club year opens next.
+func TestClubYear_CarriesOverExcessHours(t *testing.T) {
+	s := startServer(t)
+	tok := token(t, s, "vorstand", db.AdminID.String(), "admin@test.local")
+
+	yearAResp := post(t, s, "/api/v1/hours/club-years", tok,
+		`{"label":"2027","startDate":"2027-01-01T00:00:00Z","endDate":"2027-12-31T23:59:59Z","defaultTargetHours":10,"setActive":true,"carryOverEnabled":true}`)
+	require.Equal(t, http.StatusCreated, yearAResp.StatusCode)
+	var yearA map[string]any
+	decode(t, yearAResp, &yearA)
+	yearAID := yearA["id"].(string)
+	assert.Equal(t, true, yearA["carryOverEnabled"])
+
+	bookResp := post(t, s, "/api/v1/hours/manual", tok, fmt.Sprintf(
+		`{"memberId":"%s","clubYearId":"%s","hours":25,"description":"test"}`, db.MemberID.String(), yearAID))
+	require.Equal(t, http.StatusCreated, bookResp.StatusCode)
+	bookResp.Body.Close()
+
+	yearBResp := post(t, s, "/api/v1/hours/club-years", tok,
+		`{"label":"2028","startDate":"2028-01-01T00:00:00Z","endDate":"2028-12-31T23:59:59Z","defaultTargetHours":10,"setActive":true}`)
+	require.Equal(t, http.StatusCreated, yearBResp.StatusCode)
+	var yearB map[string]any
+	decode(t, yearBResp, &yearB)
+	yearBID := yearB["id"].(string)
+
+	acctResp := get(t, s, "/api/v1/hours/account?memberId="+db.MemberID.String()+"&clubYearId="+yearBID, tok)
+	require.Equal(t, http.StatusOK, acctResp.StatusCode)
+	var acct map[string]any
+	decode(t, acctResp, &acct)
+	// 25h confirmed in year A against a 10h target -> 15h excess carried over.
+	assert.Equal(t, 15.0, acct["confirmedHours"])
+}
+
+func TestClubYear_NoCarryOverWhenNotEnabled(t *testing.T) {
+	s := startServer(t)
+	tok := token(t, s, "vorstand", db.AdminID.String(), "admin@test.local")
+
+	yearAResp := post(t, s, "/api/v1/hours/club-years", tok,
+		`{"label":"2027","startDate":"2027-01-01T00:00:00Z","endDate":"2027-12-31T23:59:59Z","defaultTargetHours":10,"setActive":true}`)
+	require.Equal(t, http.StatusCreated, yearAResp.StatusCode)
+	var yearA map[string]any
+	decode(t, yearAResp, &yearA)
+	yearAID := yearA["id"].(string)
+	assert.Equal(t, false, yearA["carryOverEnabled"])
+
+	bookResp := post(t, s, "/api/v1/hours/manual", tok, fmt.Sprintf(
+		`{"memberId":"%s","clubYearId":"%s","hours":25,"description":"test"}`, db.MemberID.String(), yearAID))
+	require.Equal(t, http.StatusCreated, bookResp.StatusCode)
+	bookResp.Body.Close()
+
+	yearBResp := post(t, s, "/api/v1/hours/club-years", tok,
+		`{"label":"2028","startDate":"2028-01-01T00:00:00Z","endDate":"2028-12-31T23:59:59Z","defaultTargetHours":10,"setActive":true}`)
+	require.Equal(t, http.StatusCreated, yearBResp.StatusCode)
+	var yearB map[string]any
+	decode(t, yearBResp, &yearB)
+	yearBID := yearB["id"].(string)
+
+	acctResp := get(t, s, "/api/v1/hours/account?memberId="+db.MemberID.String()+"&clubYearId="+yearBID, tok)
+	require.Equal(t, http.StatusOK, acctResp.StatusCode)
+	var acct map[string]any
+	decode(t, acctResp, &acct)
+	assert.Equal(t, 0.0, acct["confirmedHours"])
+}
+
+// A new active club year must supersede the previously active one, so
+// GET /hours/club-years never shows more than one year marked active at once.
+func TestClubYear_ActivatingNewYearDeactivatesPrevious(t *testing.T) {
+	s := startServer(t)
+	tok := token(t, s, "vorstand", db.AdminID.String(), "admin@test.local")
+
+	yearAResp := post(t, s, "/api/v1/hours/club-years", tok,
+		`{"label":"2027","startDate":"2027-01-01T00:00:00Z","endDate":"2027-12-31T23:59:59Z","defaultTargetHours":10,"setActive":true}`)
+	require.Equal(t, http.StatusCreated, yearAResp.StatusCode)
+	var yearA map[string]any
+	decode(t, yearAResp, &yearA)
+
+	yearBResp := post(t, s, "/api/v1/hours/club-years", tok,
+		`{"label":"2028","startDate":"2028-01-01T00:00:00Z","endDate":"2028-12-31T23:59:59Z","defaultTargetHours":10,"setActive":true}`)
+	require.Equal(t, http.StatusCreated, yearBResp.StatusCode)
+
+	listResp := get(t, s, "/api/v1/hours/club-years", tok)
+	require.Equal(t, http.StatusOK, listResp.StatusCode)
+	var years []map[string]any
+	decode(t, listResp, &years)
+
+	activeCount := 0
+	for _, y := range years {
+		if active, _ := y["isActive"].(bool); active {
+			activeCount++
+		}
+	}
+	assert.Equal(t, 1, activeCount, "exactly one club year must be active at a time")
+}

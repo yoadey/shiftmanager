@@ -145,6 +145,167 @@ func TestGetYearSummary(t *testing.T) {
 	assert.Equal(t, 8.0, rows[0].MissingHours)
 }
 
+func TestCreateClubYear_NoCarryOverByDefault(t *testing.T) {
+	uc, hours, members, _, _ := newHourUC()
+	prevYear := seedYear(hours, 20) // CarryOverEnabled defaults to false
+	memberID := uuid.New()
+	members.add(&domain.Member{ID: memberID, IsActive: true})
+	_ = hours.CreateEntry(context.Background(), &domain.HourEntry{ID: uuid.New(), MemberID: memberID, ClubYearID: prevYear.ID, Hours: 30, Status: domain.HourEntryStatusConfirmed})
+
+	newYear, err := uc.CreateClubYear(context.Background(), uuid.New(), CreateClubYearInput{
+		Label: "2027", DefaultTargetHours: 20, SetActive: true,
+	})
+	require.NoError(t, err)
+
+	entries, err := hours.FindEntriesByYear(context.Background(), newYear.ID)
+	require.NoError(t, err)
+	assert.Empty(t, entries, "no carry-over entry when the previous year didn't opt in")
+}
+
+func TestCreateClubYear_DeactivatesPreviousActiveYear(t *testing.T) {
+	uc, hours, _, _, audit := newHourUC()
+	prevYear := seedYear(hours, 20)
+
+	newYear, err := uc.CreateClubYear(context.Background(), uuid.New(), CreateClubYearInput{
+		Label: "2027", DefaultTargetHours: 20, SetActive: true,
+	})
+	require.NoError(t, err)
+	assert.True(t, newYear.IsActive)
+
+	stored, err := hours.GetClubYearByID(context.Background(), prevYear.ID)
+	require.NoError(t, err)
+	assert.False(t, stored.IsActive, "the previously active year must be deactivated when a new one takes over")
+	assert.True(t, audit.has(domain.AuditActionDeactivate, domain.AuditEntityClubYear))
+
+	active, err := hours.GetActiveClubYear(context.Background())
+	require.NoError(t, err)
+	assert.Equal(t, newYear.ID, active.ID)
+}
+
+func TestCreateClubYear_InactiveCreationDoesNotDeactivateCurrent(t *testing.T) {
+	uc, hours, _, _, _ := newHourUC()
+	prevYear := seedYear(hours, 20)
+
+	_, err := uc.CreateClubYear(context.Background(), uuid.New(), CreateClubYearInput{
+		Label: "2027-draft", DefaultTargetHours: 20, SetActive: false,
+	})
+	require.NoError(t, err)
+
+	stored, err := hours.GetClubYearByID(context.Background(), prevYear.ID)
+	require.NoError(t, err)
+	assert.True(t, stored.IsActive, "creating a non-active year must not touch the currently active one")
+}
+
+func TestCreateClubYear_CarriesOverExcessHours(t *testing.T) {
+	uc, hours, members, _, audit := newHourUC()
+	prevYear := &domain.ClubYear{
+		ID: uuid.New(), Label: "2026", DefaultTargetHours: 20, IsActive: true, CarryOverEnabled: true,
+		StartDate: time.Now().UTC().Add(-24 * time.Hour), EndDate: time.Now().UTC().Add(24 * time.Hour),
+	}
+	hours.addYear(prevYear)
+
+	overMember := uuid.New() // confirmed 30 > target 20 -> 10h excess
+	members.add(&domain.Member{ID: overMember, IsActive: true})
+	_ = hours.CreateEntry(context.Background(), &domain.HourEntry{ID: uuid.New(), MemberID: overMember, ClubYearID: prevYear.ID, Hours: 30, Status: domain.HourEntryStatusConfirmed})
+
+	underMember := uuid.New() // confirmed 5 < target 20 -> no carry-over
+	members.add(&domain.Member{ID: underMember, IsActive: true})
+	_ = hours.CreateEntry(context.Background(), &domain.HourEntry{ID: uuid.New(), MemberID: underMember, ClubYearID: prevYear.ID, Hours: 5, Status: domain.HourEntryStatusConfirmed})
+
+	inactiveMember := uuid.New() // excess, but inactive -> excluded
+	members.add(&domain.Member{ID: inactiveMember, IsActive: false})
+	_ = hours.CreateEntry(context.Background(), &domain.HourEntry{ID: uuid.New(), MemberID: inactiveMember, ClubYearID: prevYear.ID, Hours: 50, Status: domain.HourEntryStatusConfirmed})
+
+	newYear, err := uc.CreateClubYear(context.Background(), uuid.New(), CreateClubYearInput{
+		Label: "2027", DefaultTargetHours: 20, SetActive: true,
+	})
+	require.NoError(t, err)
+
+	entries, err := hours.FindEntriesByYear(context.Background(), newYear.ID)
+	require.NoError(t, err)
+	require.Len(t, entries, 1)
+	assert.Equal(t, overMember, entries[0].MemberID)
+	assert.Equal(t, 10.0, entries[0].Hours)
+	assert.Equal(t, domain.HourEntryTypeCarryOver, entries[0].Type)
+	assert.Equal(t, domain.HourEntryStatusConfirmed, entries[0].Status)
+
+	acc, err := uc.GetMemberAccount(context.Background(), overMember, newYear.ID)
+	require.NoError(t, err)
+	assert.Equal(t, 10.0, acc.ConfirmedHours, "the carried-over hours count toward the new year's account")
+
+	assert.True(t, audit.has(domain.AuditActionCreate, domain.AuditEntityClubYear))
+}
+
+// A real (non-not-found) failure looking up the previous active club year
+// must not fail year creation, and must not be silent: carry-over is
+// skipped (we don't know what to carry over from), but an audit entry
+// records why.
+func TestCreateClubYear_ActiveYearLookupFailureIsAudited(t *testing.T) {
+	uc, hours, _, _, audit := newHourUC()
+	seedYear(hours, 20)
+	hours.failNextGetActiveClubYear = true
+
+	year, err := uc.CreateClubYear(context.Background(), uuid.New(), CreateClubYearInput{
+		Label: "2027", DefaultTargetHours: 20, SetActive: true,
+	})
+	require.NoError(t, err)
+	assert.NotNil(t, year)
+	assert.True(t, audit.has(domain.AuditActionCarryOver, domain.AuditEntityClubYear))
+}
+
+// carryOverExcessHours's own doc comment promises the audit entry always
+// records what happened, including early failures -- verify a members.List
+// failure doesn't leave that promise broken.
+func TestCreateClubYear_CarryOverMembersListFailureIsAudited(t *testing.T) {
+	uc, hours, members, _, audit := newHourUC()
+	prevYear := &domain.ClubYear{
+		ID: uuid.New(), Label: "2026", DefaultTargetHours: 20, IsActive: true, CarryOverEnabled: true,
+		StartDate: time.Now().UTC().Add(-24 * time.Hour), EndDate: time.Now().UTC().Add(24 * time.Hour),
+	}
+	hours.addYear(prevYear)
+	members.failNextList = true
+
+	_, err := uc.CreateClubYear(context.Background(), uuid.New(), CreateClubYearInput{
+		Label: "2027", DefaultTargetHours: 20, SetActive: true,
+	})
+	require.NoError(t, err)
+	assert.True(t, audit.has(domain.AuditActionCarryOver, domain.AuditEntityClubYear))
+}
+
+func TestCreateClubYear_NoCarryOverForFirstEverYear(t *testing.T) {
+	uc, _, _, _, _ := newHourUC()
+	// No previous active year exists at all (GetActiveClubYear returns
+	// ErrClubYearNotFound) -- must not fail club year creation.
+	year, err := uc.CreateClubYear(context.Background(), uuid.New(), CreateClubYearInput{
+		Label: "2026", DefaultTargetHours: 20, SetActive: true,
+	})
+	require.NoError(t, err)
+	assert.NotNil(t, year)
+}
+
+func TestCreateClubYear_InactiveYearNeverTriggersCarryOver(t *testing.T) {
+	uc, hours, members, _, _ := newHourUC()
+	prevYear := &domain.ClubYear{
+		ID: uuid.New(), Label: "2026", DefaultTargetHours: 20, IsActive: true, CarryOverEnabled: true,
+		StartDate: time.Now().UTC().Add(-24 * time.Hour), EndDate: time.Now().UTC().Add(24 * time.Hour),
+	}
+	hours.addYear(prevYear)
+	memberID := uuid.New()
+	members.add(&domain.Member{ID: memberID, IsActive: true})
+	_ = hours.CreateEntry(context.Background(), &domain.HourEntry{ID: uuid.New(), MemberID: memberID, ClubYearID: prevYear.ID, Hours: 30, Status: domain.HourEntryStatusConfirmed})
+
+	// Pre-creating a future year without activating it must not trigger
+	// carry-over yet -- the previous year isn't actually "closed".
+	newYear, err := uc.CreateClubYear(context.Background(), uuid.New(), CreateClubYearInput{
+		Label: "2027", DefaultTargetHours: 20, SetActive: false,
+	})
+	require.NoError(t, err)
+
+	entries, err := hours.FindEntriesByYear(context.Background(), newYear.ID)
+	require.NoError(t, err)
+	assert.Empty(t, entries)
+}
+
 func TestCorrectAndDeleteEntry(t *testing.T) {
 	uc, hours, members, _, audit := newHourUC()
 	year := seedYear(hours, 20)

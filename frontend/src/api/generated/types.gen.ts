@@ -182,7 +182,7 @@ export type HourEntry = {
   memberId: Uuid;
   clubYearId: Uuid;
   hours: number;
-  type: "shift" | "manual";
+  type: "shift" | "manual" | "carryover";
   status: HourEntryStatus;
   bookedBy?: Uuid;
   description: string;
@@ -231,6 +231,10 @@ export type ClubYear = {
   endDate: string;
   defaultTargetHours: number;
   isActive: boolean;
+  /**
+   * Whether excess confirmed hours (beyond target) in this year are credited to members in whichever club year is opened next (S-006).
+   */
+  carryOverEnabled?: boolean;
 };
 
 export type AppSettings = {

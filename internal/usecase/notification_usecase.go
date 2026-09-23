@@ -138,13 +138,7 @@ func (uc *NotificationUsecase) runYearEndMails(ctx context.Context) (int, error)
 		if m.Email == "" {
 			continue
 		}
-		target := year.DefaultTargetHours
-		if m.IndividualGoalHours != nil {
-			target = *m.IndividualGoalHours
-		}
-		if ht, err := uc.hours.GetHourTarget(ctx, m.ID, year.ID); err == nil && ht != nil {
-			target = ht.TargetHours
-		}
+		target := resolveTargetHours(ctx, uc.hours, m, year)
 		missing := target - confirmedByMember[m.ID]
 		if missing <= 0 {
 			continue

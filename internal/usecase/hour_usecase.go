@@ -2,6 +2,7 @@ package usecase
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"time"
 
@@ -197,14 +198,7 @@ func (uc *HourUsecase) GetMemberAccount(ctx context.Context, memberID, clubYearI
 		return nil, err
 	}
 
-	// Determine target hours (individual override takes priority).
-	targetHours := year.DefaultTargetHours
-	if member.IndividualGoalHours != nil {
-		targetHours = *member.IndividualGoalHours
-	}
-	if ht, err := uc.hours.GetHourTarget(ctx, memberID, clubYearID); err == nil && ht != nil {
-		targetHours = ht.TargetHours
-	}
+	targetHours := resolveTargetHours(ctx, uc.hours, member, year)
 
 	entries, err := uc.hours.FindEntriesByMemberAndYear(ctx, memberID, clubYearID)
 	if err != nil {
@@ -253,10 +247,27 @@ type CreateClubYearInput struct {
 	EndDate            time.Time `json:"endDate"`
 	DefaultTargetHours float64   `json:"defaultTargetHours"`
 	SetActive          bool      `json:"setActive"`
+	// CarryOverEnabled configures whether excess hours from THIS year (once
+	// it's later superseded by a new active year) get carried over (S-006).
+	CarryOverEnabled bool `json:"carryOverEnabled"`
 }
 
 // CreateClubYear creates a new club year and optionally marks it as active.
+// If it's set active and the previously active year had carry-over enabled
+// (S-006), each active member's excess confirmed hours from that year
+// (confirmed beyond target) are credited to them in the new year.
 func (uc *HourUsecase) CreateClubYear(ctx context.Context, actorID uuid.UUID, input CreateClubYearInput) (*domain.ClubYear, error) {
+	var prevYear *domain.ClubYear
+	var prevYearLookupErr error
+	if input.SetActive {
+		prevYear, prevYearLookupErr = uc.hours.GetActiveClubYear(ctx)
+		if errors.Is(prevYearLookupErr, domain.ErrClubYearNotFound) {
+			// Expected for the very first club year ever created; there's
+			// simply nothing to carry over from, and nothing to report.
+			prevYearLookupErr = nil
+		}
+	}
+
 	year := &domain.ClubYear{
 		ID:                 uuid.New(),
 		Label:              input.Label,
@@ -264,11 +275,124 @@ func (uc *HourUsecase) CreateClubYear(ctx context.Context, actorID uuid.UUID, in
 		EndDate:            input.EndDate,
 		DefaultTargetHours: input.DefaultTargetHours,
 		IsActive:           input.SetActive,
+		CarryOverEnabled:   input.CarryOverEnabled,
 	}
-	if err := uc.hours.CreateClubYear(ctx, year); err != nil {
+	// Creating it as *the* active year is a single atomic operation (see
+	// CreateActiveClubYear) — deactivating every other year in the same
+	// transaction is what keeps "the active club year" a single,
+	// well-defined thing even under concurrent calls, without which
+	// GetMemberAccountFull and the admin UI's "Aktiv" badge would both treat
+	// every year ever marked active as still active.
+	var err error
+	if input.SetActive {
+		err = uc.hours.CreateActiveClubYear(ctx, year)
+	} else {
+		err = uc.hours.CreateClubYear(ctx, year)
+	}
+	if err != nil {
 		return nil, fmt.Errorf("create club year: %w", err)
 	}
+
+	aid := actorID
+	_ = uc.writeAudit(ctx, &aid, domain.AuditActionCreate, domain.AuditEntityClubYear, year.ID.String(), nil, year)
+
+	if input.SetActive {
+		if prevYearLookupErr != nil {
+			// A real (non-not-found) failure reading the previous active
+			// year: we can't know whether carry-over should have run, so
+			// it's skipped below (prevYear is nil) — but that must not be
+			// silent, since the year was still created and activated either way.
+			_ = uc.writeAudit(ctx, &aid, domain.AuditActionCarryOver, domain.AuditEntityClubYear, year.ID.String(), nil,
+				map[string]string{"error": "could not determine previous active club year, carry-over skipped: " + prevYearLookupErr.Error()})
+		} else if prevYear != nil {
+			before := *prevYear
+			after := *prevYear
+			after.IsActive = false
+			_ = uc.writeAudit(ctx, &aid, domain.AuditActionDeactivate, domain.AuditEntityClubYear, prevYear.ID.String(), before, after)
+		}
+
+		if prevYear != nil && prevYear.CarryOverEnabled {
+			uc.carryOverExcessHours(ctx, actorID, prevYear, year)
+		}
+	}
+
 	return year, nil
+}
+
+// resolveTargetHours returns the effective hour target for a member in a
+// given club year: an explicit per-member-per-year HourTarget overrides an
+// individual goal override, which overrides the year's default.
+func resolveTargetHours(ctx context.Context, hours port.HourRepository, member *domain.Member, year *domain.ClubYear) float64 {
+	target := year.DefaultTargetHours
+	if member.IndividualGoalHours != nil {
+		target = *member.IndividualGoalHours
+	}
+	if ht, err := hours.GetHourTarget(ctx, member.ID, year.ID); err == nil && ht != nil {
+		target = ht.TargetHours
+	}
+	return target
+}
+
+// carryOverExcessHours implements S-006: for each active member, any
+// confirmed hours in `from` beyond their target for that year become an
+// initial confirmed credit in `to`. Best-effort per member — the new club
+// year already exists by the time this runs, so a failure here must not
+// undo that; how many members were credited/failed is recorded on the audit
+// entry so a board member can reconcile the rest manually via ManualBooking.
+func (uc *HourUsecase) carryOverExcessHours(ctx context.Context, actorID uuid.UUID, from, to *domain.ClubYear) {
+	active := true
+	members, err := uc.members.List(ctx, port.MemberFilter{IsActive: &active})
+	if err != nil {
+		_ = uc.writeAudit(ctx, &actorID, domain.AuditActionCarryOver, domain.AuditEntityClubYear, to.ID.String(), nil,
+			map[string]string{"error": "could not list members, carry-over skipped: " + err.Error()})
+		return
+	}
+
+	entries, err := uc.hours.FindEntriesByYear(ctx, from.ID)
+	if err != nil {
+		_ = uc.writeAudit(ctx, &actorID, domain.AuditActionCarryOver, domain.AuditEntityClubYear, to.ID.String(), nil,
+			map[string]string{"error": "could not load previous year's hour entries, carry-over skipped: " + err.Error()})
+		return
+	}
+	confirmedByMember := make(map[uuid.UUID]float64)
+	for _, e := range entries {
+		if e.Status == domain.HourEntryStatusConfirmed {
+			confirmedByMember[e.MemberID] += e.Hours
+		}
+	}
+
+	var credited, failed int
+	for _, m := range members {
+		target := resolveTargetHours(ctx, uc.hours, m, from)
+		excess := confirmedByMember[m.ID] - target
+		if excess <= 0 {
+			continue
+		}
+
+		aid := actorID
+		entry := &domain.HourEntry{
+			ID:          uuid.New(),
+			MemberID:    m.ID,
+			ClubYearID:  to.ID,
+			Hours:       excess,
+			Type:        domain.HourEntryTypeCarryOver,
+			Status:      domain.HourEntryStatusConfirmed,
+			BookedBy:    &aid,
+			Description: fmt.Sprintf("Übertrag aus %s", from.Label),
+			CreatedAt:   time.Now().UTC(),
+		}
+		if err := uc.hours.CreateEntry(ctx, entry); err != nil {
+			failed++
+			continue
+		}
+		credited++
+	}
+
+	_ = uc.writeAudit(ctx, &actorID, domain.AuditActionCarryOver, domain.AuditEntityClubYear, to.ID.String(), nil, map[string]any{
+		"carryOverFromClubYearId": from.ID.String(),
+		"membersCredited":         credited,
+		"membersFailed":           failed,
+	})
 }
 
 // MemberAccountFull combines the hour account summary with the raw entries.
@@ -333,14 +457,7 @@ func (uc *HourUsecase) GetYearSummary(ctx context.Context, clubYearID uuid.UUID)
 
 	rows := make([]domain.YearSummaryRow, 0, len(members))
 	for _, m := range members {
-		target := year.DefaultTargetHours
-		if m.IndividualGoalHours != nil {
-			target = *m.IndividualGoalHours
-		}
-		if ht, err := uc.hours.GetHourTarget(ctx, m.ID, clubYearID); err == nil && ht != nil {
-			target = ht.TargetHours
-		}
-
+		target := resolveTargetHours(ctx, uc.hours, m, year)
 		confirmed := confirmedByMember[m.ID]
 		missing := target - confirmed
 		if missing < 0 {
