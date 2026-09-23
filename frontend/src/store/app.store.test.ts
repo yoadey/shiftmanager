@@ -3,7 +3,6 @@ import { useAppStore } from './app.store';
 
 function reset() {
   useAppStore.setState({
-    role: 'mitglied',
     tab: 'start',
     navStack: [],
     toast: null,
@@ -46,17 +45,6 @@ describe('app.store', () => {
       expect(useAppStore.getState().tab).toBe('profil');
       expect(useAppStore.getState().navStack).toEqual([]);
     });
-  });
-
-  it('setRole switches role and resets tab + nav stack', () => {
-    const { push, setRole } = useAppStore.getState();
-    push('detail');
-    setRole('vorstand');
-    const s = useAppStore.getState();
-    expect(s.role).toBe('vorstand');
-    expect(s.tab).toBe('start');
-    expect(s.navStack).toEqual([]);
-    expect(localStorage.getItem('sm_role')).toBe('vorstand');
   });
 
   describe('showToast', () => {

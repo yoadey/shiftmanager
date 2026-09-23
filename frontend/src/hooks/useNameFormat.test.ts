@@ -1,7 +1,6 @@
 import { describe, it, expect, beforeEach } from 'vitest';
 import { renderHook } from '@testing-library/react';
 import { useNameFormat } from './useNameFormat';
-import { useAppStore } from '@/store/app.store';
 import { useAuthStore } from '@/store/auth.store';
 import type { Member, AuthUser } from '@/types';
 
@@ -34,7 +33,6 @@ describe('useNameFormat', () => {
   beforeEach(() => {
     // Default: a member viewer, logged in as `self`.
     useAuthStore.setState({ token: 't', user: self });
-    useAppStore.setState({ role: 'mitglied' });
   });
 
   it('abbrev mode → "Maximilian M."', () => {
@@ -53,7 +51,19 @@ describe('useNameFormat', () => {
   });
 
   it('board (vorstand) viewer sees full name', () => {
-    useAppStore.setState({ role: 'vorstand' });
+    useAuthStore.setState({ user: { ...self, role: 'vorstand' } });
+    const { result } = renderHook(() => useNameFormat());
+    expect(result.current(max)).toBe('Maximilian Müller');
+  });
+
+  it('veranstaltungsleiter viewer still sees the abbreviated name (NM-003 is vorstand+ only)', () => {
+    useAuthStore.setState({ user: { ...self, role: 'veranstaltungsleiter' } });
+    const { result } = renderHook(() => useNameFormat());
+    expect(result.current(max)).toBe('Maximilian M.');
+  });
+
+  it('admin viewer sees full name', () => {
+    useAuthStore.setState({ user: { ...self, role: 'admin' } });
     const { result } = renderHook(() => useNameFormat());
     expect(result.current(max)).toBe('Maximilian Müller');
   });

@@ -31,8 +31,6 @@ setup('generate auth tokens via /dev/token', async ({ page }) => {
     ({ token, user }) => {
       localStorage.setItem('sm_token', token);
       localStorage.setItem('sm_user', user);
-      // sm_role controls which tabs the shell renders
-      localStorage.setItem('sm_role', 'vorstand');
     },
     {
       token: adminToken,
@@ -55,7 +53,6 @@ setup('generate auth tokens via /dev/token', async ({ page }) => {
     ({ token, user }) => {
       localStorage.setItem('sm_token', token);
       localStorage.setItem('sm_user', user);
-      localStorage.setItem('sm_role', 'mitglied');
     },
     {
       token: memberToken,

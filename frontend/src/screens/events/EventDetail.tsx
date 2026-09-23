@@ -33,6 +33,7 @@ import { useMembers } from '@/api/members';
 import { useSettings } from '@/api/settings';
 import { calcOccupancy } from '@/hooks/useOccupancy';
 import { useNameFormat } from '@/hooks/useNameFormat';
+import { useIsEventManager } from '@/hooks/useIsEventManager';
 import { LoadingState, ErrorState } from '@/components/ui/States';
 import { fmtDate, hrs, durH, catGradient } from '@/screens/_demo';
 import type { Event, Shift, Signup, Member, EventAttachment } from '@/types';
@@ -326,12 +327,13 @@ function AddMemberSheet({
 }
 
 function ShiftRow({ sh, eventId, onRegister, onDeregister, memberMap }: { sh: Shift; eventId: string; onRegister: () => void; onDeregister: () => void; memberMap: Record<string, Member> }) {
-  const { role } = useAppStore();
   const { user } = useAuthStore();
+  // Organizer controls here (registrant list, add/remove helper) map to the
+  // backend's shift-management endpoints, which are veranstaltungsleiter+.
+  const isBoard = useIsEventManager();
   const uid = user?.id ?? '';
   const o = calcOccupancy(sh);
   const mine = sh.signups.find((s) => s.memberId === uid && (s.status === 'angemeldet' || s.status === 'reserviert'));
-  const isBoard = role === 'vorstand';
   const [open, setOpen] = useState(false);
   const [addingMember, setAddingMember] = useState(false);
 
@@ -967,8 +969,9 @@ function AttachmentsSection({ eventId, isBoard }: { eventId: string; isBoard: bo
 
 export function EventDetail({ id }: { id: string }) {
   const { back } = useAppStore();
-  const { role } = useAppStore();
-  const isBoard = role === 'vorstand';
+  // Edit/delete/complete and attachment management map to the backend's
+  // event-management endpoints, which are veranstaltungsleiter+.
+  const isBoard = useIsEventManager();
   const isOrganizer = isBoard;
   const [sheet, setSheet] = useState<Shift | null>(null);
   const [confirmOff, setConfirmOff] = useState<Shift | null>(null);

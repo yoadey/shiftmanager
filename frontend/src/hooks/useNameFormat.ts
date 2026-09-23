@@ -1,5 +1,6 @@
 import { useAppStore } from '@/store/app.store';
 import { useAuthStore } from '@/store/auth.store';
+import { useIsVorstand } from '@/hooks/useIsVorstand';
 import type { Member } from '@/types';
 
 interface FormatOptions {
@@ -16,8 +17,9 @@ interface FormatOptions {
  * NM-006: own name always shown in full
  */
 export function useNameFormat() {
-  const { role, nameMode } = useAppStore();
+  const { nameMode } = useAppStore();
   const { user } = useAuthStore();
+  const isVorstand = useIsVorstand();
 
   const formatName = (member: Member | undefined | null, opts: FormatOptions = {}): string => {
     if (!member) return 'Unbekannt';
@@ -27,7 +29,7 @@ export function useNameFormat() {
     if (user && member.id === user.id) return full;
 
     // NM-003: board viewers always see full
-    if (opts.viewerFull || role === 'vorstand') return full;
+    if (opts.viewerFull || isVorstand) return full;
 
     // Explicit mode override, otherwise the global setting (NM-005)
     const mode = opts.mode ?? nameMode;

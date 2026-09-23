@@ -1,5 +1,6 @@
 import { create } from 'zustand';
 import type { AuthUser } from '@/types';
+import { useAppStore } from '@/store/app.store';
 
 interface AuthState {
   token: string | null;
@@ -56,5 +57,10 @@ export const useAuthStore = create<AuthState>((set) => ({
     localStorage.removeItem('sm_user');
     localStorage.removeItem('sm_expires_at');
     set({ token: null, user: null, expiresAt: null });
+    // `useAppStore` is a module-level singleton that outlives this logout (no
+    // page reload happens), so a stale tab/navStack from the previous user
+    // must be cleared here or the next login on the same tab can land on a
+    // screen the new user's role no longer has access to.
+    useAppStore.getState().go('start');
   },
 }));
