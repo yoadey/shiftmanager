@@ -11,7 +11,15 @@ import (
 // (e.g. `npm run build` in ./frontend) must output its production bundle into
 // internal/infrastructure/static/dist before the Go binary is compiled.
 //
-//go:embed dist
+// The "all:" prefix is required: without it, Go's embed directive silently
+// drops any file or directory whose name starts with "." or "_" — and Vite
+// names the chunk for src/screens/_demo.tsx (a shared helper imported by
+// several screens) "_demo-<hash>.js". Without "all:", that one chunk was
+// missing from every build, so any screen that transitively imports it hit
+// the SPA fallback (index.html, text/html) instead of the real JS file,
+// which browsers reject for a <script type="module"> import.
+//
+//go:embed all:dist
 var distFS embed.FS
 
 // FS returns the embedded frontend filesystem rooted at the dist directory.
