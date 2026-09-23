@@ -192,6 +192,7 @@ func NewRouter(h Handlers, cfg RouterConfig) http.Handler {
 					w.Delete("/{id}", h.Event.Delete)
 					w.Post("/{id}/publish", h.Event.Publish)
 					w.Post("/{id}/copy", h.Event.CopyEvent)
+					w.Post("/{id}/recurrence", h.Event.GenerateRecurrence)
 					w.Post("/{id}/attachments", h.Event.UploadAttachment)
 					w.Delete("/{id}/attachments/{attachmentId}", h.Event.DeleteAttachment)
 					w.Post("/{eventId}/shifts", h.Shift.CreateShift)

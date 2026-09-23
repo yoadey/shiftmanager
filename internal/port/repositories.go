@@ -46,6 +46,12 @@ type EventRepository interface {
 	Update(ctx context.Context, e *domain.Event) error
 	Delete(ctx context.Context, id uuid.UUID) error
 	UpdateStatus(ctx context.Context, id uuid.UUID, status domain.EventStatus) error
+	// MarkRecurring atomically stamps an event as the head of a recurring
+	// series (V-007), but only if it isn't already part of one. Returns
+	// applied=false (no error) if another concurrent call won the race and
+	// already stamped it, so the caller can distinguish "lost the race" from
+	// a real failure.
+	MarkRecurring(ctx context.Context, id uuid.UUID, frequency domain.RecurrenceFrequency, until time.Time, groupID uuid.UUID) (applied bool, err error)
 }
 
 // EventFilter holds optional filters when listing events.

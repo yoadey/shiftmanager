@@ -75,6 +75,16 @@ export type Event = {
   visibility: EventVisibility;
   createdAt?: string;
   updatedAt?: string;
+  recurrenceFrequency?: RecurrenceFrequency;
+  recurrenceUntil?: string;
+  recurrenceGroupId?: Uuid;
+};
+
+export type RecurrenceFrequency = "weekly" | "monthly";
+
+export type EventRecurrenceRequest = {
+  frequency: RecurrenceFrequency;
+  until: string;
 };
 
 export type EventWrite = {
@@ -1015,6 +1025,47 @@ export type UploadEventAttachmentResponses = {
 
 export type UploadEventAttachmentResponse =
   UploadEventAttachmentResponses[keyof UploadEventAttachmentResponses];
+
+export type GenerateEventRecurrenceData = {
+  body: EventRecurrenceRequest;
+  path: {
+    id: Uuid;
+  };
+  query?: never;
+  url: "/events/{id}/recurrence";
+};
+
+export type GenerateEventRecurrenceErrors = {
+  /**
+   * Invalid request
+   */
+  400: ErrorResponse;
+  /**
+   * Missing or invalid JWT
+   */
+  401: ErrorResponse;
+  /**
+   * Insufficient role
+   */
+  403: ErrorResponse;
+  /**
+   * Resource not found
+   */
+  404: ErrorResponse;
+};
+
+export type GenerateEventRecurrenceError =
+  GenerateEventRecurrenceErrors[keyof GenerateEventRecurrenceErrors];
+
+export type GenerateEventRecurrenceResponses = {
+  /**
+   * Source event and newly created occurrences
+   */
+  201: Array<Event>;
+};
+
+export type GenerateEventRecurrenceResponse =
+  GenerateEventRecurrenceResponses[keyof GenerateEventRecurrenceResponses];
 
 export type DeleteEventAttachmentData = {
   body?: never;

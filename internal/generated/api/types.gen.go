@@ -181,6 +181,24 @@ func (e MemberRole) Valid() bool {
 	}
 }
 
+// Defines values for RecurrenceFrequency.
+const (
+	Monthly RecurrenceFrequency = "monthly"
+	Weekly  RecurrenceFrequency = "weekly"
+)
+
+// Valid indicates whether the value is a known member of the RecurrenceFrequency enum.
+func (e RecurrenceFrequency) Valid() bool {
+	switch e {
+	case Monthly:
+		return true
+	case Weekly:
+		return true
+	default:
+		return false
+	}
+}
+
 // AppSettings defines model for AppSettings.
 type AppSettings struct {
 	BillingMode         AppSettingsBillingMode `json:"billingMode"`
@@ -272,15 +290,18 @@ type ErrorResponse struct {
 
 // Event defines model for Event.
 type Event struct {
-	Category    *string         `json:"category,omitempty"`
-	CreatedAt   *time.Time      `json:"createdAt,omitempty"`
-	Description *string         `json:"description,omitempty"`
-	Id          UUID            `json:"id"`
-	Location    *string         `json:"location,omitempty"`
-	Name        string          `json:"name"`
-	Status      EventStatus     `json:"status"`
-	UpdatedAt   *time.Time      `json:"updatedAt,omitempty"`
-	Visibility  EventVisibility `json:"visibility"`
+	Category            *string              `json:"category,omitempty"`
+	CreatedAt           *time.Time           `json:"createdAt,omitempty"`
+	Description         *string              `json:"description,omitempty"`
+	Id                  UUID                 `json:"id"`
+	Location            *string              `json:"location,omitempty"`
+	Name                string               `json:"name"`
+	RecurrenceFrequency *RecurrenceFrequency `json:"recurrenceFrequency,omitempty"`
+	RecurrenceGroupId   *UUID                `json:"recurrenceGroupId,omitempty"`
+	RecurrenceUntil     *time.Time           `json:"recurrenceUntil,omitempty"`
+	Status              EventStatus          `json:"status"`
+	UpdatedAt           *time.Time           `json:"updatedAt,omitempty"`
+	Visibility          EventVisibility      `json:"visibility"`
 }
 
 // EventAttachment defines model for EventAttachment.
@@ -292,6 +313,12 @@ type EventAttachment struct {
 	SizeBytes   int       `json:"sizeBytes"`
 	UploadedAt  time.Time `json:"uploadedAt"`
 	Url         string    `json:"url"`
+}
+
+// EventRecurrenceRequest defines model for EventRecurrenceRequest.
+type EventRecurrenceRequest struct {
+	Frequency RecurrenceFrequency `json:"frequency"`
+	Until     time.Time           `json:"until"`
 }
 
 // EventStatus defines model for EventStatus.
@@ -435,6 +462,9 @@ type MemberWrite struct {
 type MessageResponse struct {
 	Message string `json:"message"`
 }
+
+// RecurrenceFrequency defines model for RecurrenceFrequency.
+type RecurrenceFrequency string
 
 // RegisterShiftRequest defines model for RegisterShiftRequest.
 type RegisterShiftRequest struct {
@@ -650,6 +680,9 @@ type UpdateEventJSONRequestBody = EventWrite
 // UploadEventAttachmentMultipartRequestBody defines body for UploadEventAttachment for multipart/form-data ContentType.
 type UploadEventAttachmentMultipartRequestBody UploadEventAttachmentMultipartBody
 
+// GenerateEventRecurrenceJSONRequestBody defines body for GenerateEventRecurrence for application/json ContentType.
+type GenerateEventRecurrenceJSONRequestBody = EventRecurrenceRequest
+
 // ConfirmShiftHoursJSONRequestBody defines body for ConfirmShiftHours for application/json ContentType.
 type ConfirmShiftHoursJSONRequestBody = ConfirmShiftHoursRequest
 
@@ -757,6 +790,9 @@ type ServerInterface interface {
 	// Publish a draft event (Veranstaltungsleiter+)
 	// (POST /events/{id}/publish)
 	PublishEvent(w http.ResponseWriter, r *http.Request, id UUID)
+	// Turn an event into a recurring series, weekly or monthly (Veranstaltungsleiter+, V-007)
+	// (POST /events/{id}/recurrence)
+	GenerateEventRecurrence(w http.ResponseWriter, r *http.Request, id UUID)
 	// Get just the shift timeline for an event
 	// (GET /events/{id}/timeline)
 	GetEventTimeline(w http.ResponseWriter, r *http.Request, id UUID)
@@ -1003,6 +1039,12 @@ func (_ Unimplemented) DeleteEventAttachment(w http.ResponseWriter, r *http.Requ
 // Publish a draft event (Veranstaltungsleiter+)
 // (POST /events/{id}/publish)
 func (_ Unimplemented) PublishEvent(w http.ResponseWriter, r *http.Request, id UUID) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// Turn an event into a recurring series, weekly or monthly (Veranstaltungsleiter+, V-007)
+// (POST /events/{id}/recurrence)
+func (_ Unimplemented) GenerateEventRecurrence(w http.ResponseWriter, r *http.Request, id UUID) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
@@ -1881,6 +1923,38 @@ func (siw *ServerInterfaceWrapper) PublishEvent(w http.ResponseWriter, r *http.R
 
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		siw.Handler.PublishEvent(w, r, id)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// GenerateEventRecurrence operation middleware
+func (siw *ServerInterfaceWrapper) GenerateEventRecurrence(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "id" -------------
+	var id UUID
+
+	err = runtime.BindStyledParameterWithOptions("simple", "id", chi.URLParam(r, "id"), &id, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "uuid"})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "id", Err: err})
+		return
+	}
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, BearerAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.GenerateEventRecurrence(w, r, id)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -3411,6 +3485,9 @@ func HandlerWithOptions(si ServerInterface, options ChiServerOptions) http.Handl
 	})
 	r.Group(func(r chi.Router) {
 		r.Post(options.BaseURL+"/events/{id}/publish", wrapper.PublishEvent)
+	})
+	r.Group(func(r chi.Router) {
+		r.Post(options.BaseURL+"/events/{id}/recurrence", wrapper.GenerateEventRecurrence)
 	})
 	r.Group(func(r chi.Router) {
 		r.Get(options.BaseURL+"/events/{id}/timeline", wrapper.GetEventTimeline)

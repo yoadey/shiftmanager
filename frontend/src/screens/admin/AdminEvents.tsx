@@ -1,14 +1,17 @@
 import { useState } from 'react';
 import { Icon } from '@/components/ui/Icon';
 import { Badge } from '@/components/ui/Badge';
+import { Button } from '@/components/ui/Button';
+import { Sheet } from '@/components/ui/Sheet';
+import { Field, Input, Select } from '@/components/forms/Field';
 import { useAppStore } from '@/store/app.store';
-import { useEvents, useCopyEvent } from '@/api/events';
+import { useEvents, useCopyEvent, useGenerateEventRecurrence } from '@/api/events';
 import { calcOccupancy } from '@/hooks/useOccupancy';
 import { LoadingState, ErrorState } from '@/components/ui/States';
 import { EmptyState } from '@/screens/member/MemberDashboard';
 import { fmtDate } from '@/screens/_demo';
 import { CreateEventFlow } from '@/screens/admin/CreateEventFlow';
-import type { EventStatus } from '@/types';
+import type { Event, EventStatus } from '@/types';
 
 const order: Record<string, number> = {
   veröffentlicht: 0,
@@ -28,9 +31,63 @@ function statusLabel(s: EventStatus): string {
   return s.charAt(0).toUpperCase() + s.slice(1);
 }
 
+// Turns an event into a recurring series (V-007): weekly/monthly copies
+// (including shifts) up to a chosen end date.
+function RecurrenceDialog({ ev, onClose }: { ev: Event; onClose: () => void }) {
+  const { showToast } = useAppStore();
+  const [frequency, setFrequency] = useState<'weekly' | 'monthly'>('weekly');
+  const [until, setUntil] = useState('');
+  const generate = useGenerateEventRecurrence(ev.id);
+  const startDate = ev.days[0]?.date;
+
+  const submit = () => {
+    if (!until) return;
+    generate.mutate(
+      { frequency, until: `${until}T23:59:59Z` },
+      {
+        onSuccess: (created) => {
+          showToast(`${Math.max(created.length - 1, 0)} weitere Termine angelegt.`);
+          onClose();
+        },
+        onError: () => showToast('Serientermin konnte nicht angelegt werden.', 'crit'),
+      },
+    );
+  };
+
+  return (
+    <Sheet variant="dialog" onClose={onClose}>
+      <div style={{ textAlign: 'center', padding: '6px 4px 4px' }}>
+        <div style={{ width: 54, height: 54, borderRadius: '50%', background: 'var(--surface-2, var(--line))', display: 'flex', alignItems: 'center', justifyContent: 'center', margin: '0 auto 14px' }}>
+          <Icon name="repeat" size={26} stroke={2.4} color="var(--primary)" />
+        </div>
+        <h3 style={{ fontSize: 19, fontWeight: 800 }}>Als Serie anlegen</h3>
+        <p style={{ color: 'var(--ink-2)', fontSize: 14, fontWeight: 600, margin: '8px 0 18px', lineHeight: 1.45 }}>
+          Erzeugt Kopien von „{ev.name}" inklusive aller Schichten, wöchentlich oder monatlich, bis zum gewählten Datum.
+        </p>
+        <div style={{ textAlign: 'left', display: 'flex', flexDirection: 'column', gap: 10, marginBottom: 18 }}>
+          <Field label="Wiederholung">
+            <Select value={frequency} onChange={(e) => setFrequency(e.target.value as 'weekly' | 'monthly')}>
+              <option value="weekly">Wöchentlich</option>
+              <option value="monthly">Monatlich</option>
+            </Select>
+          </Field>
+          <Field label="Bis einschließlich">
+            <Input type="date" value={until} min={startDate} onChange={(e) => setUntil(e.target.value)} />
+          </Field>
+        </div>
+        <div style={{ display: 'flex', gap: 10 }}>
+          <Button variant="ghost" onClick={onClose}>Abbrechen</Button>
+          <Button onClick={submit} disabled={!until || generate.isPending}>Serie anlegen</Button>
+        </div>
+      </div>
+    </Sheet>
+  );
+}
+
 export function AdminEvents() {
   const { push, showToast } = useAppStore();
   const [createOpen, setCreateOpen] = useState(false);
+  const [recurrenceFor, setRecurrenceFor] = useState<Event | null>(null);
   const eventsQ = useEvents();
   const copyEvent = useCopyEvent();
 
@@ -74,6 +131,19 @@ export function AdminEvents() {
                   </div>
                 </div>
                 <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                  {!ev.recurrenceFrequency && (
+                    <button
+                      className="pressable"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        setRecurrenceFor(ev);
+                      }}
+                      style={{ width: 32, height: 32, borderRadius: '50%', border: '1px solid var(--line)', background: 'var(--surface)', display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer' }}
+                      title="Als Serie anlegen"
+                    >
+                      <Icon name="repeat" size={15} color="var(--ink)" />
+                    </button>
+                  )}
                   <button
                     className="pressable"
                     onClick={(e) => {
@@ -92,6 +162,12 @@ export function AdminEvents() {
                   <Badge kind={statusKind[ev.status] ?? 'neutral'} dot={ev.status === 'veröffentlicht'}>{statusLabel(ev.status)}</Badge>
                 </div>
               </div>
+              {ev.recurrenceFrequency && (
+                <div style={{ display: 'flex', alignItems: 'center', gap: 5, marginTop: 8, color: 'var(--muted)', fontSize: 11.5, fontWeight: 700 }}>
+                  <Icon name="repeat" size={13} color="var(--muted)" />
+                  {ev.recurrenceFrequency === 'weekly' ? 'Wöchentliche Serie' : 'Monatliche Serie'}
+                </div>
+              )}
               <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginTop: 12 }}>
                 <div style={{ flex: 1 }}>
                   <div className="occ-track">
@@ -106,6 +182,7 @@ export function AdminEvents() {
       </div>
 
       {createOpen && <CreateEventFlow onClose={() => setCreateOpen(false)} />}
+      {recurrenceFor && <RecurrenceDialog ev={recurrenceFor} onClose={() => setRecurrenceFor(null)} />}
     </div>
   );
 }

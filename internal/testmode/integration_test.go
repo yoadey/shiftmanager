@@ -575,3 +575,72 @@ func TestUnauthorizedAccessDenied(t *testing.T) {
 	assert.Equal(t, http.StatusForbidden, resp.StatusCode)
 	resp.Body.Close()
 }
+
+// The seed event (db.EventID) starts 2026-07-04T14:00:00Z with two shifts.
+func TestGenerateRecurrence_Weekly(t *testing.T) {
+	s := startServer(t)
+	tok := token(t, s, "veranstaltungsleiter", db.AdminID.String(), "admin@test.local")
+
+	resp := post(t, s, "/api/v1/events/"+db.EventID.String()+"/recurrence", tok,
+		`{"frequency": "weekly", "until": "2026-07-26T00:00:00Z"}`)
+	require.Equal(t, http.StatusCreated, resp.StatusCode)
+	var events []map[string]any
+	decode(t, resp, &events)
+	require.Len(t, events, 4) // source + 3 weekly occurrences (07-11, 07-18, 07-25, all 14:00Z)
+	assert.Equal(t, db.EventID.String(), events[0]["id"])
+	assert.Equal(t, "weekly", events[0]["recurrenceFrequency"])
+	require.NotEmpty(t, events[0]["recurrenceGroupId"])
+
+	for _, occ := range events[1:] {
+		assert.NotEqual(t, db.EventID.String(), occ["id"])
+		assert.Equal(t, "Sommerfest", occ["name"])
+		assert.Equal(t, "draft", occ["status"])
+		assert.Equal(t, events[0]["recurrenceGroupId"], occ["recurrenceGroupId"])
+
+		// Each occurrence must have carried over the source event's shifts.
+		listResp := get(t, s, "/api/v1/events/"+occ["id"].(string)+"/timeline", tok)
+		require.Equal(t, http.StatusOK, listResp.StatusCode)
+		var tl map[string]any
+		decode(t, listResp, &tl)
+		days, _ := tl["days"].([]any)
+		var shiftCount int
+		for _, d := range days {
+			day, _ := d.(map[string]any)
+			shifts, _ := day["shifts"].([]any)
+			shiftCount += len(shifts)
+		}
+		assert.Equal(t, 2, shiftCount)
+	}
+}
+
+func TestGenerateRecurrence_AlreadyRecurring(t *testing.T) {
+	s := startServer(t)
+	tok := token(t, s, "veranstaltungsleiter", db.AdminID.String(), "admin@test.local")
+
+	first := post(t, s, "/api/v1/events/"+db.EventID.String()+"/recurrence", tok,
+		`{"frequency": "weekly", "until": "2026-07-12T00:00:00Z"}`)
+	require.Equal(t, http.StatusCreated, first.StatusCode)
+	first.Body.Close()
+
+	again := post(t, s, "/api/v1/events/"+db.EventID.String()+"/recurrence", tok,
+		`{"frequency": "weekly", "until": "2026-07-25T00:00:00Z"}`)
+	assert.Equal(t, http.StatusBadRequest, again.StatusCode)
+}
+
+func TestGenerateRecurrence_RequiresVeranstaltungsleiter(t *testing.T) {
+	s := startServer(t)
+	memberTok := token(t, s, "mitglied", db.MemberID.String(), "max@test.local")
+
+	resp := post(t, s, "/api/v1/events/"+db.EventID.String()+"/recurrence", memberTok,
+		`{"frequency": "weekly", "until": "2026-07-25T00:00:00Z"}`)
+	assert.Equal(t, http.StatusForbidden, resp.StatusCode)
+}
+
+func TestGenerateRecurrence_UnknownEvent404s(t *testing.T) {
+	s := startServer(t)
+	tok := token(t, s, "veranstaltungsleiter", db.AdminID.String(), "admin@test.local")
+
+	resp := post(t, s, "/api/v1/events/"+uuid.NewString()+"/recurrence", tok,
+		`{"frequency": "weekly", "until": "2026-07-25T00:00:00Z"}`)
+	assert.Equal(t, http.StatusNotFound, resp.StatusCode)
+}

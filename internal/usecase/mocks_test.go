@@ -2,6 +2,7 @@ package usecase
 
 import (
 	"context"
+	"fmt"
 	"strings"
 	"time"
 
@@ -159,6 +160,15 @@ func (f *fakeMemberRepo) Anonymize(ctx context.Context, id uuid.UUID, leftAt tim
 
 type fakeEventRepo struct {
 	events map[uuid.UUID]*domain.Event
+	// failNextMarkRecurring, when true, makes the next single MarkRecurring
+	// call fail and then resets itself, to simulate e.g. GenerateRecurrence's
+	// final source-event stamp failing after its occurrences were already
+	// created.
+	failNextMarkRecurring bool
+	// forceNextMarkRecurringLost, when true, makes the next single
+	// MarkRecurring call report applied=false (as if a concurrent caller won
+	// the race) regardless of actual state, and then resets itself.
+	forceNextMarkRecurringLost bool
 }
 
 var _ port.EventRepository = (*fakeEventRepo)(nil)
@@ -220,6 +230,25 @@ func (f *fakeEventRepo) UpdateStatus(ctx context.Context, id uuid.UUID, status d
 	}
 	e.Status = status
 	return nil
+}
+
+func (f *fakeEventRepo) MarkRecurring(ctx context.Context, id uuid.UUID, frequency domain.RecurrenceFrequency, until time.Time, groupID uuid.UUID) (bool, error) {
+	if f.failNextMarkRecurring {
+		f.failNextMarkRecurring = false
+		return false, fmt.Errorf("simulated mark-recurring failure")
+	}
+	if f.forceNextMarkRecurringLost {
+		f.forceNextMarkRecurringLost = false
+		return false, nil
+	}
+	e, ok := f.events[id]
+	if !ok || e.RecurrenceGroupID != nil {
+		return false, nil
+	}
+	e.RecurrenceFrequency = frequency
+	e.RecurrenceUntil = &until
+	e.RecurrenceGroupID = &groupID
+	return true, nil
 }
 
 // --- EventAttachmentRepo fake ---
@@ -284,6 +313,11 @@ func (f *fakeEventAttachmentRepo) DeleteByEvent(ctx context.Context, eventID uui
 
 type fakeShiftRepo struct {
 	shifts map[uuid.UUID]*domain.Shift
+	// failCreateAt, when non-zero, makes the Nth call to Create (1-indexed)
+	// fail, to simulate a mid-batch failure (e.g. GenerateRecurrence's
+	// partial-failure/retry behavior).
+	failCreateAt int
+	createCalls  int
 }
 
 var _ port.ShiftRepository = (*fakeShiftRepo)(nil)
@@ -298,6 +332,10 @@ func (f *fakeShiftRepo) add(s *domain.Shift) {
 }
 
 func (f *fakeShiftRepo) Create(ctx context.Context, s *domain.Shift) error {
+	f.createCalls++
+	if f.failCreateAt != 0 && f.createCalls == f.failCreateAt {
+		return fmt.Errorf("simulated shift create failure")
+	}
 	cp := *s
 	f.shifts[s.ID] = &cp
 	return nil

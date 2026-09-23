@@ -1,6 +1,6 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { apiGet, apiPost, apiPut, apiDelete, apiClient } from './client';
-import type { Event, EventTimeline, EventAttachment } from '@/types';
+import type { Event, EventTimeline, EventAttachment, RecurrenceFrequency } from '@/types';
 import { flatToEvent, timelineToEvent, type RawEvent, type RawTimeline } from './mappers';
 
 // ── Queries ────────────────────────────────────────────────────────────────
@@ -120,6 +120,30 @@ export function useCopyEvent() {
   return useMutation({
     mutationFn: (id: string) => apiClient.post(`/events/${id}/copy`).then((r) => r.data),
     onSuccess: () => qc.invalidateQueries({ queryKey: ['events'] }),
+  });
+}
+
+// ── Recurrence (V-007) ────────────────────────────────────────────────────────
+
+export interface GenerateRecurrencePayload {
+  frequency: RecurrenceFrequency;
+  until: string; // ISO date-time, inclusive
+}
+
+/**
+ * Turns an event into a recurring series: the source event is stamped with
+ * the recurrence config and follow-up occurrences (full copies including
+ * shifts) are created weekly/monthly up to `until`.
+ */
+export function useGenerateEventRecurrence(eventId: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (data: GenerateRecurrencePayload) =>
+      apiPost<RawEvent[]>(`/events/${eventId}/recurrence`, data),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['events'] });
+      qc.invalidateQueries({ queryKey: ['events', eventId] });
+    },
   });
 }
 

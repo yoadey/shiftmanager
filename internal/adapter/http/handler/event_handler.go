@@ -226,6 +226,39 @@ func (h *EventHandler) CopyEvent(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusCreated, event)
 }
 
+// GenerateRecurrence turns an event into a recurring series (V-007),
+// creating follow-up occurrences (weekly or monthly, up to "until") as
+// full copies of the event including its shifts.
+// POST /api/v1/events/{id}/recurrence
+func (h *EventHandler) GenerateRecurrence(w http.ResponseWriter, r *http.Request) {
+	id, err := parseUUIDParam(r, "id")
+	if err != nil {
+		writeError(w, http.StatusBadRequest, "invalid event id")
+		return
+	}
+
+	var body struct {
+		Frequency domain.RecurrenceFrequency `json:"frequency"`
+		Until     time.Time                  `json:"until"`
+	}
+	if err := decodeJSON(r, &body); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid request body")
+		return
+	}
+
+	actorID := middleware.GetUserID(r.Context())
+	events, err := h.uc.GenerateRecurrence(r.Context(), actorID, id, body.Frequency, body.Until)
+	if err != nil {
+		if err == domain.ErrEventNotFound {
+			writeError(w, http.StatusNotFound, "event not found")
+			return
+		}
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusCreated, events)
+}
+
 // maxAttachmentSize is the per-file upload limit for event attachments (V-008).
 const maxAttachmentSize = 5 << 20 // 5MB
 

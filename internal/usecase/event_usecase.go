@@ -495,27 +495,223 @@ func (uc *EventUsecase) CopyEvent(ctx context.Context, actorID uuid.UUID, id uui
 		return nil, fmt.Errorf("create copy event: %w", err)
 	}
 
-	for _, s := range shifts {
-		newShift := &domain.Shift{
-			ID:                    uuid.New(),
-			EventID:               newEvent.ID,
-			Name:                  s.Name,
-			StartAt:               s.StartAt,
-			EndAt:                 s.EndAt,
-			MinHelpers:            s.MinHelpers,
-			MaxHelpers:            s.MaxHelpers,
-			RequiredQualification: s.RequiredQualification,
-			Date:                  s.Date,
-		}
-		if err := uc.shifts.Create(ctx, newShift); err != nil {
-			return nil, fmt.Errorf("create copy shift: %w", err)
-		}
+	if err := uc.copyShifts(ctx, shifts, newEvent.ID, 0); err != nil {
+		return nil, fmt.Errorf("create copy shift: %w", err)
 	}
 
 	aid := actorID
 	_ = uc.writeAudit(ctx, &aid, domain.AuditActionCreate, domain.AuditEntityEvent, newEvent.ID.String(), nil, map[string]string{"copiedFrom": id.String()})
 
 	return newEvent, nil
+}
+
+// copyShifts creates copies of shifts under a new event, shifting each
+// shift's start/end by delta (0 for an exact copy, e.g. CopyEvent; the
+// per-occurrence offset for GenerateRecurrence). Date is always recomputed
+// from the (possibly shifted) start rather than copied, since a shifted
+// occurrence generally falls on a different calendar day.
+func (uc *EventUsecase) copyShifts(ctx context.Context, shifts []*domain.Shift, newEventID uuid.UUID, delta time.Duration) error {
+	for _, s := range shifts {
+		newShift := &domain.Shift{
+			ID:                    uuid.New(),
+			EventID:               newEventID,
+			Name:                  s.Name,
+			StartAt:               s.StartAt.Add(delta),
+			EndAt:                 s.EndAt.Add(delta),
+			MinHelpers:            s.MinHelpers,
+			MaxHelpers:            s.MaxHelpers,
+			RequiredQualification: s.RequiredQualification,
+		}
+		newShift.Date = newShift.StartAt.Truncate(24 * time.Hour)
+		if err := uc.shifts.Create(ctx, newShift); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// cleanupFailedOccurrences best-effort removes occurrence events (and their
+// shifts) already created earlier in a GenerateRecurrence call that failed
+// partway through, so a partial failure doesn't leave orphaned draft events
+// with no source event tracking their RecurrenceGroupID. There is no
+// database transaction around the batch (matching the rest of this usecase,
+// e.g. DeleteEvent's attachment cleanup), so this is a best-effort cleanup,
+// not a guarantee; its own errors are intentionally swallowed so a cleanup
+// failure doesn't mask the original error being returned to the caller.
+func (uc *EventUsecase) cleanupFailedOccurrences(ctx context.Context, occurrences []*domain.Event) {
+	for _, occ := range occurrences {
+		if shifts, err := uc.shifts.FindByEventID(ctx, occ.ID); err == nil {
+			for _, s := range shifts {
+				_ = uc.shifts.Delete(ctx, s.ID)
+			}
+		}
+		_ = uc.events.Delete(ctx, occ.ID)
+	}
+}
+
+// maxRecurrenceOccurrences caps how many follow-up events GenerateRecurrence
+// creates in one call, so a caller can't trigger unbounded event/shift
+// creation (e.g. a weekly recurrence with an "until" decades out).
+const maxRecurrenceOccurrences = 104
+
+// GenerateRecurrence turns an existing event into a recurring series (V-007):
+// it stamps the event itself with the recurrence config and creates follow-up
+// occurrences (each a full copy of the event, including its shifts, offset by
+// one week/month per step) up to and including `until`. All occurrences,
+// including the source event, share a RecurrenceGroupID so the UI can
+// present them as a series. Returns the updated source event followed by the
+// newly created occurrences, in chronological order.
+func (uc *EventUsecase) GenerateRecurrence(ctx context.Context, actorID uuid.UUID, id uuid.UUID, frequency domain.RecurrenceFrequency, until time.Time) ([]*domain.Event, error) {
+	if !frequency.Valid() {
+		return nil, domain.ErrInvalidRecurrence
+	}
+
+	orig, err := uc.events.GetByID(ctx, id)
+	if err != nil {
+		return nil, err
+	}
+	if !orig.CanRecur() {
+		return nil, domain.ErrInvalidRecurrence
+	}
+	if orig.RecurrenceGroupID != nil {
+		return nil, domain.ErrAlreadyRecurring
+	}
+	if !until.After(orig.StartDate) {
+		return nil, domain.ErrInvalidRecurrence
+	}
+
+	starts := recurrenceOccurrenceStarts(orig.StartDate, until, frequency)
+	if len(starts) == 0 {
+		return nil, domain.ErrInvalidRecurrence
+	}
+	if len(starts) > maxRecurrenceOccurrences {
+		return nil, fmt.Errorf("recurrence range too large: max %d occurrences", maxRecurrenceOccurrences)
+	}
+
+	shifts, err := uc.shifts.FindByEventID(ctx, id)
+	if err != nil {
+		return nil, fmt.Errorf("load shifts: %w", err)
+	}
+
+	// Occurrences are created before the source event is stamped as
+	// recurring (below), so a failure partway through never leaves the
+	// source event permanently locked out of a retry by the
+	// ErrAlreadyRecurring guard above.
+	groupID := uuid.New()
+	duration := orig.EndDate.Sub(orig.StartDate)
+	aid := actorID
+	var occurrences []*domain.Event
+
+	for _, start := range starts {
+		now := time.Now().UTC()
+		occurrence := &domain.Event{
+			ID:                  uuid.New(),
+			Name:                orig.Name,
+			Description:         orig.Description,
+			Location:            orig.Location,
+			Category:            orig.Category,
+			StartDate:           start,
+			EndDate:             start.Add(duration),
+			Status:              domain.EventStatusDraft,
+			Visibility:          orig.Visibility,
+			RecurrenceFrequency: frequency,
+			RecurrenceUntil:     &until,
+			RecurrenceGroupID:   &groupID,
+			CreatedAt:           now,
+			UpdatedAt:           now,
+		}
+		if err := uc.events.Create(ctx, occurrence); err != nil {
+			uc.cleanupFailedOccurrences(ctx, occurrences)
+			return nil, fmt.Errorf("create recurring occurrence: %w", err)
+		}
+
+		if err := uc.copyShifts(ctx, shifts, occurrence.ID, start.Sub(orig.StartDate)); err != nil {
+			uc.cleanupFailedOccurrences(ctx, append(occurrences, occurrence))
+			return nil, fmt.Errorf("create recurring shift: %w", err)
+		}
+
+		occurrences = append(occurrences, occurrence)
+	}
+
+	// Atomic, conditional on the source event still not being part of a
+	// series: closes the race where two concurrent calls both passed the
+	// RecurrenceGroupID nil check above and would otherwise both proceed to
+	// stamp the source event (last write wins), leaving the loser's
+	// occurrences orphaned with no source event pointing at their group.
+	// Here, only the winner's occurrences survive; the loser's are rolled
+	// back via cleanupFailedOccurrences, same as any other failure above.
+	applied, err := uc.events.MarkRecurring(ctx, id, frequency, until, groupID)
+	if err != nil {
+		uc.cleanupFailedOccurrences(ctx, occurrences)
+		return nil, fmt.Errorf("update source event: %w", err)
+	}
+	if !applied {
+		uc.cleanupFailedOccurrences(ctx, occurrences)
+		return nil, domain.ErrAlreadyRecurring
+	}
+	before := *orig
+	orig.RecurrenceFrequency = frequency
+	orig.RecurrenceUntil = &until
+	orig.RecurrenceGroupID = &groupID
+	orig.UpdatedAt = time.Now().UTC()
+
+	// Audit entries are only written now, once the whole batch (occurrences
+	// and the source event's own stamp) has actually succeeded — a partial
+	// failure rolls occurrences back via cleanupFailedOccurrences above, and
+	// the audit log is append-only (no compensating delete entries), so
+	// writing "create" audit entries any earlier would leave permanent, stale
+	// records pointing at events that no longer exist.
+	_ = uc.writeAudit(ctx, &aid, domain.AuditActionUpdate, domain.AuditEntityEvent, id.String(), before, orig)
+	for _, occ := range occurrences {
+		_ = uc.writeAudit(ctx, &aid, domain.AuditActionCreate, domain.AuditEntityEvent, occ.ID.String(), nil, map[string]string{"recurrenceOf": id.String()})
+	}
+
+	return append([]*domain.Event{orig}, occurrences...), nil
+}
+
+// recurrenceOccurrenceStarts returns the start times of the follow-up
+// occurrences (i.e. excluding start itself) stepped weekly/monthly from
+// start, up to and including until. It stops early (without erroring) once
+// more than maxRecurrenceOccurrences+1 dates have been produced, leaving the
+// caller to reject the oversized result.
+func recurrenceOccurrenceStarts(start, until time.Time, frequency domain.RecurrenceFrequency) []time.Time {
+	var starts []time.Time
+	for n := 1; ; n++ {
+		var next time.Time
+		switch frequency {
+		case domain.RecurrenceFrequencyWeekly:
+			next = start.AddDate(0, 0, 7*n)
+		case domain.RecurrenceFrequencyMonthly:
+			next = addMonthsClamped(start, n)
+		default:
+			return starts
+		}
+		if next.After(until) {
+			return starts
+		}
+		starts = append(starts, next)
+		if len(starts) > maxRecurrenceOccurrences {
+			return starts
+		}
+	}
+}
+
+// addMonthsClamped adds n calendar months to t. Unlike time.Time.AddDate,
+// which overflows a day-of-month that doesn't exist in the target month into
+// the following month (e.g. Jan 31 + 1 month rolls over to Mar 3, not Feb),
+// this clamps to the target month's last day instead (Jan 31 + 1 month ->
+// Feb 28/29). Each occurrence is computed straight from the original start
+// date (not cumulatively from the previous occurrence), so a clamped
+// occurrence never drags later ones off course: Jan 31 + 2 months lands on
+// Mar 31, not Mar 28.
+func addMonthsClamped(t time.Time, n int) time.Time {
+	firstOfTarget := time.Date(t.Year(), t.Month()+time.Month(n), 1, t.Hour(), t.Minute(), t.Second(), t.Nanosecond(), t.Location())
+	lastDayOfTarget := firstOfTarget.AddDate(0, 1, -1).Day()
+	day := t.Day()
+	if day > lastDayOfTarget {
+		day = lastDayOfTarget
+	}
+	return time.Date(firstOfTarget.Year(), firstOfTarget.Month(), day, t.Hour(), t.Minute(), t.Second(), t.Nanosecond(), t.Location())
 }
 
 // AddAttachment records a file (image or document) uploaded against an event

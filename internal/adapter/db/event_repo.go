@@ -84,15 +84,18 @@ func (r *EventRepo) Update(ctx context.Context, e *domain.Event) error {
 		Model(&EventModel{}).
 		Where("id = ?", model.ID).
 		Updates(map[string]interface{}{
-			"name":        model.Name,
-			"description": model.Description,
-			"location":    model.Location,
-			"category":    model.Category,
-			"start_date":  model.StartDate,
-			"end_date":    model.EndDate,
-			"status":      model.Status,
-			"visibility":  model.Visibility,
-			"updated_at":  model.UpdatedAt,
+			"name":                 model.Name,
+			"description":          model.Description,
+			"location":             model.Location,
+			"category":             model.Category,
+			"start_date":           model.StartDate,
+			"end_date":             model.EndDate,
+			"status":               model.Status,
+			"visibility":           model.Visibility,
+			"updated_at":           model.UpdatedAt,
+			"recurrence_frequency": model.RecurrenceFrequency,
+			"recurrence_until":     model.RecurrenceUntil,
+			"recurrence_group_id":  model.RecurrenceGroupID,
 		})
 	if result.Error != nil {
 		return result.Error
@@ -127,35 +130,67 @@ func (r *EventRepo) UpdateStatus(ctx context.Context, id uuid.UUID, status domai
 	return nil
 }
 
+func (r *EventRepo) MarkRecurring(ctx context.Context, id uuid.UUID, frequency domain.RecurrenceFrequency, until time.Time, groupID uuid.UUID) (bool, error) {
+	groupIDStr := groupID.String()
+	result := r.db.WithContext(ctx).Model(&EventModel{}).
+		Where("id = ? AND recurrence_group_id IS NULL", id.String()).
+		Updates(map[string]interface{}{
+			"recurrence_frequency": string(frequency),
+			"recurrence_until":     until,
+			"recurrence_group_id":  groupIDStr,
+			"updated_at":           time.Now().UTC(),
+		})
+	if result.Error != nil {
+		return false, result.Error
+	}
+	return result.RowsAffected > 0, nil
+}
+
 func toEventModel(e *domain.Event) EventModel {
+	var groupID *string
+	if e.RecurrenceGroupID != nil {
+		s := e.RecurrenceGroupID.String()
+		groupID = &s
+	}
 	return EventModel{
-		ID:          e.ID.String(),
-		Name:        e.Name,
-		Description: e.Description,
-		Location:    e.Location,
-		Category:    e.Category,
-		StartDate:   e.StartDate,
-		EndDate:     e.EndDate,
-		Status:      string(e.Status),
-		Visibility:  string(e.Visibility),
-		CreatedAt:   e.CreatedAt,
-		UpdatedAt:   e.UpdatedAt,
+		ID:                  e.ID.String(),
+		Name:                e.Name,
+		Description:         e.Description,
+		Location:            e.Location,
+		Category:            e.Category,
+		StartDate:           e.StartDate,
+		EndDate:             e.EndDate,
+		Status:              string(e.Status),
+		Visibility:          string(e.Visibility),
+		CreatedAt:           e.CreatedAt,
+		UpdatedAt:           e.UpdatedAt,
+		RecurrenceFrequency: string(e.RecurrenceFrequency),
+		RecurrenceUntil:     e.RecurrenceUntil,
+		RecurrenceGroupID:   groupID,
 	}
 }
 
 func toEventDomain(m EventModel) *domain.Event {
+	var groupID *uuid.UUID
+	if m.RecurrenceGroupID != nil {
+		id := uuid.MustParse(*m.RecurrenceGroupID)
+		groupID = &id
+	}
 	return &domain.Event{
-		ID:          uuid.MustParse(m.ID),
-		Name:        m.Name,
-		Description: m.Description,
-		Location:    m.Location,
-		Category:    m.Category,
-		StartDate:   m.StartDate,
-		EndDate:     m.EndDate,
-		Status:      domain.EventStatus(m.Status),
-		Visibility:  domain.EventVisibility(m.Visibility),
-		CreatedAt:   m.CreatedAt,
-		UpdatedAt:   m.UpdatedAt,
+		ID:                  uuid.MustParse(m.ID),
+		Name:                m.Name,
+		Description:         m.Description,
+		Location:            m.Location,
+		Category:            m.Category,
+		StartDate:           m.StartDate,
+		EndDate:             m.EndDate,
+		Status:              domain.EventStatus(m.Status),
+		Visibility:          domain.EventVisibility(m.Visibility),
+		CreatedAt:           m.CreatedAt,
+		UpdatedAt:           m.UpdatedAt,
+		RecurrenceFrequency: domain.RecurrenceFrequency(m.RecurrenceFrequency),
+		RecurrenceUntil:     m.RecurrenceUntil,
+		RecurrenceGroupID:   groupID,
 	}
 }
 

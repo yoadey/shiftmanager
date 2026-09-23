@@ -64,6 +64,9 @@ import type {
   GdprDeleteMemberData,
   GdprDeleteMemberErrors,
   GdprDeleteMemberResponses,
+  GenerateEventRecurrenceData,
+  GenerateEventRecurrenceErrors,
+  GenerateEventRecurrenceResponses,
   GetAuditLogData,
   GetAuditLogErrors,
   GetAuditLogResponses,
@@ -606,6 +609,28 @@ export const uploadEventAttachment = <ThrowOnError extends boolean = false>(
     ...options,
     headers: {
       "Content-Type": null,
+      ...options.headers,
+    },
+  });
+
+/**
+ * Turn an event into a recurring series, weekly or monthly (Veranstaltungsleiter+, V-007)
+ *
+ * Stamps the event with the recurrence config and creates follow-up occurrences (full copies including shifts) up to and including "until". Returns the updated source event followed by the newly created occurrences, in chronological order.
+ */
+export const generateEventRecurrence = <ThrowOnError extends boolean = false>(
+  options: Options<GenerateEventRecurrenceData, ThrowOnError>,
+) =>
+  (options.client ?? client).post<
+    GenerateEventRecurrenceResponses,
+    GenerateEventRecurrenceErrors,
+    ThrowOnError
+  >({
+    security: [{ scheme: "bearer", type: "http" }],
+    url: "/events/{id}/recurrence",
+    ...options,
+    headers: {
+      "Content-Type": "application/json",
       ...options.headers,
     },
   });

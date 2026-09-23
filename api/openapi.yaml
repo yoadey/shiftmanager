@@ -89,15 +89,29 @@ components:
       type: object
       required: [id, name, status, visibility]
       properties:
-        id:          { $ref: '#/components/schemas/UUID' }
-        name:        { type: string }
-        description: { type: string }
-        location:    { type: string }
-        category:    { type: string }
-        status:      { $ref: '#/components/schemas/EventStatus' }
-        visibility:  { $ref: '#/components/schemas/EventVisibility' }
-        createdAt:   { type: string, format: date-time }
-        updatedAt:   { type: string, format: date-time }
+        id:                  { $ref: '#/components/schemas/UUID' }
+        name:                { type: string }
+        description:         { type: string }
+        location:            { type: string }
+        category:            { type: string }
+        status:              { $ref: '#/components/schemas/EventStatus' }
+        visibility:          { $ref: '#/components/schemas/EventVisibility' }
+        createdAt:           { type: string, format: date-time }
+        updatedAt:           { type: string, format: date-time }
+        recurrenceFrequency: { $ref: '#/components/schemas/RecurrenceFrequency' }
+        recurrenceUntil:     { type: string, format: date-time }
+        recurrenceGroupId:   { $ref: '#/components/schemas/UUID' }
+
+    RecurrenceFrequency:
+      type: string
+      enum: [weekly, monthly]
+
+    EventRecurrenceRequest:
+      type: object
+      required: [frequency, until]
+      properties:
+        frequency: { $ref: '#/components/schemas/RecurrenceFrequency' }
+        until:     { type: string, format: date-time }
 
     EventWrite:
       type: object
@@ -811,6 +825,36 @@ paths:
         "403": { $ref: '#/components/responses/Forbidden' }
         "404": { $ref: '#/components/responses/NotFound' }
         "415": { description: Unsupported file type }
+
+  /events/{id}/recurrence:
+    parameters:
+      - { name: id, in: path, required: true, schema: { $ref: '#/components/schemas/UUID' } }
+    post:
+      operationId: generateEventRecurrence
+      tags: [events]
+      summary: Turn an event into a recurring series, weekly or monthly (Veranstaltungsleiter+, V-007)
+      description: >-
+        Stamps the event with the recurrence config and creates follow-up
+        occurrences (full copies including shifts) up to and including
+        "until". Returns the updated source event followed by the newly
+        created occurrences, in chronological order.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/EventRecurrenceRequest' }
+      responses:
+        "201":
+          description: Source event and newly created occurrences
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: '#/components/schemas/Event' }
+        "400": { $ref: '#/components/responses/BadRequest' }
+        "401": { $ref: '#/components/responses/Unauthorized' }
+        "403": { $ref: '#/components/responses/Forbidden' }
+        "404": { $ref: '#/components/responses/NotFound' }
 
   /events/{id}/attachments/{attachmentId}:
     parameters:

@@ -25,6 +25,20 @@ const (
 	EventVisibilityPrivate EventVisibility = "private"
 )
 
+// RecurrenceFrequency describes how often a recurring event repeats (V-007).
+type RecurrenceFrequency string
+
+const (
+	RecurrenceFrequencyNone    RecurrenceFrequency = ""
+	RecurrenceFrequencyWeekly  RecurrenceFrequency = "weekly"
+	RecurrenceFrequencyMonthly RecurrenceFrequency = "monthly"
+)
+
+// Valid reports whether f is a frequency occurrences can actually be generated for.
+func (f RecurrenceFrequency) Valid() bool {
+	return f == RecurrenceFrequencyWeekly || f == RecurrenceFrequencyMonthly
+}
+
 // Event represents a club event that has one or more shifts.
 type Event struct {
 	ID          uuid.UUID       `json:"id"`
@@ -38,6 +52,12 @@ type Event struct {
 	Visibility  EventVisibility `json:"visibility"`
 	CreatedAt   time.Time       `json:"createdAt"`
 	UpdatedAt   time.Time       `json:"updatedAt"`
+	// Recurrence (V-007): set on every occurrence generated as part of a
+	// series, including the source event that started it, so the UI can show
+	// them as a series. Zero values mean the event is not part of a series.
+	RecurrenceFrequency RecurrenceFrequency `json:"recurrenceFrequency,omitempty"`
+	RecurrenceUntil     *time.Time          `json:"recurrenceUntil,omitempty"`
+	RecurrenceGroupID   *uuid.UUID          `json:"recurrenceGroupId,omitempty"`
 }
 
 // IsMultiDay returns true when the event spans more than one calendar day.
@@ -53,6 +73,13 @@ func (e *Event) CanPublish() bool {
 // CanDelete returns true when the event may be deleted.
 func (e *Event) CanDelete() bool {
 	return e.Status == EventStatusDraft || e.Status == EventStatusCancelled
+}
+
+// CanRecur returns true when the event may become the head of a recurring
+// series (V-007). A cancelled or already-completed event should not spawn
+// fresh occurrences.
+func (e *Event) CanRecur() bool {
+	return e.Status == EventStatusDraft || e.Status == EventStatusPublished
 }
 
 // Shift represents a single work block within an event.
@@ -204,13 +231,15 @@ type EventAttachment struct {
 
 // Errors for event operations.
 var (
-	ErrEventNotFound      = fmt.Errorf("event not found")
-	ErrEventNotPublishable = fmt.Errorf("event cannot be published in current state")
-	ErrShiftNotFound      = fmt.Errorf("shift not found")
-	ErrShiftFull          = fmt.Errorf("shift is fully booked")
-	ErrAlreadyRegistered  = fmt.Errorf("already registered for this shift")
-	ErrRegistrationNotFound = fmt.Errorf("registration not found")
+	ErrEventNotFound            = fmt.Errorf("event not found")
+	ErrEventNotPublishable      = fmt.Errorf("event cannot be published in current state")
+	ErrShiftNotFound            = fmt.Errorf("shift not found")
+	ErrShiftFull                = fmt.Errorf("shift is fully booked")
+	ErrAlreadyRegistered        = fmt.Errorf("already registered for this shift")
+	ErrRegistrationNotFound     = fmt.Errorf("registration not found")
 	ErrDeregisterDeadlinePassed = fmt.Errorf("deregistration deadline has passed")
-	ErrInvalidToken       = fmt.Errorf("invalid or expired confirmation token")
-	ErrEventAttachmentNotFound = fmt.Errorf("event attachment not found")
+	ErrInvalidToken             = fmt.Errorf("invalid or expired confirmation token")
+	ErrEventAttachmentNotFound  = fmt.Errorf("event attachment not found")
+	ErrInvalidRecurrence        = fmt.Errorf("invalid recurrence configuration")
+	ErrAlreadyRecurring         = fmt.Errorf("event is already part of a recurrence series")
 )

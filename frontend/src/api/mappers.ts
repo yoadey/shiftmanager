@@ -10,7 +10,7 @@
 // bridge the two and ALWAYS return arrays, so screens can iterate days/shifts/
 // signups without defensive guards and never crash on missing data.
 
-import type { Event, EventStatus, Shift, ShiftDay, Signup } from '@/types';
+import type { Event, EventStatus, RecurrenceFrequency, Shift, ShiftDay, Signup } from '@/types';
 
 // ── Raw backend shapes (only the fields we consume) ──────────────────────────
 
@@ -24,6 +24,9 @@ export interface RawEvent {
   endDate?: string;
   status?: string;
   visibility?: string;
+  recurrenceFrequency?: string;
+  recurrenceUntil?: string;
+  recurrenceGroupId?: string;
 }
 
 interface RawShift {
@@ -132,6 +135,7 @@ export function flatToEvent(e: RawEvent): Event {
     status: (e.status as EventStatus) ?? 'draft',
     description: e.description ?? '',
     days: [],
+    recurrenceFrequency: (e.recurrenceFrequency || undefined) as RecurrenceFrequency | undefined,
   };
 }
 

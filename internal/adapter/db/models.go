@@ -33,17 +33,20 @@ func (OIDCLinkModel) TableName() string { return "oidc_links" }
 
 // EventModel is the GORM model for the "events" table.
 type EventModel struct {
-	ID          string    `gorm:"column:id;type:text;primaryKey"`
-	Name        string    `gorm:"column:name;type:text"`
-	Description string    `gorm:"column:description;type:text"`
-	Location    string    `gorm:"column:location;type:text"`
-	Category    string    `gorm:"column:category;type:text"`
-	StartDate   time.Time `gorm:"column:start_date"`
-	EndDate     time.Time `gorm:"column:end_date"`
-	Status      string    `gorm:"column:status;type:text;index"`
-	Visibility  string    `gorm:"column:visibility;type:text"`
-	CreatedAt   time.Time `gorm:"column:created_at"`
-	UpdatedAt   time.Time `gorm:"column:updated_at"`
+	ID                  string     `gorm:"column:id;type:text;primaryKey"`
+	Name                string     `gorm:"column:name;type:text"`
+	Description         string     `gorm:"column:description;type:text"`
+	Location            string     `gorm:"column:location;type:text"`
+	Category            string     `gorm:"column:category;type:text"`
+	StartDate           time.Time  `gorm:"column:start_date"`
+	EndDate             time.Time  `gorm:"column:end_date"`
+	Status              string     `gorm:"column:status;type:text;index"`
+	Visibility          string     `gorm:"column:visibility;type:text"`
+	CreatedAt           time.Time  `gorm:"column:created_at"`
+	UpdatedAt           time.Time  `gorm:"column:updated_at"`
+	RecurrenceFrequency string     `gorm:"column:recurrence_frequency;type:text"`
+	RecurrenceUntil     *time.Time `gorm:"column:recurrence_until"`
+	RecurrenceGroupID   *string    `gorm:"column:recurrence_group_id;type:text;index"`
 }
 
 func (EventModel) TableName() string { return "events" }
