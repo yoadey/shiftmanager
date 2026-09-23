@@ -84,6 +84,7 @@ type RegistrationModel struct {
 	ID                string     `gorm:"column:id;type:text;primaryKey"`
 	ShiftID           string     `gorm:"column:shift_id;type:text;index"`
 	MemberID          *string    `gorm:"column:member_id;type:text;index"`
+	GuestName         *string    `gorm:"column:guest_name;type:text"`
 	GuestEmail        *string    `gorm:"column:guest_email;type:text"`
 	State             string     `gorm:"column:state;type:text"`
 	Comment           string     `gorm:"column:comment;type:text"`

@@ -45,6 +45,7 @@ interface RawRegistration {
   id: string;
   shiftId?: string;
   memberId?: string | null;
+  guestName?: string | null;
   guestEmail?: string | null;
   state?: string;
   comment?: string;
@@ -100,7 +101,10 @@ function toSignup(r: RawRegistration): Signup {
     status: STATE_TO_STATUS[r.state ?? ''] ?? 'angemeldet',
     comment: r.comment || undefined,
     hours: r.bookedHours ?? undefined,
-    guest: r.guestEmail ?? undefined,
+    // An organizer-added guest has a name (guestName); a self-service kiosk
+    // guest registration only ever has an email (guestEmail) — prefer the
+    // name when both would somehow be present.
+    guest: r.guestName ?? r.guestEmail ?? undefined,
   };
 }
 

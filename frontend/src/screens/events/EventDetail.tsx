@@ -17,6 +17,7 @@ import {
   usePatchRegistration,
   useForceDeleteRegistration,
   useAddMemberToShift,
+  useAddGuestToShift,
 } from '@/api/shifts';
 import {
   useEvent,
@@ -233,7 +234,11 @@ function AddMemberSheet({
   const { showToast } = useAppStore();
   const formatName = useNameFormat();
   const addMember = useAddMemberToShift();
+  const addGuest = useAddGuestToShift();
+  const [mode, setMode] = useState<'member' | 'guest'>('member');
   const [search, setSearch] = useState('');
+  const [guestName, setGuestName] = useState('');
+  const [guestEmail, setGuestEmail] = useState('');
 
   const existingIds = new Set(shift.signups.map((s) => s.memberId));
   const filtered = members.filter((m) => {
@@ -252,29 +257,70 @@ function AddMemberSheet({
     onClose();
   };
 
+  const addGuestHelper = () => {
+    const name = guestName.trim();
+    if (!name) return;
+    addGuest.mutate({ shiftId: shift.id, name, email: guestEmail.trim() || undefined, eventId }, {
+      onSuccess: () => showToast('Helfer hinzugefügt.'),
+      onError: () => showToast('Hinzufügen fehlgeschlagen.', 'crit'),
+    });
+    onClose();
+  };
+
+  const segStyle = (active: boolean): React.CSSProperties => ({
+    flex: 1, border: 'none', cursor: 'pointer', padding: '9px 0', borderRadius: 9, fontWeight: 700, fontSize: 13.5, fontFamily: 'inherit',
+    background: active ? 'var(--surface)' : 'transparent', color: active ? 'var(--ink)' : 'var(--muted)', boxShadow: active ? 'var(--shadow)' : 'none',
+  });
+
   return (
     <Sheet onClose={onClose} title="Helfer hinzufügen">
-      <Field label="Suche">
-        <Input placeholder="Name oder E-Mail…" value={search} onChange={(e) => setSearch(e.target.value)} />
-      </Field>
-      <div style={{ display: 'flex', flexDirection: 'column', gap: 6, marginTop: 4 }}>
-        {filtered.length === 0 && (
-          <span style={{ fontSize: 13, color: 'var(--muted)', fontWeight: 600, padding: '10px 0' }}>
-            {search ? 'Keine Mitglieder gefunden.' : 'Alle Mitglieder bereits eingetragen.'}
-          </span>
-        )}
-        {filtered.slice(0, 50).map((m) => (
-          <button key={m.id} onClick={() => add(m.id)} className="pressable"
-            style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '10px 12px', borderRadius: 12, border: '1px solid var(--line)', background: 'var(--surface)', cursor: 'pointer', fontFamily: 'inherit', textAlign: 'left', width: '100%' }}
-          >
-            <div style={{ flex: 1, minWidth: 0 }}>
-              <div style={{ fontWeight: 700, fontSize: 14 }}>{formatName(m, { viewerFull: true })}</div>
-              <div style={{ fontSize: 12, color: 'var(--muted)', fontWeight: 600 }}>{m.email}</div>
-            </div>
-            <Icon name="plus" size={16} stroke={2.4} color="var(--primary)" />
-          </button>
-        ))}
+      <div style={{ display: 'flex', gap: 6, marginBottom: 14, background: 'var(--surface-2)', borderRadius: 12, padding: 4, border: '1px solid var(--line)' }}>
+        <button className="pressable" onClick={() => setMode('member')} style={segStyle(mode === 'member')}>Mitglied</button>
+        <button className="pressable" onClick={() => setMode('guest')} style={segStyle(mode === 'guest')}>Gast</button>
       </div>
+
+      {mode === 'member' ? (
+        <>
+          <Field label="Suche">
+            <Input placeholder="Name oder E-Mail…" value={search} onChange={(e) => setSearch(e.target.value)} autoFocus />
+          </Field>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 6, marginTop: 4 }}>
+            {filtered.length === 0 && (
+              <span style={{ fontSize: 13, color: 'var(--muted)', fontWeight: 600, padding: '10px 0' }}>
+                {search ? 'Keine Mitglieder gefunden.' : 'Alle Mitglieder bereits eingetragen.'}
+              </span>
+            )}
+            {filtered.slice(0, 50).map((m) => (
+              <button key={m.id} onClick={() => add(m.id)} className="pressable"
+                style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '10px 12px', borderRadius: 12, border: '1px solid var(--line)', background: 'var(--surface)', cursor: 'pointer', fontFamily: 'inherit', textAlign: 'left', width: '100%' }}
+              >
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <div style={{ fontWeight: 700, fontSize: 14 }}>{formatName(m, { viewerFull: true })}</div>
+                  <div style={{ fontSize: 12, color: 'var(--muted)', fontWeight: 600 }}>{m.email}</div>
+                </div>
+                <Icon name="plus" size={16} stroke={2.4} color="var(--primary)" />
+              </button>
+            ))}
+          </div>
+        </>
+      ) : (
+        <>
+          <Field label="Name">
+            <Input placeholder="Vor- und Nachname" value={guestName} onChange={(e) => setGuestName(e.target.value)} autoFocus />
+          </Field>
+          <Field label="E-Mail (optional)">
+            <Input type="email" placeholder="name@beispiel.de" value={guestEmail} onChange={(e) => setGuestEmail(e.target.value)} />
+          </Field>
+          <Button
+            icon="plus"
+            onClick={addGuestHelper}
+            disabled={!guestName.trim() || addGuest.isPending}
+            style={{ width: '100%', marginTop: 8 }}
+          >
+            Hinzufügen
+          </Button>
+        </>
+      )}
     </Sheet>
   );
 }

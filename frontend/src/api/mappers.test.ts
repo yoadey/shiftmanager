@@ -68,6 +68,31 @@ describe('timelineToEvent', () => {
     expect(shift.signups[1]).toMatchObject({ memberId: '', status: 'reserviert', guest: 'gast@example.de' });
   });
 
+  it('prefers an organizer-added guest name over a kiosk guest email', () => {
+    const tl: RawTimeline = {
+      event: { id: 'e1', name: 'Turnier', status: 'published' },
+      days: [
+        {
+          date: '2026-06-01T00:00:00Z',
+          shifts: [
+            {
+              shift: { id: 's1', name: 'Aufbau', startAt: '2026-06-01T08:00:00Z', endAt: '2026-06-01T12:00:00Z' },
+              registrations: [
+                { id: 'r1', guestName: 'Jane Doe', guestEmail: 'jane@example.de', state: 'registered' },
+                { id: 'r2', guestName: 'John Doe', state: 'registered' },
+              ],
+            },
+          ],
+        },
+      ],
+    };
+
+    const ev = timelineToEvent(tl);
+    const signups = ev.days[0].shifts[0].signups;
+    expect(signups[0].guest).toBe('Jane Doe');
+    expect(signups[1].guest).toBe('John Doe');
+  });
+
   it('tolerates null/missing days, shifts and registrations without throwing', () => {
     const ev = timelineToEvent({ event: { id: 'e', name: 'x' }, days: null });
     expect(ev.days).toEqual([]);

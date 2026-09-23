@@ -3,6 +3,7 @@ package usecase
 import (
 	"context"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/google/uuid"
@@ -354,6 +355,59 @@ func (uc *RegistrationUsecase) OrganizerRegister(ctx context.Context, actorID uu
 		MemberID:  &memberID,
 		State:     domain.RegistrationStateRegistered,
 		CreatedAt: time.Now().UTC(),
+	}
+
+	if err := uc.registrations.Create(ctx, reg); err != nil {
+		return nil, fmt.Errorf("create registration: %w", err)
+	}
+
+	aid := actorID
+	_ = uc.writeAudit(ctx, &aid, domain.AuditActionRegister, domain.AuditEntityRegistration, reg.ID.String(), nil, reg)
+
+	return reg, nil
+}
+
+// OrganizerAddGuest adds a non-member helper to a shift by name (with an
+// optional email), bypassing event-status and capacity checks like
+// OrganizerRegister. Unlike the self-service kiosk guest flow (tracked by
+// email only, via Register/GuestEmail), this covers a helper an organizer
+// knows by name but who has no account and may not have an email at all.
+func (uc *RegistrationUsecase) OrganizerAddGuest(ctx context.Context, actorID uuid.UUID, shiftID uuid.UUID, guestName string, guestEmail *string) (*domain.Registration, error) {
+	guestName = strings.TrimSpace(guestName)
+	if guestName == "" {
+		return nil, fmt.Errorf("guest name is required")
+	}
+	// Normalized the same way as the kiosk self-service guest path
+	// (kiosk_handler.go), since FindByGuestEmailAndShift's duplicate lookup
+	// lowercases only its query argument: a mismatched case here would let
+	// the same person end up registered twice for the same shift, once via
+	// this path and once via kiosk self-service.
+	if guestEmail != nil {
+		e := strings.ToLower(strings.TrimSpace(*guestEmail))
+		guestEmail = &e
+	}
+
+	if _, err := uc.shifts.GetByID(ctx, shiftID); err != nil {
+		return nil, err
+	}
+
+	// Same duplicate guard as the kiosk self-service path and
+	// OrganizerRegister's member path: without an email there's nothing
+	// reliable to dedupe on (two different people can share a name), so this
+	// only catches the case where one is given.
+	if guestEmail != nil {
+		if existing, err := uc.registrations.FindByGuestEmailAndShift(ctx, *guestEmail, shiftID); err == nil && existing != nil {
+			return nil, domain.ErrAlreadyRegistered
+		}
+	}
+
+	reg := &domain.Registration{
+		ID:         uuid.New(),
+		ShiftID:    shiftID,
+		GuestName:  &guestName,
+		GuestEmail: guestEmail,
+		State:      domain.RegistrationStateRegistered,
+		CreatedAt:  time.Now().UTC(),
 	}
 
 	if err := uc.registrations.Create(ctx, reg); err != nil {

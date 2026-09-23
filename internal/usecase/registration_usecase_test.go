@@ -197,3 +197,82 @@ func TestConfirmShiftRegistration(t *testing.T) {
 	assert.Equal(t, domain.RegistrationStateConfirmed, reg.State)
 	assert.True(t, f.audit.has(domain.AuditActionConfirm, domain.AuditEntityRegistration))
 }
+
+func TestOrganizerAddGuest(t *testing.T) {
+	f := newRegFixture(1) // maxHelpers=1: bypassing capacity is the point
+	f.regs.add(&domain.Registration{ID: uuid.New(), ShiftID: f.shift.ID, State: domain.RegistrationStateRegistered})
+	actor := uuid.New()
+	email := "guest@example.com"
+
+	reg, err := f.uc.OrganizerAddGuest(context.Background(), actor, f.shift.ID, "  Jane Doe  ", &email)
+	require.NoError(t, err)
+	assert.Nil(t, reg.MemberID)
+	require.NotNil(t, reg.GuestName)
+	assert.Equal(t, "Jane Doe", *reg.GuestName, "name is trimmed")
+	require.NotNil(t, reg.GuestEmail)
+	assert.Equal(t, email, *reg.GuestEmail)
+	assert.Equal(t, domain.RegistrationStateRegistered, reg.State)
+	assert.True(t, f.audit.has(domain.AuditActionRegister, domain.AuditEntityRegistration))
+}
+
+// The guest email must be normalized the same way the kiosk self-service
+// path does, since FindByGuestEmailAndShift's duplicate check only
+// lowercases its query argument, not the stored column.
+func TestOrganizerAddGuest_NormalizesEmail(t *testing.T) {
+	f := newRegFixture(5)
+
+	rawEmail := "  Jane@Example.COM  "
+	reg, err := f.uc.OrganizerAddGuest(context.Background(), uuid.New(), f.shift.ID, "Jane Doe", &rawEmail)
+	require.NoError(t, err)
+	require.NotNil(t, reg.GuestEmail)
+	assert.Equal(t, "jane@example.com", *reg.GuestEmail)
+}
+
+func TestOrganizerAddGuest_EmailOptional(t *testing.T) {
+	f := newRegFixture(5)
+
+	reg, err := f.uc.OrganizerAddGuest(context.Background(), uuid.New(), f.shift.ID, "Jane Doe", nil)
+	require.NoError(t, err)
+	assert.Nil(t, reg.GuestEmail)
+	require.NotNil(t, reg.GuestName)
+	assert.Equal(t, "Jane Doe", *reg.GuestName)
+}
+
+func TestOrganizerAddGuest_RequiresName(t *testing.T) {
+	f := newRegFixture(5)
+
+	_, err := f.uc.OrganizerAddGuest(context.Background(), uuid.New(), f.shift.ID, "   ", nil)
+	assert.Error(t, err)
+}
+
+func TestOrganizerAddGuest_RejectsDuplicateEmail(t *testing.T) {
+	f := newRegFixture(5)
+	email := "jane@example.com"
+
+	_, err := f.uc.OrganizerAddGuest(context.Background(), uuid.New(), f.shift.ID, "Jane Doe", &email)
+	require.NoError(t, err)
+
+	// Same email, different case/whitespace and a different name -- still
+	// the same person as far as the shift is concerned.
+	dup := "  Jane@Example.com  "
+	_, err = f.uc.OrganizerAddGuest(context.Background(), uuid.New(), f.shift.ID, "J. Doe", &dup)
+	assert.ErrorIs(t, err, domain.ErrAlreadyRegistered)
+}
+
+func TestOrganizerAddGuest_SameNameDifferentEmailAllowed(t *testing.T) {
+	f := newRegFixture(5)
+	email1 := "jane1@example.com"
+	email2 := "jane2@example.com"
+
+	_, err := f.uc.OrganizerAddGuest(context.Background(), uuid.New(), f.shift.ID, "Jane Doe", &email1)
+	require.NoError(t, err)
+	_, err = f.uc.OrganizerAddGuest(context.Background(), uuid.New(), f.shift.ID, "Jane Doe", &email2)
+	assert.NoError(t, err, "two different people can share a name")
+}
+
+func TestOrganizerAddGuest_UnknownShift(t *testing.T) {
+	f := newRegFixture(5)
+
+	_, err := f.uc.OrganizerAddGuest(context.Background(), uuid.New(), uuid.New(), "Jane Doe", nil)
+	assert.ErrorIs(t, err, domain.ErrShiftNotFound)
+}

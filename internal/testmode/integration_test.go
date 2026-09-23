@@ -739,3 +739,74 @@ func TestClubYear_ActivatingNewYearDeactivatesPrevious(t *testing.T) {
 	}
 	assert.Equal(t, 1, activeCount, "exactly one club year must be active at a time")
 }
+
+func TestAddGuestToShift(t *testing.T) {
+	s := startServer(t)
+	tok := token(t, s, "veranstaltungsleiter", db.AdminID.String(), "admin@test.local")
+
+	resp := post(t, s, "/api/v1/shifts/"+db.Shift1ID.String()+"/add-guest", tok,
+		`{"name":"Jane Doe","email":"jane@example.com"}`)
+	require.Equal(t, http.StatusCreated, resp.StatusCode)
+	var reg map[string]any
+	decode(t, resp, &reg)
+	assert.Equal(t, "Jane Doe", reg["guestName"])
+	assert.Equal(t, "jane@example.com", reg["guestEmail"])
+	assert.Nil(t, reg["memberId"])
+}
+
+func TestAddGuestToShift_EmailOptional(t *testing.T) {
+	s := startServer(t)
+	tok := token(t, s, "veranstaltungsleiter", db.AdminID.String(), "admin@test.local")
+
+	resp := post(t, s, "/api/v1/shifts/"+db.Shift1ID.String()+"/add-guest", tok, `{"name":"Jane Doe"}`)
+	require.Equal(t, http.StatusCreated, resp.StatusCode)
+	var reg map[string]any
+	decode(t, resp, &reg)
+	assert.Equal(t, "Jane Doe", reg["guestName"])
+	assert.Nil(t, reg["guestEmail"])
+}
+
+func TestAddGuestToShift_RequiresName(t *testing.T) {
+	s := startServer(t)
+	tok := token(t, s, "veranstaltungsleiter", db.AdminID.String(), "admin@test.local")
+
+	resp := post(t, s, "/api/v1/shifts/"+db.Shift1ID.String()+"/add-guest", tok, `{}`)
+	assert.Equal(t, http.StatusBadRequest, resp.StatusCode)
+}
+
+func TestAddGuestToShift_RequiresVeranstaltungsleiter(t *testing.T) {
+	s := startServer(t)
+	memberTok := token(t, s, "mitglied", db.MemberID.String(), "max@test.local")
+
+	resp := post(t, s, "/api/v1/shifts/"+db.Shift1ID.String()+"/add-guest", memberTok, `{"name":"Jane Doe"}`)
+	assert.Equal(t, http.StatusForbidden, resp.StatusCode)
+}
+
+// A guest helper an organizer added should be removable, same as a
+// self-registered member (ForceDeleteRegistration is not scoped to
+// self-service registrations).
+func TestAddGuestToShift_RejectsDuplicateEmail(t *testing.T) {
+	s := startServer(t)
+	tok := token(t, s, "veranstaltungsleiter", db.AdminID.String(), "admin@test.local")
+
+	first := post(t, s, "/api/v1/shifts/"+db.Shift1ID.String()+"/add-guest", tok, `{"name":"Jane Doe","email":"jane@example.com"}`)
+	require.Equal(t, http.StatusCreated, first.StatusCode)
+	first.Body.Close()
+
+	dup := post(t, s, "/api/v1/shifts/"+db.Shift1ID.String()+"/add-guest", tok, `{"name":"J. Doe","email":"Jane@Example.com"}`)
+	assert.Equal(t, http.StatusConflict, dup.StatusCode)
+}
+
+func TestAddGuestToShift_CanBeRemoved(t *testing.T) {
+	s := startServer(t)
+	tok := token(t, s, "veranstaltungsleiter", db.AdminID.String(), "admin@test.local")
+
+	addResp := post(t, s, "/api/v1/shifts/"+db.Shift1ID.String()+"/add-guest", tok, `{"name":"Jane Doe"}`)
+	require.Equal(t, http.StatusCreated, addResp.StatusCode)
+	var reg map[string]any
+	decode(t, addResp, &reg)
+	regID := reg["id"].(string)
+
+	delResp := del(t, s, "/api/v1/registrations/"+regID, tok)
+	assert.Equal(t, http.StatusNoContent, delResp.StatusCode)
+}

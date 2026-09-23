@@ -123,6 +123,7 @@ func (r *RegistrationRepo) Update(ctx context.Context, reg *domain.Registration)
 			"state":              model.State,
 			"comment":            model.Comment,
 			"member_id":          model.MemberID,
+			"guest_name":         model.GuestName,
 			"guest_email":        model.GuestEmail,
 			"reserved_until":     model.ReservedUntil,
 			"booked_hours":       model.BookedHours,
@@ -179,6 +180,10 @@ func toRegistrationModel(r *domain.Registration) RegistrationModel {
 		s := r.MemberID.String()
 		m.MemberID = &s
 	}
+	if r.GuestName != nil {
+		gn := *r.GuestName
+		m.GuestName = &gn
+	}
 	if r.GuestEmail != nil {
 		ge := *r.GuestEmail
 		m.GuestEmail = &ge
@@ -205,6 +210,10 @@ func toRegistrationDomain(m RegistrationModel) *domain.Registration {
 	if m.MemberID != nil {
 		id := uuid.MustParse(*m.MemberID)
 		r.MemberID = &id
+	}
+	if m.GuestName != nil {
+		gn := *m.GuestName
+		r.GuestName = &gn
 	}
 	if m.GuestEmail != nil {
 		ge := *m.GuestEmail

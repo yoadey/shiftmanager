@@ -117,9 +117,13 @@ const (
 
 // Registration links a member (or guest) to a shift.
 type Registration struct {
-	ID                uuid.UUID         `json:"id"`
-	ShiftID           uuid.UUID         `json:"shiftId"`
-	MemberID          *uuid.UUID        `json:"memberId,omitempty"`
+	ID       uuid.UUID  `json:"id"`
+	ShiftID  uuid.UUID  `json:"shiftId"`
+	MemberID *uuid.UUID `json:"memberId,omitempty"`
+	// GuestName is set for a helper an organizer added who isn't a member
+	// (name only, no account) — distinct from GuestEmail, which is set for a
+	// self-service kiosk guest registration (email only, no name).
+	GuestName         *string           `json:"guestName,omitempty"`
 	GuestEmail        *string           `json:"guestEmail,omitempty"`
 	State             RegistrationState `json:"state"`
 	Comment           string            `json:"comment"`

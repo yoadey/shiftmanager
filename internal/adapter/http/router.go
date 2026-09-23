@@ -209,6 +209,7 @@ func NewRouter(h Handlers, cfg RouterConfig) http.Handler {
 					w.Delete("/{id}", h.Shift.DeleteShift)
 					w.Post("/{id}/confirm", h.Shift.ConfirmRegistration)
 					w.Post("/{id}/add-member", h.Shift.AddMember)
+					w.Post("/{id}/add-guest", h.Shift.AddGuest)
 				})
 			})
 
