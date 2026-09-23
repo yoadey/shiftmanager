@@ -177,6 +177,7 @@ func NewRouter(h Handlers, cfg RouterConfig) http.Handler {
 					w.Put("/{id}", h.Event.Update)
 					w.Delete("/{id}", h.Event.Delete)
 					w.Post("/{id}/publish", h.Event.Publish)
+					w.Post("/{id}/complete", h.Event.Complete)
 					w.Post("/{id}/copy", h.Event.CopyEvent)
 					w.Post("/{eventId}/shifts", h.Shift.CreateShift)
 				})
@@ -190,6 +191,16 @@ func NewRouter(h Handlers, cfg RouterConfig) http.Handler {
 					w.Put("/{id}", h.Shift.UpdateShift)
 					w.Delete("/{id}", h.Shift.DeleteShift)
 					w.Post("/{id}/confirm", h.Shift.ConfirmRegistration)
+					w.Post("/{id}/add-member", h.Shift.AddMember)
+				})
+			})
+
+			// Registration management (veranstaltungsleiter+).
+			auth.Route("/registrations", func(reg chi.Router) {
+				reg.Group(func(w chi.Router) {
+					w.Use(middleware.RequireRole(domain.RoleVeranstaltungsleiter))
+					w.Patch("/{id}", h.Shift.PatchRegistration)
+					w.Delete("/{id}", h.Shift.ForceDeleteReg)
 				})
 			})
 
@@ -206,6 +217,8 @@ func NewRouter(h Handlers, cfg RouterConfig) http.Handler {
 				hr.Group(func(w chi.Router) {
 					w.Use(middleware.RequireRole(domain.RoleVorstand))
 					w.Post("/club-years", h.Hour.CreateClubYear)
+					w.Put("/club-years/{id}", h.Hour.UpdateClubYear)
+					w.Delete("/club-years/{id}", h.Hour.DeleteClubYear)
 				})
 				hr.Group(func(w chi.Router) {
 					w.Use(middleware.RequireRole(domain.RoleVorstand))

@@ -106,6 +106,14 @@ func (r *RegistrationRepo) CountActiveByShift(ctx context.Context, shiftID uuid.
 	return int(n), err
 }
 
+func (r *RegistrationRepo) ConfirmRegisteredByShift(ctx context.Context, shiftID uuid.UUID) (int, error) {
+	result := r.db.WithContext(ctx).
+		Model(&RegistrationModel{}).
+		Where("shift_id = ? AND state = ?", shiftID.String(), "registered").
+		Update("state", "confirmed")
+	return int(result.RowsAffected), result.Error
+}
+
 func (r *RegistrationRepo) Update(ctx context.Context, reg *domain.Registration) error {
 	model := toRegistrationModel(reg)
 	result := r.db.WithContext(ctx).

@@ -288,6 +288,84 @@ func (uc *RegistrationUsecase) ConfirmShiftRegistration(ctx context.Context, act
 	return reg, nil
 }
 
+// UpdateRegistration changes the state and/or booked hours of a registration.
+// Only the non-nil fields are applied. Intended for use by veranstaltungsleiter+.
+func (uc *RegistrationUsecase) UpdateRegistration(ctx context.Context, actorID uuid.UUID, regID uuid.UUID, state *domain.RegistrationState, bookedHours *float64) (*domain.Registration, error) {
+	reg, err := uc.registrations.GetByID(ctx, regID)
+	if err != nil {
+		return nil, err
+	}
+	before := *reg
+
+	if state != nil {
+		reg.State = *state
+	}
+	if bookedHours != nil {
+		reg.BookedHours = bookedHours
+	}
+
+	if err := uc.registrations.Update(ctx, reg); err != nil {
+		return nil, fmt.Errorf("update registration: %w", err)
+	}
+
+	aid := actorID
+	_ = uc.writeAudit(ctx, &aid, domain.AuditActionUpdate, domain.AuditEntityRegistration, reg.ID.String(), before, reg)
+
+	return reg, nil
+}
+
+// ForceDeleteRegistration removes a registration regardless of deadline or event status.
+// Intended for use by veranstaltungsleiter+ to fix up attendance after the fact.
+func (uc *RegistrationUsecase) ForceDeleteRegistration(ctx context.Context, actorID uuid.UUID, regID uuid.UUID) error {
+	reg, err := uc.registrations.GetByID(ctx, regID)
+	if err != nil {
+		return err
+	}
+
+	if err := uc.registrations.Delete(ctx, regID); err != nil {
+		return fmt.Errorf("delete registration: %w", err)
+	}
+
+	aid := actorID
+	_ = uc.writeAudit(ctx, &aid, domain.AuditActionDeregister, domain.AuditEntityRegistration, regID.String(), reg, nil)
+
+	return nil
+}
+
+// OrganizerRegister adds a member to a shift on behalf of an organizer.
+// Unlike the regular Register path it bypasses event-status and capacity checks
+// so organisers can fix up attendance on completed events or override capacity.
+func (uc *RegistrationUsecase) OrganizerRegister(ctx context.Context, actorID uuid.UUID, shiftID uuid.UUID, memberID uuid.UUID) (*domain.Registration, error) {
+	if _, err := uc.shifts.GetByID(ctx, shiftID); err != nil {
+		return nil, err
+	}
+
+	if _, err := uc.members.GetByID(ctx, memberID); err != nil {
+		return nil, fmt.Errorf("member not found")
+	}
+
+	if _, err := uc.registrations.FindByMemberAndShift(ctx, memberID, shiftID); err == nil {
+		return nil, domain.ErrAlreadyRegistered
+	}
+
+	reg := &domain.Registration{
+		ID:        uuid.New(),
+		ShiftID:   shiftID,
+		MemberID:  &memberID,
+		State:     domain.RegistrationStateRegistered,
+		CreatedAt: time.Now().UTC(),
+	}
+
+	if err := uc.registrations.Create(ctx, reg); err != nil {
+		return nil, fmt.Errorf("create registration: %w", err)
+	}
+
+	aid := actorID
+	_ = uc.writeAudit(ctx, &aid, domain.AuditActionRegister, domain.AuditEntityRegistration, reg.ID.String(), nil, reg)
+
+	return reg, nil
+}
+
 func (uc *RegistrationUsecase) writeAudit(ctx context.Context, actorID *uuid.UUID, action, entity, entityID string, before, after interface{}) error {
 	entry, err := domain.NewAuditEntry(actorID, action, entity, entityID, before, after)
 	if err != nil {

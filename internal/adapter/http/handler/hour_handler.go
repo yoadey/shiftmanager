@@ -218,6 +218,48 @@ func (h *HourHandler) CreateClubYear(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusCreated, year)
 }
 
+// UpdateClubYear updates label and date range of an existing club year.
+// PUT /api/v1/hours/club-years/:id
+func (h *HourHandler) UpdateClubYear(w http.ResponseWriter, r *http.Request) {
+	id, err := parseUUIDParam(r, "id")
+	if err != nil {
+		writeError(w, http.StatusBadRequest, "invalid club year id")
+		return
+	}
+	var body usecase.UpdateClubYearInput
+	if err := decodeJSON(r, &body); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid request body")
+		return
+	}
+	if body.Label == "" {
+		writeError(w, http.StatusBadRequest, "label is required")
+		return
+	}
+	actorID := middleware.GetUserID(r.Context())
+	year, err := h.uc.UpdateClubYear(r.Context(), actorID, id, body)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, year)
+}
+
+// DeleteClubYear removes a club year (active years are rejected).
+// DELETE /api/v1/hours/club-years/:id
+func (h *HourHandler) DeleteClubYear(w http.ResponseWriter, r *http.Request) {
+	id, err := parseUUIDParam(r, "id")
+	if err != nil {
+		writeError(w, http.StatusBadRequest, "invalid club year id")
+		return
+	}
+	actorID := middleware.GetUserID(r.Context())
+	if err := h.uc.DeleteClubYear(r.Context(), actorID, id); err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
 // GetYearSummary returns the hour summary for all active members for a year.
 // GET /api/v1/hours/summary?clubYearId=...
 func (h *HourHandler) GetYearSummary(w http.ResponseWriter, r *http.Request) {

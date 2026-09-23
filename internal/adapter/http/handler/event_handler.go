@@ -189,6 +189,24 @@ func (h *EventHandler) Publish(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, e)
 }
 
+// Complete transitions a published event to completed and confirms all registered shifts.
+// POST /api/v1/events/:id/complete
+func (h *EventHandler) Complete(w http.ResponseWriter, r *http.Request) {
+	id, err := parseUUIDParam(r, "id")
+	if err != nil {
+		writeError(w, http.StatusBadRequest, "invalid event id")
+		return
+	}
+
+	actorID := middleware.GetUserID(r.Context())
+	e, err := h.uc.CompleteEvent(r.Context(), actorID, id)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, e)
+}
+
 // GetTimeline returns just the timeline for an event (alias).
 // GET /api/v1/events/:id/timeline
 func (h *EventHandler) GetTimeline(w http.ResponseWriter, r *http.Request) {

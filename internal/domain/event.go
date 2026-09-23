@@ -50,6 +50,11 @@ func (e *Event) CanPublish() bool {
 	return e.Status == EventStatusDraft
 }
 
+// CanComplete returns true when the event can transition to completed state.
+func (e *Event) CanComplete() bool {
+	return e.Status == EventStatusPublished
+}
+
 // CanDelete returns true when the event may be deleted.
 func (e *Event) CanDelete() bool {
 	return e.Status == EventStatusDraft || e.Status == EventStatusCancelled
@@ -191,8 +196,9 @@ type EventTimeline struct {
 
 // Errors for event operations.
 var (
-	ErrEventNotFound      = fmt.Errorf("event not found")
-	ErrEventNotPublishable = fmt.Errorf("event cannot be published in current state")
+	ErrEventNotFound        = fmt.Errorf("event not found")
+	ErrEventNotPublishable  = fmt.Errorf("event cannot be published in current state")
+	ErrEventNotCompletable  = fmt.Errorf("event cannot be completed in current state")
 	ErrShiftNotFound      = fmt.Errorf("shift not found")
 	ErrShiftFull          = fmt.Errorf("shift is fully booked")
 	ErrAlreadyRegistered  = fmt.Errorf("already registered for this shift")

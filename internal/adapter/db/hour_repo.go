@@ -157,6 +157,40 @@ func (r *HourRepo) CreateClubYear(ctx context.Context, y *domain.ClubYear) error
 	return r.db.WithContext(ctx).Create(&model).Error
 }
 
+func (r *HourRepo) UpdateClubYear(ctx context.Context, y *domain.ClubYear) error {
+	model := toClubYearModel(y)
+	res := r.db.WithContext(ctx).
+		Model(&ClubYearModel{}).
+		Where("id = ?", model.ID).
+		Updates(map[string]interface{}{
+			"label":                model.Label,
+			"start_date":           model.StartDate,
+			"end_date":             model.EndDate,
+			"default_target_hours": model.DefaultTargetHours,
+			"is_active":            model.IsActive,
+		})
+	if res.Error != nil {
+		return res.Error
+	}
+	if res.RowsAffected == 0 {
+		return domain.ErrClubYearNotFound
+	}
+	return nil
+}
+
+func (r *HourRepo) DeleteClubYear(ctx context.Context, id uuid.UUID) error {
+	res := r.db.WithContext(ctx).
+		Where("id = ?", id.String()).
+		Delete(&ClubYearModel{})
+	if res.Error != nil {
+		return res.Error
+	}
+	if res.RowsAffected == 0 {
+		return domain.ErrClubYearNotFound
+	}
+	return nil
+}
+
 func (r *HourRepo) GetActiveClubYear(ctx context.Context) (*domain.ClubYear, error) {
 	var model ClubYearModel
 	err := r.db.WithContext(ctx).
@@ -238,6 +272,13 @@ func (r *HourRepo) GetHourTarget(ctx context.Context, memberID, clubYearID uuid.
 		ClubYearID:  uuid.MustParse(model.ClubYearID),
 		TargetHours: model.TargetHours,
 	}, nil
+}
+
+func (r *HourRepo) DeactivateAllClubYears(ctx context.Context) error {
+	return r.db.WithContext(ctx).
+		Model(&ClubYearModel{}).
+		Where("is_active = ?", true).
+		Update("is_active", false).Error
 }
 
 func (r *HourRepo) UpsertHourTarget(ctx context.Context, t *domain.HourTarget) error {

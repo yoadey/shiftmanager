@@ -122,3 +122,14 @@ export function useCopyEvent() {
     onSuccess: () => qc.invalidateQueries({ queryKey: ['events'] }),
   });
 }
+
+export function useCompleteEvent() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (id: string) => apiPost<RawEvent>(`/events/${id}/complete`),
+    onSuccess: (_d, id) => {
+      qc.invalidateQueries({ queryKey: ['events'] });
+      qc.invalidateQueries({ queryKey: ['events', id] });
+    },
+  });
+}
