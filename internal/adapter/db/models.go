@@ -48,6 +48,19 @@ type EventModel struct {
 
 func (EventModel) TableName() string { return "events" }
 
+// EventAttachmentModel is the GORM model for the "event_attachments" table (V-008).
+type EventAttachmentModel struct {
+	ID          string    `gorm:"column:id;type:text;primaryKey"`
+	EventID     string    `gorm:"column:event_id;type:text;index"`
+	FileName    string    `gorm:"column:file_name;type:text"`
+	URL         string    `gorm:"column:url;type:text"`
+	ContentType string    `gorm:"column:content_type;type:text"`
+	SizeBytes   int64     `gorm:"column:size_bytes"`
+	UploadedAt  time.Time `gorm:"column:uploaded_at"`
+}
+
+func (EventAttachmentModel) TableName() string { return "event_attachments" }
+
 // ShiftModel is the GORM model for the "shifts" table.
 type ShiftModel struct {
 	ID                    string    `gorm:"column:id;type:text;primaryKey"`

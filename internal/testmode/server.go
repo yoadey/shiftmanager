@@ -6,6 +6,7 @@ package testmode
 import (
 	"context"
 	"net/http/httptest"
+	"os"
 	"time"
 
 	"github.com/rs/zerolog"
@@ -24,11 +25,36 @@ const TestJWTSecret = "integration-test-secret"
 // Server wraps an httptest.Server ready for integration tests.
 type Server struct {
 	*httptest.Server
+	uploadDir string
+}
+
+// Close shuts down the underlying HTTP server and removes the temp upload dir.
+func (s *Server) Close() {
+	s.Server.Close()
+	if s.uploadDir != "" {
+		_ = os.RemoveAll(s.uploadDir)
+	}
 }
 
 // New starts an in-memory GORM/SQLite-backed HTTP server with seeded fixture data.
 // Call s.Close() when done.
 func New(_ context.Context) (*Server, error) {
+	// Uploads (logos, event attachments) go to a throwaway temp dir rather
+	// than the repo's ./uploads, so tests that exercise them don't leave
+	// files behind or clash when run in parallel.
+	uploadDir, err := os.MkdirTemp("", "shiftmanager-uploads-*")
+	if err != nil {
+		return nil, err
+	}
+	ready := false
+	defer func() {
+		// Only reached if New() returns before the server is fully up;
+		// once returned successfully, Server.Close() owns removing uploadDir.
+		if !ready {
+			_ = os.RemoveAll(uploadDir)
+		}
+	}()
+
 	// SQLite in-memory DB — a fresh schema on every test run.
 	gdb, err := db.Open("sqlite::memory:")
 	if err != nil {
@@ -47,6 +73,7 @@ func New(_ context.Context) (*Server, error) {
 	// --- Repositories ---
 	memberRepo := db.NewMemberRepo(gdb)
 	eventRepo := db.NewEventRepo(gdb)
+	eventAttachmentRepo := db.NewEventAttachmentRepo(gdb)
 	shiftRepo := db.NewShiftRepo(gdb)
 	regRepo := db.NewRegistrationRepo(gdb)
 	hourRepo := db.NewHourRepo(gdb)
@@ -66,7 +93,7 @@ func New(_ context.Context) (*Server, error) {
 
 	// --- Usecases ---
 	memberUC := usecase.NewMemberUsecase(memberRepo, auditRepo)
-	eventUC := usecase.NewEventUsecase(eventRepo, shiftRepo, regRepo, auditRepo, emailSvc, memberRepo)
+	eventUC := usecase.NewEventUsecase(eventRepo, shiftRepo, regRepo, auditRepo, emailSvc, memberRepo, eventAttachmentRepo)
 	regUC := usecase.NewRegistrationUsecase(regRepo, shiftRepo, eventRepo, memberRepo, emailSvc, auditRepo, settingsRepo)
 	hourUC := usecase.NewHourUsecase(hourRepo, memberRepo, shiftRepo, auditRepo, emailSvc, eventRepo)
 	billingUC := usecase.NewBillingUsecase(hourRepo, memberRepo, settingsRepo, auditRepo)
@@ -86,11 +113,11 @@ func New(_ context.Context) (*Server, error) {
 	handlers := httpadapter.Handlers{
 		Auth:     handler.BuildAuthHandler(oidcSvc, memberRepo, auditRepo, TestJWTSecret, 24*time.Hour, "/auth/callback", ""),
 		Member:   handler.NewMemberHandler(memberUC),
-		Event:    handler.NewEventHandler(eventUC),
+		Event:    handler.NewEventHandler(eventUC, uploadDir, "http://localhost"),
 		Shift:    handler.NewShiftHandler(eventUC, regUC),
 		Hour:     handler.NewHourHandler(hourUC),
 		Kiosk:    handler.NewKioskHandler(regUC, eventUC, memberUC, settingsUC),
-		Settings: handler.NewSettingsHandler(settingsUC, templateUC, "", "http://localhost"),
+		Settings: handler.NewSettingsHandler(settingsUC, templateUC, uploadDir, "http://localhost"),
 		Billing:  handler.NewBillingHandler(billingUC),
 		Stats:    handler.NewStatsHandler(statsUC),
 		Privacy:  handler.NewPrivacyHandler(privacyUC),
@@ -102,9 +129,11 @@ func New(_ context.Context) (*Server, error) {
 		JWTSecret: TestJWTSecret,
 		Logger:    zerolog.Nop(),
 		Ready:     func() bool { return true },
+		UploadDir: uploadDir,
 		TestMode:  true,
 	})
 
 	ts := httptest.NewServer(router)
-	return &Server{Server: ts}, nil
+	ready = true
+	return &Server{Server: ts, uploadDir: uploadDir}, nil
 }

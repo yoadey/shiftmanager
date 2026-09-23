@@ -1,14 +1,17 @@
 package testmode_test
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
 	"io"
+	"mime/multipart"
 	"net/http"
 	"strings"
 	"testing"
 
+	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"github.com/yoadey/shiftmanager/internal/adapter/db"
@@ -70,6 +73,43 @@ func put(t *testing.T, s *testmode.Server, path, tok, body string) *http.Respons
 	req, err := http.NewRequest(http.MethodPut, s.URL+path, strings.NewReader(body))
 	require.NoError(t, err)
 	req.Header.Set("Content-Type", "application/json")
+	if tok != "" {
+		req.Header.Set("Authorization", "Bearer "+tok)
+	}
+	resp, err := http.DefaultClient.Do(req)
+	require.NoError(t, err)
+	return resp
+}
+
+// uploadFile performs a multipart POST with a single "file" field.
+func uploadFile(t *testing.T, s *testmode.Server, path, tok, fileName, contentType string, content []byte) *http.Response {
+	t.Helper()
+	var buf bytes.Buffer
+	mw := multipart.NewWriter(&buf)
+	part, err := mw.CreatePart(map[string][]string{
+		"Content-Disposition": {`form-data; name="file"; filename="` + fileName + `"`},
+		"Content-Type":        {contentType},
+	})
+	require.NoError(t, err)
+	_, err = part.Write(content)
+	require.NoError(t, err)
+	require.NoError(t, mw.Close())
+
+	req, err := http.NewRequest(http.MethodPost, s.URL+path, &buf)
+	require.NoError(t, err)
+	req.Header.Set("Content-Type", mw.FormDataContentType())
+	if tok != "" {
+		req.Header.Set("Authorization", "Bearer "+tok)
+	}
+	resp, err := http.DefaultClient.Do(req)
+	require.NoError(t, err)
+	return resp
+}
+
+func del(t *testing.T, s *testmode.Server, path, tok string) *http.Response {
+	t.Helper()
+	req, err := http.NewRequest(http.MethodDelete, s.URL+path, nil)
+	require.NoError(t, err)
 	if tok != "" {
 		req.Header.Set("Authorization", "Bearer "+tok)
 	}
@@ -411,6 +451,118 @@ func TestCreateAndPublishEvent(t *testing.T) {
 	var published map[string]any
 	decode(t, resp2, &published)
 	assert.Equal(t, "published", published["status"])
+}
+
+func TestEventAttachments_UploadListDelete(t *testing.T) {
+	s := startServer(t)
+	tok := token(t, s, "veranstaltungsleiter", db.AdminID.String(), "admin@test.local")
+
+	uploadResp := uploadFile(t, s, "/api/v1/events/"+db.EventID.String()+"/attachments", tok, "flyer.png", "image/png", []byte("fake-png-bytes"))
+	require.Equal(t, http.StatusCreated, uploadResp.StatusCode)
+	var attachment map[string]any
+	decode(t, uploadResp, &attachment)
+	assert.Equal(t, "flyer.png", attachment["fileName"])
+	assert.Equal(t, "image/png", attachment["contentType"])
+	attachmentID := attachment["id"].(string)
+	require.NotEmpty(t, attachmentID)
+
+	listResp := get(t, s, "/api/v1/events/"+db.EventID.String()+"/attachments", tok)
+	require.Equal(t, http.StatusOK, listResp.StatusCode)
+	var list []map[string]any
+	decode(t, listResp, &list)
+	require.Len(t, list, 1)
+	assert.Equal(t, attachmentID, list[0]["id"])
+
+	// The uploaded file is actually downloadable from /uploads/*. The stored
+	// URL is absolute against the handler's configured public base (a fixed
+	// "http://localhost" in test mode), not the ephemeral httptest address,
+	// so re-base its path onto the real server URL.
+	fileURL, ok := attachment["url"].(string)
+	require.True(t, ok)
+	urlPath := fileURL[strings.LastIndex(fileURL, "/uploads/"):]
+	fileResp, err := http.Get(s.URL + urlPath) //nolint:noctx
+	require.NoError(t, err)
+	fileBody, err := io.ReadAll(fileResp.Body)
+	require.NoError(t, err)
+	fileResp.Body.Close()
+	assert.Equal(t, http.StatusOK, fileResp.StatusCode)
+	assert.Equal(t, "fake-png-bytes", string(fileBody))
+	// Guards against a browser content-sniffing an uploaded file into
+	// something it isn't (e.g. a PNG/HTML polyglot) and executing it.
+	assert.Equal(t, "nosniff", fileResp.Header.Get("X-Content-Type-Options"))
+
+	delResp := del(t, s, "/api/v1/events/"+db.EventID.String()+"/attachments/"+attachmentID, tok)
+	assert.Equal(t, http.StatusNoContent, delResp.StatusCode)
+
+	listResp2 := get(t, s, "/api/v1/events/"+db.EventID.String()+"/attachments", tok)
+	require.Equal(t, http.StatusOK, listResp2.StatusCode)
+	var list2 []map[string]any
+	decode(t, listResp2, &list2)
+	assert.Empty(t, list2)
+}
+
+// Without this, http.FileServer serves an HTML index of every uploaded file
+// (logos and event attachments, including ones on draft/unpublished events)
+// to anyone, with no auth — bypassing the JWT-gated attachments API entirely.
+func TestUploadsDirectoryListingIsBlocked(t *testing.T) {
+	s := startServer(t)
+	tok := token(t, s, "veranstaltungsleiter", db.AdminID.String(), "admin@test.local")
+	uploadResp := uploadFile(t, s, "/api/v1/events/"+db.EventID.String()+"/attachments", tok, "flyer.png", "image/png", []byte("fake-png-bytes"))
+	require.Equal(t, http.StatusCreated, uploadResp.StatusCode)
+	var attachment map[string]any
+	decode(t, uploadResp, &attachment)
+
+	resp, err := http.Get(s.URL + "/uploads/") //nolint:noctx
+	require.NoError(t, err)
+	body, err := io.ReadAll(resp.Body)
+	require.NoError(t, err)
+	resp.Body.Close()
+
+	assert.NotEqual(t, http.StatusOK, resp.StatusCode)
+	assert.NotContains(t, string(body), "flyer")
+}
+
+func TestEventAttachments_RejectsOversizedFile(t *testing.T) {
+	s := startServer(t)
+	tok := token(t, s, "veranstaltungsleiter", db.AdminID.String(), "admin@test.local")
+
+	oversized := make([]byte, 6<<20) // 6MB > the 5MB attachment limit
+	resp := uploadFile(t, s, "/api/v1/events/"+db.EventID.String()+"/attachments", tok, "huge.png", "image/png", oversized)
+	assert.Equal(t, http.StatusRequestEntityTooLarge, resp.StatusCode)
+}
+
+func TestEventAttachments_RejectsDisallowedType(t *testing.T) {
+	s := startServer(t)
+	tok := token(t, s, "veranstaltungsleiter", db.AdminID.String(), "admin@test.local")
+
+	resp := uploadFile(t, s, "/api/v1/events/"+db.EventID.String()+"/attachments", tok, "malware.exe", "application/octet-stream", []byte("x"))
+	assert.Equal(t, http.StatusUnsupportedMediaType, resp.StatusCode)
+}
+
+// SVG can embed <script>, and this endpoint (unlike the Vorstand-only logo
+// upload) is reachable by any Veranstaltungsleiter — must stay rejected.
+func TestEventAttachments_RejectsSVG(t *testing.T) {
+	s := startServer(t)
+	tok := token(t, s, "veranstaltungsleiter", db.AdminID.String(), "admin@test.local")
+
+	resp := uploadFile(t, s, "/api/v1/events/"+db.EventID.String()+"/attachments", tok, "flyer.svg", "image/svg+xml", []byte("<svg><script>alert(1)</script></svg>"))
+	assert.Equal(t, http.StatusUnsupportedMediaType, resp.StatusCode)
+}
+
+func TestEventAttachments_ListUnknownEvent404s(t *testing.T) {
+	s := startServer(t)
+	tok := token(t, s, "veranstaltungsleiter", db.AdminID.String(), "admin@test.local")
+
+	resp := get(t, s, "/api/v1/events/"+uuid.NewString()+"/attachments", tok)
+	assert.Equal(t, http.StatusNotFound, resp.StatusCode)
+}
+
+func TestEventAttachments_RequiresVeranstaltungsleiter(t *testing.T) {
+	s := startServer(t)
+	memberTok := token(t, s, "mitglied", db.MemberID.String(), "max@test.local")
+
+	resp := uploadFile(t, s, "/api/v1/events/"+db.EventID.String()+"/attachments", memberTok, "flyer.png", "image/png", []byte("x"))
+	assert.Equal(t, http.StatusForbidden, resp.StatusCode)
 }
 
 func TestUnauthorizedAccessDenied(t *testing.T) {

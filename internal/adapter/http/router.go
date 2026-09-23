@@ -1,6 +1,7 @@
 package http
 
 import (
+	"io/fs"
 	"net/http"
 	"strings"
 
@@ -88,9 +89,20 @@ func NewRouter(h Handlers, cfg RouterConfig) http.Handler {
 		_, _ = w.Write([]byte(`{"status":"ready"}`))
 	})
 
-	// --- Uploaded files (logos etc.), served publicly. ---
+	// --- Uploaded files (logos, event attachments), served publicly at an
+	// unguessable per-file URL. Directory listing is disabled (http.FileServer
+	// otherwise serves an HTML index of every file in uploadDir for any
+	// directory-path request, which would let anyone enumerate every
+	// uploaded file — including attachments on draft/unpublished events —
+	// without the JWT the API itself requires). X-Content-Type-Options:
+	// nosniff stops browsers from content-sniffing an uploaded file (e.g. a
+	// PNG/PDF polyglot) into HTML/script and executing it in our origin.
 	if cfg.UploadDir != "" {
-		r.Handle("/uploads/*", http.StripPrefix("/uploads/", http.FileServer(http.Dir(cfg.UploadDir))))
+		fileServer := http.StripPrefix("/uploads/", http.FileServer(noListingFS{http.Dir(cfg.UploadDir)}))
+		r.Handle("/uploads/*", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			w.Header().Set("X-Content-Type-Options", "nosniff")
+			fileServer.ServeHTTP(w, r)
+		}))
 	}
 
 	// --- API ---
@@ -171,6 +183,8 @@ func NewRouter(h Handlers, cfg RouterConfig) http.Handler {
 				e.Get("/", h.Event.List)
 				e.Get("/{id}", h.Event.GetWithTimeline)
 				e.Get("/{id}/timeline", h.Event.GetTimeline)
+				// Attachments (V-008): readable by anyone who can see the event.
+				e.Get("/{id}/attachments", h.Event.ListAttachments)
 				e.Group(func(w chi.Router) {
 					w.Use(middleware.RequireRole(domain.RoleVeranstaltungsleiter))
 					w.Post("/", h.Event.Create)
@@ -178,6 +192,8 @@ func NewRouter(h Handlers, cfg RouterConfig) http.Handler {
 					w.Delete("/{id}", h.Event.Delete)
 					w.Post("/{id}/publish", h.Event.Publish)
 					w.Post("/{id}/copy", h.Event.CopyEvent)
+					w.Post("/{id}/attachments", h.Event.UploadAttachment)
+					w.Delete("/{id}/attachments/{attachmentId}", h.Event.DeleteAttachment)
 					w.Post("/{eventId}/shifts", h.Shift.CreateShift)
 				})
 			})
@@ -266,4 +282,28 @@ func NewRouter(h Handlers, cfg RouterConfig) http.Handler {
 	}
 
 	return r
+}
+
+// noListingFS wraps an http.FileSystem so http.FileServer never serves an
+// auto-generated directory listing: a request that resolves to a directory
+// (rather than a file) is reported as not-found instead of being opened.
+type noListingFS struct {
+	fs http.FileSystem
+}
+
+func (nl noListingFS) Open(name string) (http.File, error) {
+	f, err := nl.fs.Open(name)
+	if err != nil {
+		return nil, err
+	}
+	stat, err := f.Stat()
+	if err != nil {
+		_ = f.Close()
+		return nil, err
+	}
+	if stat.IsDir() {
+		_ = f.Close()
+		return nil, fs.ErrNotExist
+	}
+	return f, nil
 }

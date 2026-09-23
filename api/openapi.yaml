@@ -181,6 +181,18 @@ components:
           type: array
           items: { $ref: '#/components/schemas/ShiftDay' }
 
+    EventAttachment:
+      type: object
+      required: [id, eventId, fileName, url, contentType, sizeBytes, uploadedAt]
+      properties:
+        id:          { $ref: '#/components/schemas/UUID' }
+        eventId:     { $ref: '#/components/schemas/UUID' }
+        fileName:    { type: string }
+        url:         { type: string, format: uri }
+        contentType: { type: string }
+        sizeBytes:   { type: integer }
+        uploadedAt:  { type: string, format: date-time }
+
     # ── Registration ──────────────────────────────────────────────────────────
     RegisterShiftRequest:
       type: object
@@ -758,6 +770,60 @@ paths:
             application/json:
               schema: { $ref: '#/components/schemas/EventTimeline' }
         "401": { $ref: '#/components/responses/Unauthorized' }
+        "404": { $ref: '#/components/responses/NotFound' }
+
+  /events/{id}/attachments:
+    parameters:
+      - { name: id, in: path, required: true, schema: { $ref: '#/components/schemas/UUID' } }
+    get:
+      operationId: listEventAttachments
+      tags: [events]
+      summary: List files attached to an event (V-008)
+      responses:
+        "200":
+          description: Attachments
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: '#/components/schemas/EventAttachment' }
+        "401": { $ref: '#/components/responses/Unauthorized' }
+    post:
+      operationId: uploadEventAttachment
+      tags: [events]
+      summary: Upload an image or document attachment for an event (Veranstaltungsleiter+, V-008)
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              required: [file]
+              properties:
+                file: { type: string, format: binary }
+      responses:
+        "201":
+          description: Uploaded attachment
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/EventAttachment' }
+        "401": { $ref: '#/components/responses/Unauthorized' }
+        "403": { $ref: '#/components/responses/Forbidden' }
+        "404": { $ref: '#/components/responses/NotFound' }
+        "415": { description: Unsupported file type }
+
+  /events/{id}/attachments/{attachmentId}:
+    parameters:
+      - { name: id, in: path, required: true, schema: { $ref: '#/components/schemas/UUID' } }
+      - { name: attachmentId, in: path, required: true, schema: { $ref: '#/components/schemas/UUID' } }
+    delete:
+      operationId: deleteEventAttachment
+      tags: [events]
+      summary: Delete an event attachment (Veranstaltungsleiter+, V-008)
+      responses:
+        "204": { description: Deleted }
+        "401": { $ref: '#/components/responses/Unauthorized' }
+        "403": { $ref: '#/components/responses/Forbidden' }
         "404": { $ref: '#/components/responses/NotFound' }
 
   /events/{eventId}/shifts:

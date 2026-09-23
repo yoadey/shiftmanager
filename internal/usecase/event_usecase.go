@@ -19,6 +19,7 @@ type EventUsecase struct {
 	audit         port.AuditRepository
 	email         port.EmailService
 	members       port.MemberRepository
+	attachments   port.EventAttachmentRepository
 }
 
 // NewEventUsecase creates a new EventUsecase.
@@ -29,6 +30,7 @@ func NewEventUsecase(
 	audit port.AuditRepository,
 	emailSvc port.EmailService,
 	members port.MemberRepository,
+	attachments port.EventAttachmentRepository,
 ) *EventUsecase {
 	return &EventUsecase{
 		events:        events,
@@ -37,6 +39,7 @@ func NewEventUsecase(
 		audit:         audit,
 		email:         emailSvc,
 		members:       members,
+		attachments:   attachments,
 	}
 }
 
@@ -175,20 +178,35 @@ func (uc *EventUsecase) UpdateEvent(ctx context.Context, actorID uuid.UUID, id u
 	return e, nil
 }
 
-// DeleteEvent removes an event and all its shifts.
-func (uc *EventUsecase) DeleteEvent(ctx context.Context, actorID uuid.UUID, id uuid.UUID) error {
+// DeleteEvent removes an event and all its shifts, and returns its
+// attachments (if any) so the caller can also remove their underlying files.
+// The event itself is deleted first: on Postgres the migration's ON DELETE
+// CASCADE removes the attachment rows atomically with it, while GORM's
+// AutoMigrate (SQLite) defines no such FK, so the explicit cleanup below
+// (best-effort, since the event is already gone at that point and its
+// failure must not undo that or block returning the files to remove) covers
+// that case too.
+func (uc *EventUsecase) DeleteEvent(ctx context.Context, actorID uuid.UUID, id uuid.UUID) ([]*domain.EventAttachment, error) {
 	e, err := uc.events.GetByID(ctx, id)
 	if err != nil {
-		return err
+		return nil, err
 	}
+
+	attachments, err := uc.attachments.ListByEvent(ctx, id)
+	if err != nil {
+		return nil, fmt.Errorf("list attachments: %w", err)
+	}
+
 	if err := uc.events.Delete(ctx, id); err != nil {
-		return fmt.Errorf("delete event: %w", err)
+		return nil, fmt.Errorf("delete event: %w", err)
 	}
+
+	_ = uc.attachments.DeleteByEvent(ctx, id)
 
 	aid := actorID
 	_ = uc.writeAudit(ctx, &aid, domain.AuditActionDelete, domain.AuditEntityEvent, id.String(), e, nil)
 
-	return nil
+	return attachments, nil
 }
 
 // PublishEvent transitions an event from draft to published.
@@ -498,6 +516,62 @@ func (uc *EventUsecase) CopyEvent(ctx context.Context, actorID uuid.UUID, id uui
 	_ = uc.writeAudit(ctx, &aid, domain.AuditActionCreate, domain.AuditEntityEvent, newEvent.ID.String(), nil, map[string]string{"copiedFrom": id.String()})
 
 	return newEvent, nil
+}
+
+// AddAttachment records a file (image or document) uploaded against an event
+// (V-008). The handler owns actually writing the file to storage; this only
+// persists the resulting URL and metadata.
+func (uc *EventUsecase) AddAttachment(ctx context.Context, actorID uuid.UUID, eventID uuid.UUID, fileName, url, contentType string, sizeBytes int64) (*domain.EventAttachment, error) {
+	if _, err := uc.events.GetByID(ctx, eventID); err != nil {
+		return nil, err
+	}
+
+	a := &domain.EventAttachment{
+		ID:          uuid.New(),
+		EventID:     eventID,
+		FileName:    fileName,
+		URL:         url,
+		ContentType: contentType,
+		SizeBytes:   sizeBytes,
+		UploadedAt:  time.Now().UTC(),
+	}
+	if err := uc.attachments.Create(ctx, a); err != nil {
+		return nil, fmt.Errorf("create attachment: %w", err)
+	}
+
+	aid := actorID
+	_ = uc.writeAudit(ctx, &aid, domain.AuditActionCreate, domain.AuditEntityEvent, eventID.String(), nil, map[string]string{"attachmentAdded": fileName})
+
+	return a, nil
+}
+
+// ListAttachments returns the files attached to an event (V-008).
+func (uc *EventUsecase) ListAttachments(ctx context.Context, eventID uuid.UUID) ([]*domain.EventAttachment, error) {
+	if _, err := uc.events.GetByID(ctx, eventID); err != nil {
+		return nil, err
+	}
+	return uc.attachments.ListByEvent(ctx, eventID)
+}
+
+// DeleteAttachment removes an attachment, scoped to the given event so a
+// caller can't delete another event's attachment by guessing its ID. Returns
+// the deleted attachment so the handler can also remove the underlying file.
+func (uc *EventUsecase) DeleteAttachment(ctx context.Context, actorID uuid.UUID, eventID, attachmentID uuid.UUID) (*domain.EventAttachment, error) {
+	a, err := uc.attachments.GetByID(ctx, attachmentID)
+	if err != nil {
+		return nil, err
+	}
+	if a.EventID != eventID {
+		return nil, domain.ErrEventAttachmentNotFound
+	}
+	if err := uc.attachments.Delete(ctx, attachmentID); err != nil {
+		return nil, err
+	}
+
+	aid := actorID
+	_ = uc.writeAudit(ctx, &aid, domain.AuditActionDelete, domain.AuditEntityEvent, eventID.String(), a, nil)
+
+	return a, nil
 }
 
 func (uc *EventUsecase) writeAudit(ctx context.Context, actorID *uuid.UUID, action, entity, entityID string, before, after interface{}) error {

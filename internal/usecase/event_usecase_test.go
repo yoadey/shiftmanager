@@ -11,18 +11,19 @@ import (
 	"github.com/yoadey/shiftmanager/internal/domain"
 )
 
-func newEventUC() (*EventUsecase, *fakeEventRepo, *fakeShiftRepo, *fakeRegistrationRepo, *fakeAuditRepo, *fakeMemberRepo) {
+func newEventUC() (*EventUsecase, *fakeEventRepo, *fakeShiftRepo, *fakeRegistrationRepo, *fakeAuditRepo, *fakeMemberRepo, *fakeEventAttachmentRepo) {
 	events := newFakeEventRepo()
 	shifts := newFakeShiftRepo()
 	regs := newFakeRegistrationRepo()
 	audit := newFakeAuditRepo()
 	members := newFakeMemberRepo()
+	attachments := newFakeEventAttachmentRepo()
 	email := &fakeEmailService{}
-	return NewEventUsecase(events, shifts, regs, audit, email, members), events, shifts, regs, audit, members
+	return NewEventUsecase(events, shifts, regs, audit, email, members, attachments), events, shifts, regs, audit, members, attachments
 }
 
 func TestCreateEvent(t *testing.T) {
-	uc, _, _, _, audit, _ := newEventUC()
+	uc, _, _, _, audit, _, _ := newEventUC()
 	start := time.Now().UTC()
 	e, err := uc.CreateEvent(context.Background(), uuid.New(), CreateEventInput{
 		Name: "Sommerfest", StartDate: start, EndDate: start.Add(8 * time.Hour),
@@ -34,7 +35,7 @@ func TestCreateEvent(t *testing.T) {
 }
 
 func TestCreateEvent_Validation(t *testing.T) {
-	uc, _, _, _, _, _ := newEventUC()
+	uc, _, _, _, _, _, _ := newEventUC()
 	_, err := uc.CreateEvent(context.Background(), uuid.New(), CreateEventInput{Name: ""})
 	assert.Error(t, err)
 
@@ -44,7 +45,7 @@ func TestCreateEvent_Validation(t *testing.T) {
 }
 
 func TestPublishEvent(t *testing.T) {
-	uc, events, _, _, _, _ := newEventUC()
+	uc, events, _, _, _, _, _ := newEventUC()
 	id := uuid.New()
 	events.add(&domain.Event{ID: id, Status: domain.EventStatusDraft})
 	e, err := uc.PublishEvent(context.Background(), uuid.New(), id)
@@ -58,7 +59,7 @@ func TestPublishEvent(t *testing.T) {
 
 // PublishEvent notifies opted-in active members ("Neue Veranstaltung", KANN).
 func TestPublishEvent_NotifiesOptedInMembers(t *testing.T) {
-	uc, events, _, _, _, members := newEventUC()
+	uc, events, _, _, _, members, _ := newEventUC()
 	members.add(&domain.Member{ID: uuid.New(), Email: "opted-in@club.de", IsActive: true, NotifyNewEvents: true})
 	members.add(&domain.Member{ID: uuid.New(), Email: "opted-out@club.de", IsActive: true, NotifyNewEvents: false})
 	members.add(&domain.Member{ID: uuid.New(), Email: "inactive@club.de", IsActive: false, NotifyNewEvents: true})
@@ -75,22 +76,38 @@ func TestPublishEvent_NotifiesOptedInMembers(t *testing.T) {
 }
 
 func TestDeleteEvent(t *testing.T) {
-	uc, events, _, _, audit, _ := newEventUC()
+	uc, events, _, _, audit, _, _ := newEventUC()
 	id := uuid.New()
 	events.add(&domain.Event{ID: id, Status: domain.EventStatusDraft})
-	err := uc.DeleteEvent(context.Background(), uuid.New(), id)
+	_, err := uc.DeleteEvent(context.Background(), uuid.New(), id)
 	require.NoError(t, err)
 	assert.True(t, audit.has(domain.AuditActionDelete, domain.AuditEntityEvent))
 
 	// Published events can be deleted (role enforcement happens at the HTTP layer).
 	pubID := uuid.New()
 	events.add(&domain.Event{ID: pubID, Status: domain.EventStatusPublished})
-	err = uc.DeleteEvent(context.Background(), uuid.New(), pubID)
+	_, err = uc.DeleteEvent(context.Background(), uuid.New(), pubID)
 	assert.NoError(t, err)
 }
 
+func TestDeleteEvent_RemovesAttachments(t *testing.T) {
+	uc, events, _, _, _, _, attachments := newEventUC()
+	id := uuid.New()
+	events.add(&domain.Event{ID: id, Status: domain.EventStatusDraft})
+	a, err := uc.AddAttachment(context.Background(), uuid.New(), id, "flyer.png", "/uploads/flyer-abc.png", "image/png", 1024)
+	require.NoError(t, err)
+
+	deleted, err := uc.DeleteEvent(context.Background(), uuid.New(), id)
+	require.NoError(t, err)
+	require.Len(t, deleted, 1)
+	assert.Equal(t, a.ID, deleted[0].ID)
+
+	_, err = attachments.GetByID(context.Background(), a.ID)
+	assert.ErrorIs(t, err, domain.ErrEventAttachmentNotFound)
+}
+
 func TestCreateShift(t *testing.T) {
-	uc, events, _, _, audit, _ := newEventUC()
+	uc, events, _, _, audit, _, _ := newEventUC()
 	eventID := uuid.New()
 	events.add(&domain.Event{ID: eventID, Status: domain.EventStatusDraft})
 	start := time.Now().UTC()
@@ -104,7 +121,7 @@ func TestCreateShift(t *testing.T) {
 }
 
 func TestCreateShift_BadTimes(t *testing.T) {
-	uc, events, _, _, _, _ := newEventUC()
+	uc, events, _, _, _, _, _ := newEventUC()
 	eventID := uuid.New()
 	events.add(&domain.Event{ID: eventID, Status: domain.EventStatusDraft})
 	start := time.Now().UTC()
@@ -112,8 +129,71 @@ func TestCreateShift_BadTimes(t *testing.T) {
 	assert.Error(t, err)
 }
 
+func TestAddAttachment(t *testing.T) {
+	uc, events, _, _, audit, _, attachments := newEventUC()
+	eventID := uuid.New()
+	events.add(&domain.Event{ID: eventID, Status: domain.EventStatusDraft})
+
+	a, err := uc.AddAttachment(context.Background(), uuid.New(), eventID, "flyer.png", "/uploads/flyer-abc.png", "image/png", 1024)
+	require.NoError(t, err)
+	assert.Equal(t, eventID, a.EventID)
+	assert.Equal(t, "image/png", a.ContentType)
+	assert.True(t, audit.has(domain.AuditActionCreate, domain.AuditEntityEvent))
+
+	list, err := uc.ListAttachments(context.Background(), eventID)
+	require.NoError(t, err)
+	require.Len(t, list, 1)
+	assert.Equal(t, "flyer.png", list[0].FileName)
+
+	stored, err := attachments.GetByID(context.Background(), a.ID)
+	require.NoError(t, err)
+	assert.Equal(t, a.URL, stored.URL)
+}
+
+func TestAddAttachment_UnknownEvent(t *testing.T) {
+	uc, _, _, _, _, _, _ := newEventUC()
+	_, err := uc.AddAttachment(context.Background(), uuid.New(), uuid.New(), "flyer.png", "/uploads/x.png", "image/png", 10)
+	assert.ErrorIs(t, err, domain.ErrEventNotFound)
+}
+
+func TestListAttachments_UnknownEvent(t *testing.T) {
+	uc, _, _, _, _, _, _ := newEventUC()
+	_, err := uc.ListAttachments(context.Background(), uuid.New())
+	assert.ErrorIs(t, err, domain.ErrEventNotFound)
+}
+
+func TestDeleteAttachment(t *testing.T) {
+	uc, events, _, _, audit, _, _ := newEventUC()
+	eventID := uuid.New()
+	events.add(&domain.Event{ID: eventID, Status: domain.EventStatusDraft})
+	a, err := uc.AddAttachment(context.Background(), uuid.New(), eventID, "flyer.png", "/uploads/flyer-abc.png", "image/png", 1024)
+	require.NoError(t, err)
+
+	deleted, err := uc.DeleteAttachment(context.Background(), uuid.New(), eventID, a.ID)
+	require.NoError(t, err)
+	assert.Equal(t, a.URL, deleted.URL)
+	assert.True(t, audit.has(domain.AuditActionDelete, domain.AuditEntityEvent))
+
+	list, err := uc.ListAttachments(context.Background(), eventID)
+	require.NoError(t, err)
+	assert.Empty(t, list)
+}
+
+func TestDeleteAttachment_WrongEvent(t *testing.T) {
+	uc, events, _, _, _, _, _ := newEventUC()
+	eventID := uuid.New()
+	otherEventID := uuid.New()
+	events.add(&domain.Event{ID: eventID, Status: domain.EventStatusDraft})
+	events.add(&domain.Event{ID: otherEventID, Status: domain.EventStatusDraft})
+	a, err := uc.AddAttachment(context.Background(), uuid.New(), eventID, "flyer.png", "/uploads/flyer-abc.png", "image/png", 1024)
+	require.NoError(t, err)
+
+	_, err = uc.DeleteAttachment(context.Background(), uuid.New(), otherEventID, a.ID)
+	assert.ErrorIs(t, err, domain.ErrEventAttachmentNotFound)
+}
+
 func TestGetEventTimeline_Occupancy(t *testing.T) {
-	uc, events, shifts, regs, _, _ := newEventUC()
+	uc, events, shifts, regs, _, _, _ := newEventUC()
 	eventID := uuid.New()
 	events.add(&domain.Event{ID: eventID, Status: domain.EventStatusPublished})
 

@@ -58,6 +58,17 @@ type EventFilter struct {
 	Offset     int
 }
 
+// EventAttachmentRepository persists files attached to events (V-008).
+type EventAttachmentRepository interface {
+	Create(ctx context.Context, a *domain.EventAttachment) error
+	ListByEvent(ctx context.Context, eventID uuid.UUID) ([]*domain.EventAttachment, error)
+	GetByID(ctx context.Context, id uuid.UUID) (*domain.EventAttachment, error)
+	Delete(ctx context.Context, id uuid.UUID) error
+	// DeleteByEvent removes every attachment row for an event in one call
+	// (used when the event itself is deleted).
+	DeleteByEvent(ctx context.Context, eventID uuid.UUID) error
+}
+
 // ShiftRepository defines persistence operations for shifts.
 type ShiftRepository interface {
 	Create(ctx context.Context, s *domain.Shift) error

@@ -191,8 +191,8 @@ type AppSettings struct {
 	KioskLocked         *bool                  `json:"kioskLocked,omitempty"`
 	KioskSearch         bool                   `json:"kioskSearch"`
 	NameMode            AppSettingsNameMode    `json:"nameMode"`
+	ReminderLeadWeeks   *int                   `json:"reminderLeadWeeks,omitempty"`
 	ReservationHours    int                    `json:"reservationHours"`
-	ReminderLeadWeeks   int                    `json:"reminderLeadWeeks"`
 	YearGoal            float32                `json:"yearGoal"`
 }
 
@@ -245,12 +245,14 @@ type ConfirmShiftHoursRequest struct {
 
 // EmailLogEntry defines model for EmailLogEntry.
 type EmailLogEntry struct {
-	ErrorMsg *string             `json:"errorMsg,omitempty"`
-	Id       UUID                `json:"id"`
-	SentAt   time.Time           `json:"sentAt"`
-	Status   EmailLogEntryStatus `json:"status"`
-	Subject  string              `json:"subject"`
-	To       openapi_types.Email `json:"to"`
+	Body      *string             `json:"body,omitempty"`
+	CreatedAt time.Time           `json:"createdAt"`
+	Error     *string             `json:"error,omitempty"`
+	Id        UUID                `json:"id"`
+	Status    EmailLogEntryStatus `json:"status"`
+	Subject   string              `json:"subject"`
+	Template  *string             `json:"template,omitempty"`
+	To        openapi_types.Email `json:"to"`
 }
 
 // EmailLogEntryStatus defines model for EmailLogEntry.Status.
@@ -281,6 +283,17 @@ type Event struct {
 	Visibility  EventVisibility `json:"visibility"`
 }
 
+// EventAttachment defines model for EventAttachment.
+type EventAttachment struct {
+	ContentType string    `json:"contentType"`
+	EventId     UUID      `json:"eventId"`
+	FileName    string    `json:"fileName"`
+	Id          UUID      `json:"id"`
+	SizeBytes   int       `json:"sizeBytes"`
+	UploadedAt  time.Time `json:"uploadedAt"`
+	Url         string    `json:"url"`
+}
+
 // EventStatus defines model for EventStatus.
 type EventStatus string
 
@@ -305,22 +318,28 @@ type EventWrite struct {
 
 // FeeTier defines model for FeeTier.
 type FeeTier struct {
-	Amount float32 `json:"amount"`
-	Id     UUID    `json:"id"`
-	Label  string  `json:"label"`
+	AmountCents int  `json:"amountCents"`
+	ClubYearId  UUID `json:"clubYearId"`
+	Id          UUID `json:"id"`
+	Position    int  `json:"position"`
 }
 
 // HourEntry defines model for HourEntry.
 type HourEntry struct {
-	BookedBy    *UUID           `json:"bookedBy,omitempty"`
-	ClubYearId  UUID            `json:"clubYearId"`
-	CreatedAt   time.Time       `json:"createdAt"`
-	Description string          `json:"description"`
-	Hours       float32         `json:"hours"`
-	Id          UUID            `json:"id"`
-	MemberId    UUID            `json:"memberId"`
-	Status      HourEntryStatus `json:"status"`
-	Type        HourEntryType   `json:"type"`
+	BookedBy    *UUID               `json:"bookedBy,omitempty"`
+	ClubYearId  UUID                `json:"clubYearId"`
+	CreatedAt   time.Time           `json:"createdAt"`
+	Date        *openapi_types.Date `json:"date,omitempty"`
+	Desc        *string             `json:"desc,omitempty"`
+	Description string              `json:"description"`
+	EventName   *string             `json:"eventName,omitempty"`
+	Hours       float32             `json:"hours"`
+	Id          UUID                `json:"id"`
+	Manual      *bool               `json:"manual,omitempty"`
+	MemberId    UUID                `json:"memberId"`
+	ShiftName   *string             `json:"shiftName,omitempty"`
+	Status      HourEntryStatus     `json:"status"`
+	Type        HourEntryType       `json:"type"`
 }
 
 // HourEntryType defines model for HourEntry.Type.
@@ -369,15 +388,18 @@ type Member struct {
 	JoinedAt            time.Time           `json:"joinedAt"`
 	LastName            string              `json:"lastName"`
 	LeftAt              *time.Time          `json:"leftAt,omitempty"`
+	NotifyNewEvents     *bool               `json:"notifyNewEvents,omitempty"`
 	ReminderOptOut      *bool               `json:"reminderOptOut,omitempty"`
 	Role                MemberRole          `json:"role"`
 }
 
 // MemberFeeTier defines model for MemberFeeTier.
 type MemberFeeTier struct {
-	ClubYearId UUID `json:"clubYearId"`
-	MemberId   UUID `json:"memberId"`
-	TierId     UUID `json:"tierId"`
+	AmountCents int   `json:"amountCents"`
+	ClubYearId  UUID  `json:"clubYearId"`
+	Id          UUID  `json:"id"`
+	MemberId    *UUID `json:"memberId,omitempty"`
+	Position    int   `json:"position"`
 }
 
 // MemberHourAccount defines model for MemberHourAccount.
@@ -390,7 +412,9 @@ type MemberHourAccount struct {
 
 // MemberPreferences defines model for MemberPreferences.
 type MemberPreferences struct {
-	ReminderOptOut bool `json:"reminderOptOut"`
+	// NotifyNewEvents Opt-in: receive an e-mail when a new event is published
+	NotifyNewEvents *bool `json:"notifyNewEvents,omitempty"`
+	ReminderOptOut  bool  `json:"reminderOptOut"`
 }
 
 // MemberRole defines model for MemberRole.
@@ -487,6 +511,15 @@ type SystemStats struct {
 	UpcomingShifts      int     `json:"upcomingShifts"`
 }
 
+// TokenResponse defines model for TokenResponse.
+type TokenResponse struct {
+	// ExpiresIn Seconds until the new token expires
+	ExpiresIn int `json:"expiresIn"`
+
+	// Token Freshly signed JWT
+	Token string `json:"token"`
+}
+
 // UUID defines model for UUID.
 type UUID = openapi_types.UUID
 
@@ -519,6 +552,11 @@ type ListEventsParams struct {
 	To         *openapi_types.Date `form:"to,omitempty" json:"to,omitempty"`
 	Limit      *int                `form:"limit,omitempty" json:"limit,omitempty"`
 	Offset     *int                `form:"offset,omitempty" json:"offset,omitempty"`
+}
+
+// UploadEventAttachmentMultipartBody defines parameters for UploadEventAttachment.
+type UploadEventAttachmentMultipartBody struct {
+	File openapi_types.File `json:"file"`
 }
 
 // GetMemberAccountParams defines parameters for GetMemberAccount.
@@ -609,6 +647,9 @@ type CreateShiftJSONRequestBody = ShiftWrite
 // UpdateEventJSONRequestBody defines body for UpdateEvent for application/json ContentType.
 type UpdateEventJSONRequestBody = EventWrite
 
+// UploadEventAttachmentMultipartRequestBody defines body for UploadEventAttachment for multipart/form-data ContentType.
+type UploadEventAttachmentMultipartRequestBody UploadEventAttachmentMultipartBody
+
 // ConfirmShiftHoursJSONRequestBody defines body for ConfirmShiftHours for application/json ContentType.
 type ConfirmShiftHoursJSONRequestBody = ConfirmShiftHoursRequest
 
@@ -674,6 +715,9 @@ type ServerInterface interface {
 	// Return the currently authenticated user
 	// (GET /auth/me)
 	GetMe(w http.ResponseWriter, r *http.Request)
+	// Re-issue a JWT with a fresh expiry for the current session (A-004)
+	// (POST /auth/refresh)
+	RefreshToken(w http.ResponseWriter, r *http.Request)
 	// Compute billing for a club year (Vorstand+)
 	// (GET /billing/{clubYearId})
 	GetBilling(w http.ResponseWriter, r *http.Request, clubYearId UUID)
@@ -701,6 +745,15 @@ type ServerInterface interface {
 	// Update an event (Veranstaltungsleiter+)
 	// (PUT /events/{id})
 	UpdateEvent(w http.ResponseWriter, r *http.Request, id UUID)
+	// List files attached to an event (V-008)
+	// (GET /events/{id}/attachments)
+	ListEventAttachments(w http.ResponseWriter, r *http.Request, id UUID)
+	// Upload an image or document attachment for an event (Veranstaltungsleiter+, V-008)
+	// (POST /events/{id}/attachments)
+	UploadEventAttachment(w http.ResponseWriter, r *http.Request, id UUID)
+	// Delete an event attachment (Veranstaltungsleiter+, V-008)
+	// (DELETE /events/{id}/attachments/{attachmentId})
+	DeleteEventAttachment(w http.ResponseWriter, r *http.Request, id UUID, attachmentId UUID)
 	// Publish a draft event (Veranstaltungsleiter+)
 	// (POST /events/{id}/publish)
 	PublishEvent(w http.ResponseWriter, r *http.Request, id UUID)
@@ -869,6 +922,12 @@ func (_ Unimplemented) GetMe(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
+// Re-issue a JWT with a fresh expiry for the current session (A-004)
+// (POST /auth/refresh)
+func (_ Unimplemented) RefreshToken(w http.ResponseWriter, r *http.Request) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
 // Compute billing for a club year (Vorstand+)
 // (GET /billing/{clubYearId})
 func (_ Unimplemented) GetBilling(w http.ResponseWriter, r *http.Request, clubYearId UUID) {
@@ -920,6 +979,24 @@ func (_ Unimplemented) GetEvent(w http.ResponseWriter, r *http.Request, id UUID)
 // Update an event (Veranstaltungsleiter+)
 // (PUT /events/{id})
 func (_ Unimplemented) UpdateEvent(w http.ResponseWriter, r *http.Request, id UUID) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// List files attached to an event (V-008)
+// (GET /events/{id}/attachments)
+func (_ Unimplemented) ListEventAttachments(w http.ResponseWriter, r *http.Request, id UUID) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// Upload an image or document attachment for an event (Veranstaltungsleiter+, V-008)
+// (POST /events/{id}/attachments)
+func (_ Unimplemented) UploadEventAttachment(w http.ResponseWriter, r *http.Request, id UUID) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// Delete an event attachment (Veranstaltungsleiter+, V-008)
+// (DELETE /events/{id}/attachments/{attachmentId})
+func (_ Unimplemented) DeleteEventAttachment(w http.ResponseWriter, r *http.Request, id UUID, attachmentId UUID) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
@@ -1308,6 +1385,26 @@ func (siw *ServerInterfaceWrapper) GetMe(w http.ResponseWriter, r *http.Request)
 	handler.ServeHTTP(w, r)
 }
 
+// RefreshToken operation middleware
+func (siw *ServerInterfaceWrapper) RefreshToken(w http.ResponseWriter, r *http.Request) {
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, BearerAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.RefreshToken(w, r)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
 // GetBilling operation middleware
 func (siw *ServerInterfaceWrapper) GetBilling(w http.ResponseWriter, r *http.Request) {
 
@@ -1647,6 +1744,111 @@ func (siw *ServerInterfaceWrapper) UpdateEvent(w http.ResponseWriter, r *http.Re
 
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		siw.Handler.UpdateEvent(w, r, id)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// ListEventAttachments operation middleware
+func (siw *ServerInterfaceWrapper) ListEventAttachments(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "id" -------------
+	var id UUID
+
+	err = runtime.BindStyledParameterWithOptions("simple", "id", chi.URLParam(r, "id"), &id, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "uuid"})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "id", Err: err})
+		return
+	}
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, BearerAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.ListEventAttachments(w, r, id)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// UploadEventAttachment operation middleware
+func (siw *ServerInterfaceWrapper) UploadEventAttachment(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "id" -------------
+	var id UUID
+
+	err = runtime.BindStyledParameterWithOptions("simple", "id", chi.URLParam(r, "id"), &id, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "uuid"})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "id", Err: err})
+		return
+	}
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, BearerAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.UploadEventAttachment(w, r, id)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// DeleteEventAttachment operation middleware
+func (siw *ServerInterfaceWrapper) DeleteEventAttachment(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "id" -------------
+	var id UUID
+
+	err = runtime.BindStyledParameterWithOptions("simple", "id", chi.URLParam(r, "id"), &id, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "uuid"})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "id", Err: err})
+		return
+	}
+
+	// ------------- Path parameter "attachmentId" -------------
+	var attachmentId UUID
+
+	err = runtime.BindStyledParameterWithOptions("simple", "attachmentId", chi.URLParam(r, "attachmentId"), &attachmentId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "uuid"})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "attachmentId", Err: err})
+		return
+	}
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, BearerAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.DeleteEventAttachment(w, r, id, attachmentId)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -3169,6 +3371,9 @@ func HandlerWithOptions(si ServerInterface, options ChiServerOptions) http.Handl
 		r.Get(options.BaseURL+"/auth/me", wrapper.GetMe)
 	})
 	r.Group(func(r chi.Router) {
+		r.Post(options.BaseURL+"/auth/refresh", wrapper.RefreshToken)
+	})
+	r.Group(func(r chi.Router) {
 		r.Get(options.BaseURL+"/billing/{clubYearId}", wrapper.GetBilling)
 	})
 	r.Group(func(r chi.Router) {
@@ -3194,6 +3399,15 @@ func HandlerWithOptions(si ServerInterface, options ChiServerOptions) http.Handl
 	})
 	r.Group(func(r chi.Router) {
 		r.Put(options.BaseURL+"/events/{id}", wrapper.UpdateEvent)
+	})
+	r.Group(func(r chi.Router) {
+		r.Get(options.BaseURL+"/events/{id}/attachments", wrapper.ListEventAttachments)
+	})
+	r.Group(func(r chi.Router) {
+		r.Post(options.BaseURL+"/events/{id}/attachments", wrapper.UploadEventAttachment)
+	})
+	r.Group(func(r chi.Router) {
+		r.Delete(options.BaseURL+"/events/{id}/attachments/{attachmentId}", wrapper.DeleteEventAttachment)
 	})
 	r.Group(func(r chi.Router) {
 		r.Post(options.BaseURL+"/events/{id}/publish", wrapper.PublishEvent)

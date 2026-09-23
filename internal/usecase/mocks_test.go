@@ -222,6 +222,64 @@ func (f *fakeEventRepo) UpdateStatus(ctx context.Context, id uuid.UUID, status d
 	return nil
 }
 
+// --- EventAttachmentRepo fake ---
+
+type fakeEventAttachmentRepo struct {
+	attachments map[uuid.UUID]*domain.EventAttachment
+}
+
+var _ port.EventAttachmentRepository = (*fakeEventAttachmentRepo)(nil)
+
+func newFakeEventAttachmentRepo() *fakeEventAttachmentRepo {
+	return &fakeEventAttachmentRepo{attachments: map[uuid.UUID]*domain.EventAttachment{}}
+}
+
+func (f *fakeEventAttachmentRepo) Create(ctx context.Context, a *domain.EventAttachment) error {
+	cp := *a
+	f.attachments[a.ID] = &cp
+	return nil
+}
+
+func (f *fakeEventAttachmentRepo) ListByEvent(ctx context.Context, eventID uuid.UUID) ([]*domain.EventAttachment, error) {
+	// Non-nil even when empty, matching EventAttachmentRepo (GORM's
+	// make([]T, 0, n) is always non-nil) — JSON-marshals to [] rather than
+	// null for the frontend either way.
+	out := []*domain.EventAttachment{}
+	for _, a := range f.attachments {
+		if a.EventID == eventID {
+			cp := *a
+			out = append(out, &cp)
+		}
+	}
+	return out, nil
+}
+
+func (f *fakeEventAttachmentRepo) GetByID(ctx context.Context, id uuid.UUID) (*domain.EventAttachment, error) {
+	a, ok := f.attachments[id]
+	if !ok {
+		return nil, domain.ErrEventAttachmentNotFound
+	}
+	cp := *a
+	return &cp, nil
+}
+
+func (f *fakeEventAttachmentRepo) Delete(ctx context.Context, id uuid.UUID) error {
+	if _, ok := f.attachments[id]; !ok {
+		return domain.ErrEventAttachmentNotFound
+	}
+	delete(f.attachments, id)
+	return nil
+}
+
+func (f *fakeEventAttachmentRepo) DeleteByEvent(ctx context.Context, eventID uuid.UUID) error {
+	for id, a := range f.attachments {
+		if a.EventID == eventID {
+			delete(f.attachments, id)
+		}
+	}
+	return nil
+}
+
 // --- ShiftRepo fake ---
 
 type fakeShiftRepo struct {

@@ -29,6 +29,7 @@ func Migrate(db *gorm.DB) error {
 		&MemberModel{},
 		&OIDCLinkModel{},
 		&EventModel{},
+		&EventAttachmentModel{},
 		&ShiftModel{},
 		&RegistrationModel{},
 		&HourEntryModel{},

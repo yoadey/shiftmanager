@@ -34,6 +34,9 @@ import type {
   DeactivateMemberData,
   DeactivateMemberErrors,
   DeactivateMemberResponses,
+  DeleteEventAttachmentData,
+  DeleteEventAttachmentErrors,
+  DeleteEventAttachmentResponses,
   DeleteEventData,
   DeleteEventErrors,
   DeleteEventResponses,
@@ -123,6 +126,9 @@ import type {
   ListEmailTemplatesData,
   ListEmailTemplatesErrors,
   ListEmailTemplatesResponses,
+  ListEventAttachmentsData,
+  ListEventAttachmentsErrors,
+  ListEventAttachmentsResponses,
   ListEventsData,
   ListEventsErrors,
   ListEventsResponses,
@@ -180,6 +186,9 @@ import type {
   UpdateShiftData,
   UpdateShiftErrors,
   UpdateShiftResponses,
+  UploadEventAttachmentData,
+  UploadEventAttachmentErrors,
+  UploadEventAttachmentResponses,
   UploadLogoData,
   UploadLogoErrors,
   UploadLogoResponses,
@@ -561,6 +570,59 @@ export const getEventTimeline = <ThrowOnError extends boolean = false>(
   >({
     security: [{ scheme: "bearer", type: "http" }],
     url: "/events/{id}/timeline",
+    ...options,
+  });
+
+/**
+ * List files attached to an event (V-008)
+ */
+export const listEventAttachments = <ThrowOnError extends boolean = false>(
+  options: Options<ListEventAttachmentsData, ThrowOnError>,
+) =>
+  (options.client ?? client).get<
+    ListEventAttachmentsResponses,
+    ListEventAttachmentsErrors,
+    ThrowOnError
+  >({
+    security: [{ scheme: "bearer", type: "http" }],
+    url: "/events/{id}/attachments",
+    ...options,
+  });
+
+/**
+ * Upload an image or document attachment for an event (Veranstaltungsleiter+, V-008)
+ */
+export const uploadEventAttachment = <ThrowOnError extends boolean = false>(
+  options: Options<UploadEventAttachmentData, ThrowOnError>,
+) =>
+  (options.client ?? client).post<
+    UploadEventAttachmentResponses,
+    UploadEventAttachmentErrors,
+    ThrowOnError
+  >({
+    ...formDataBodySerializer,
+    security: [{ scheme: "bearer", type: "http" }],
+    url: "/events/{id}/attachments",
+    ...options,
+    headers: {
+      "Content-Type": null,
+      ...options.headers,
+    },
+  });
+
+/**
+ * Delete an event attachment (Veranstaltungsleiter+, V-008)
+ */
+export const deleteEventAttachment = <ThrowOnError extends boolean = false>(
+  options: Options<DeleteEventAttachmentData, ThrowOnError>,
+) =>
+  (options.client ?? client).delete<
+    DeleteEventAttachmentResponses,
+    DeleteEventAttachmentErrors,
+    ThrowOnError
+  >({
+    security: [{ scheme: "bearer", type: "http" }],
+    url: "/events/{id}/attachments/{attachmentId}",
     ...options,
   });
 

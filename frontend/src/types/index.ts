@@ -37,6 +37,7 @@ export type {
   ConfirmResult,
   MessageResponse,
   ErrorResponse,
+  EventAttachment,
   // Raw backend member shape (camelCase) — used in api/members.ts mapper.
   Member as RawMember,
 } from '@/api/generated/types.gen';

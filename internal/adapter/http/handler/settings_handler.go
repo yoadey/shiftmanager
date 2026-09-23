@@ -1,10 +1,7 @@
 package handler
 
 import (
-	"io"
 	"net/http"
-	"os"
-	"path/filepath"
 	"strings"
 	"time"
 
@@ -224,46 +221,11 @@ func (h *SettingsHandler) UpdateMemberFeeTiers(w http.ResponseWriter, r *http.Re
 // POST /api/v1/settings/logo  (multipart/form-data, field "file")
 func (h *SettingsHandler) UploadLogo(w http.ResponseWriter, r *http.Request) {
 	const maxSize = 2 << 20 // 2MB
-	if err := r.ParseMultipartForm(maxSize); err != nil {
-		writeError(w, http.StatusBadRequest, "invalid multipart form")
-		return
-	}
-	file, hdr, err := r.FormFile("file")
-	if err != nil {
-		writeError(w, http.StatusBadRequest, "file field is required")
-		return
-	}
-	defer file.Close()
 
-	if hdr.Size > maxSize {
-		writeError(w, http.StatusRequestEntityTooLarge, "file exceeds 2MB limit")
+	name, _, _, _, ok := receiveUpload(w, r, h.uploadDir, maxSize, "logo-", isAllowedLogo, "only PNG and SVG files are allowed")
+	if !ok {
 		return
 	}
-
-	ext := strings.ToLower(filepath.Ext(hdr.Filename))
-	contentType := hdr.Header.Get("Content-Type")
-	if !isAllowedLogo(ext, contentType) {
-		writeError(w, http.StatusUnsupportedMediaType, "only PNG and SVG files are allowed")
-		return
-	}
-
-	if err := os.MkdirAll(h.uploadDir, 0o755); err != nil {
-		writeError(w, http.StatusInternalServerError, "cannot create upload dir")
-		return
-	}
-	name := "logo-" + uuid.New().String() + ext
-	dst := filepath.Join(h.uploadDir, name)
-	out, err := os.Create(dst)
-	if err != nil {
-		writeError(w, http.StatusInternalServerError, "cannot store file")
-		return
-	}
-	if _, err := io.Copy(out, io.LimitReader(file, maxSize)); err != nil {
-		_ = out.Close()
-		writeError(w, http.StatusInternalServerError, "cannot write file")
-		return
-	}
-	_ = out.Close()
 
 	logoURL := strings.TrimRight(h.publicBase, "/") + "/uploads/" + name
 	actorID := middleware.GetUserID(r.Context())

@@ -135,6 +135,16 @@ export type EventTimeline = {
   days: Array<ShiftDay>;
 };
 
+export type EventAttachment = {
+  id: Uuid;
+  eventId: Uuid;
+  fileName: string;
+  url: string;
+  contentType: string;
+  sizeBytes: number;
+  uploadedAt: string;
+};
+
 export type RegisterShiftRequest = {
   comment?: string;
   otherEmail?: string;
@@ -933,6 +943,116 @@ export type GetEventTimelineResponses = {
 
 export type GetEventTimelineResponse =
   GetEventTimelineResponses[keyof GetEventTimelineResponses];
+
+export type ListEventAttachmentsData = {
+  body?: never;
+  path: {
+    id: Uuid;
+  };
+  query?: never;
+  url: "/events/{id}/attachments";
+};
+
+export type ListEventAttachmentsErrors = {
+  /**
+   * Missing or invalid JWT
+   */
+  401: ErrorResponse;
+};
+
+export type ListEventAttachmentsError =
+  ListEventAttachmentsErrors[keyof ListEventAttachmentsErrors];
+
+export type ListEventAttachmentsResponses = {
+  /**
+   * Attachments
+   */
+  200: Array<EventAttachment>;
+};
+
+export type ListEventAttachmentsResponse =
+  ListEventAttachmentsResponses[keyof ListEventAttachmentsResponses];
+
+export type UploadEventAttachmentData = {
+  body: {
+    file: Blob | File;
+  };
+  path: {
+    id: Uuid;
+  };
+  query?: never;
+  url: "/events/{id}/attachments";
+};
+
+export type UploadEventAttachmentErrors = {
+  /**
+   * Missing or invalid JWT
+   */
+  401: ErrorResponse;
+  /**
+   * Insufficient role
+   */
+  403: ErrorResponse;
+  /**
+   * Resource not found
+   */
+  404: ErrorResponse;
+  /**
+   * Unsupported file type
+   */
+  415: unknown;
+};
+
+export type UploadEventAttachmentError =
+  UploadEventAttachmentErrors[keyof UploadEventAttachmentErrors];
+
+export type UploadEventAttachmentResponses = {
+  /**
+   * Uploaded attachment
+   */
+  201: EventAttachment;
+};
+
+export type UploadEventAttachmentResponse =
+  UploadEventAttachmentResponses[keyof UploadEventAttachmentResponses];
+
+export type DeleteEventAttachmentData = {
+  body?: never;
+  path: {
+    id: Uuid;
+    attachmentId: Uuid;
+  };
+  query?: never;
+  url: "/events/{id}/attachments/{attachmentId}";
+};
+
+export type DeleteEventAttachmentErrors = {
+  /**
+   * Missing or invalid JWT
+   */
+  401: ErrorResponse;
+  /**
+   * Insufficient role
+   */
+  403: ErrorResponse;
+  /**
+   * Resource not found
+   */
+  404: ErrorResponse;
+};
+
+export type DeleteEventAttachmentError =
+  DeleteEventAttachmentErrors[keyof DeleteEventAttachmentErrors];
+
+export type DeleteEventAttachmentResponses = {
+  /**
+   * Deleted
+   */
+  204: void;
+};
+
+export type DeleteEventAttachmentResponse =
+  DeleteEventAttachmentResponses[keyof DeleteEventAttachmentResponses];
 
 export type CreateShiftData = {
   body: ShiftWrite;

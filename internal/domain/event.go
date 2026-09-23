@@ -189,6 +189,19 @@ type EventTimeline struct {
 	Days  []TimelineDay `json:"days"`
 }
 
+// EventAttachment is a file (image or document) attached to an event (V-008).
+// Whether it's an image (vs. a generic document, e.g. a PDF) is derived by
+// callers from ContentType's "image/" prefix rather than tracked separately.
+type EventAttachment struct {
+	ID          uuid.UUID `json:"id"`
+	EventID     uuid.UUID `json:"eventId"`
+	FileName    string    `json:"fileName"`
+	URL         string    `json:"url"`
+	ContentType string    `json:"contentType"`
+	SizeBytes   int64     `json:"sizeBytes"`
+	UploadedAt  time.Time `json:"uploadedAt"`
+}
+
 // Errors for event operations.
 var (
 	ErrEventNotFound      = fmt.Errorf("event not found")
@@ -199,4 +212,5 @@ var (
 	ErrRegistrationNotFound = fmt.Errorf("registration not found")
 	ErrDeregisterDeadlinePassed = fmt.Errorf("deregistration deadline has passed")
 	ErrInvalidToken       = fmt.Errorf("invalid or expired confirmation token")
+	ErrEventAttachmentNotFound = fmt.Errorf("event attachment not found")
 )

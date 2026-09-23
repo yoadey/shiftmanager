@@ -101,6 +101,7 @@ func run() error {
 	// --- Repositories ---
 	memberRepo := db.NewMemberRepo(gdb)
 	eventRepo := db.NewEventRepo(gdb)
+	eventAttachmentRepo := db.NewEventAttachmentRepo(gdb)
 	shiftRepo := db.NewShiftRepo(gdb)
 	regRepo := db.NewRegistrationRepo(gdb)
 	hourRepo := db.NewHourRepo(gdb)
@@ -142,7 +143,7 @@ func run() error {
 
 	// --- Usecases ---
 	memberUC := usecase.NewMemberUsecase(memberRepo, auditRepo)
-	eventUC := usecase.NewEventUsecase(eventRepo, shiftRepo, regRepo, auditRepo, emailSvc, memberRepo)
+	eventUC := usecase.NewEventUsecase(eventRepo, shiftRepo, regRepo, auditRepo, emailSvc, memberRepo, eventAttachmentRepo)
 	regUC := usecase.NewRegistrationUsecase(regRepo, shiftRepo, eventRepo, memberRepo, emailSvc, auditRepo, settingsRepo)
 	hourUC := usecase.NewHourUsecase(hourRepo, memberRepo, shiftRepo, auditRepo, emailSvc, eventRepo)
 	billingUC := usecase.NewBillingUsecase(hourRepo, memberRepo, settingsRepo, auditRepo)
@@ -158,7 +159,7 @@ func run() error {
 	handlers := httpadapter.Handlers{
 		Auth:     handler.BuildAuthHandler(oidcSvc, memberRepo, auditRepo, cfg.JWTSecret, cfg.JWTExpiration, cfg.LoginRedirectURL, cfg.BootstrapAdminEmail),
 		Member:   handler.NewMemberHandler(memberUC),
-		Event:    handler.NewEventHandler(eventUC),
+		Event:    handler.NewEventHandler(eventUC, cfg.UploadDir, cfg.BaseURL),
 		Shift:    handler.NewShiftHandler(eventUC, regUC),
 		Hour:     handler.NewHourHandler(hourUC),
 		Kiosk:    handler.NewKioskHandler(regUC, eventUC, memberUC, settingsUC),
