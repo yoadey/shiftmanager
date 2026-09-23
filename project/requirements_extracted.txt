@@ -14,10 +14,10 @@ Entwurf
 Zielgruppe:
 Vereinsmitglieder, Vorstände, Veranstalter
 
-  Implementierungsstatus (Stand: 2026-06-02)
+  Implementierungsstatus (Stand: 2026-09-22)
   Legende: ✅ Implementiert  ⚠️ Teilweise  ❌ Fehlt/Out-of-scope
 
-  3.1.1  OIDC:             A-001 ✅  A-002 ✅  A-003 ✅  A-004 ❌  A-005 ❌
+  3.1.1  OIDC:             A-001 ✅  A-002 ✅  A-003 ✅  A-004 ✅  A-005 ❌
   3.1.2  Mitglieder:       ML-001–ML-006 ✅  ML-007 ✅  ML-008 ✅  ML-009 ✅
   3.1.3  Kiosk:            K-001–K-013 ✅
   3.1.4  Namensanzeige:    NM-001–NM-007 ✅
@@ -28,7 +28,7 @@ Vereinsmitglieder, Vorstände, Veranstalter
   3.3.2  Schichten:        SC-001–SC-009 ✅
   3.3.3  Dashboard:        D-001–D-006 ✅
   3.3.4  Event-Kopieren:   VC-001–VC-004 ✅
-  4      E-Mails:          Kiosk ✅  Anmeldung ✅  Abmeldung ✅  Reminder ✅  Absage ✅  Jahresabrechnung ✅  Fehlstunden-Warnung ✅  Stunden-bestätigt ✅  Unterstaffed ✅  Neue-VA ❌
+  4      E-Mails:          Kiosk ✅  Anmeldung ✅  Abmeldung ✅  Reminder ✅  Absage ✅  Jahresabrechnung ✅  Fehlstunden-Warnung ✅  Stunden-bestätigt ✅  Unterstaffed ✅  Neue-VA ✅
          N-001 ✅  N-002 ✅  N-003 ✅  N-004 ✅
   5      Technik:          T-001–T-012 ✅
   5.4    Branding:         B-001–B-007 ✅  B-008 ✅

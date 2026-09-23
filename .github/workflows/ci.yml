@@ -5,6 +5,10 @@ on:
     branches:
       - "**"
   pull_request:
+  # Lets the image/chart publish jobs be re-run on demand (e.g. to validate
+  # them on a branch before merging to main) without loosening the
+  # push-to-main condition those jobs run under automatically.
+  workflow_dispatch:
 
 jobs:
   # ----------------------------------------------------------
@@ -109,7 +113,7 @@ jobs:
       - lint-backend
       - test-backend
       - lint-frontend
-    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    if: (github.event_name == 'push' && github.ref == 'refs/heads/main') || github.event_name == 'workflow_dispatch'
     permissions:
       contents: read
       packages: write
@@ -146,3 +150,42 @@ jobs:
           labels: ${{ steps.meta.outputs.labels }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
+
+  # ----------------------------------------------------------
+  # Helm: package and push chart (main branch only)
+  # ----------------------------------------------------------
+  chart-build:
+    name: Helm Chart Package & Push
+    runs-on: ubuntu-latest
+    needs:
+      - docker-build
+    if: (github.event_name == 'push' && github.ref == 'refs/heads/main') || github.event_name == 'workflow_dispatch'
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Helm
+        uses: azure/setup-helm@v4
+
+      - name: Log in to GitHub Container Registry
+        run: |
+          echo "${{ secrets.GITHUB_TOKEN }}" | helm registry login ghcr.io \
+            --username ${{ github.actor }} --password-stdin
+
+      - name: Update chart dependencies
+        run: helm dependency update deploy/helm/shiftmanager
+
+      - name: Package chart
+        # app-version matches the "latest" tag docker-build always publishes on
+        # main, so a plain `helm install` without overrides pulls the image
+        # built from this exact commit.
+        run: |
+          helm package deploy/helm/shiftmanager \
+            --app-version latest \
+            --destination .dist
+
+      - name: Push chart
+        run: helm push .dist/shiftmanager-*.tgz oci://ghcr.io/yoadey/charts

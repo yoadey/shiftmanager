@@ -1,4 +1,4 @@
-import { apiGet } from './client';
+import { apiGet, apiPost } from './client';
 import type { UserRole } from '@/types';
 
 const BASE_URL = (import.meta.env.VITE_API_URL as string | undefined) || '/api/v1';
@@ -24,4 +24,18 @@ export interface MeResponse {
  */
 export async function getMe(): Promise<MeResponse> {
   return apiGet<MeResponse>('/auth/me');
+}
+
+/** Freshly issued token returned by the session-refresh endpoint (A-004). */
+export interface TokenResponse {
+  token: string;
+  expiresIn: number;
+}
+
+/**
+ * Re-issues a JWT with a fresh expiry for the current session, without a
+ * full OIDC round-trip. Requires the current token to still be valid.
+ */
+export async function refreshToken(): Promise<TokenResponse> {
+  return apiPost<TokenResponse>('/auth/refresh');
 }

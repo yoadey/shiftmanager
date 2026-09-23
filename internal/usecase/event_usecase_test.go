@@ -11,17 +11,18 @@ import (
 	"github.com/yoadey/shiftmanager/internal/domain"
 )
 
-func newEventUC() (*EventUsecase, *fakeEventRepo, *fakeShiftRepo, *fakeRegistrationRepo, *fakeAuditRepo) {
+func newEventUC() (*EventUsecase, *fakeEventRepo, *fakeShiftRepo, *fakeRegistrationRepo, *fakeAuditRepo, *fakeMemberRepo) {
 	events := newFakeEventRepo()
 	shifts := newFakeShiftRepo()
 	regs := newFakeRegistrationRepo()
 	audit := newFakeAuditRepo()
+	members := newFakeMemberRepo()
 	email := &fakeEmailService{}
-	return NewEventUsecase(events, shifts, regs, audit, email), events, shifts, regs, audit
+	return NewEventUsecase(events, shifts, regs, audit, email, members), events, shifts, regs, audit, members
 }
 
 func TestCreateEvent(t *testing.T) {
-	uc, _, _, _, audit := newEventUC()
+	uc, _, _, _, audit, _ := newEventUC()
 	start := time.Now().UTC()
 	e, err := uc.CreateEvent(context.Background(), uuid.New(), CreateEventInput{
 		Name: "Sommerfest", StartDate: start, EndDate: start.Add(8 * time.Hour),
@@ -33,7 +34,7 @@ func TestCreateEvent(t *testing.T) {
 }
 
 func TestCreateEvent_Validation(t *testing.T) {
-	uc, _, _, _, _ := newEventUC()
+	uc, _, _, _, _, _ := newEventUC()
 	_, err := uc.CreateEvent(context.Background(), uuid.New(), CreateEventInput{Name: ""})
 	assert.Error(t, err)
 
@@ -43,7 +44,7 @@ func TestCreateEvent_Validation(t *testing.T) {
 }
 
 func TestPublishEvent(t *testing.T) {
-	uc, events, _, _, _ := newEventUC()
+	uc, events, _, _, _, _ := newEventUC()
 	id := uuid.New()
 	events.add(&domain.Event{ID: id, Status: domain.EventStatusDraft})
 	e, err := uc.PublishEvent(context.Background(), uuid.New(), id)
@@ -55,8 +56,26 @@ func TestPublishEvent(t *testing.T) {
 	assert.ErrorIs(t, err, domain.ErrEventNotPublishable)
 }
 
+// PublishEvent notifies opted-in active members ("Neue Veranstaltung", KANN).
+func TestPublishEvent_NotifiesOptedInMembers(t *testing.T) {
+	uc, events, _, _, _, members := newEventUC()
+	members.add(&domain.Member{ID: uuid.New(), Email: "opted-in@club.de", IsActive: true, NotifyNewEvents: true})
+	members.add(&domain.Member{ID: uuid.New(), Email: "opted-out@club.de", IsActive: true, NotifyNewEvents: false})
+	members.add(&domain.Member{ID: uuid.New(), Email: "inactive@club.de", IsActive: false, NotifyNewEvents: true})
+
+	id := uuid.New()
+	events.add(&domain.Event{ID: id, Name: "Sommerfest", Status: domain.EventStatusDraft})
+	_, err := uc.PublishEvent(context.Background(), uuid.New(), id)
+	require.NoError(t, err)
+
+	email := uc.email.(*fakeEmailService)
+	require.Len(t, email.sent, 1)
+	assert.Equal(t, "opted-in@club.de", email.sent[0].to)
+	assert.Equal(t, "template:"+domain.EmailTemplateNewEvent, email.sent[0].kind)
+}
+
 func TestDeleteEvent(t *testing.T) {
-	uc, events, _, _, audit := newEventUC()
+	uc, events, _, _, audit, _ := newEventUC()
 	id := uuid.New()
 	events.add(&domain.Event{ID: id, Status: domain.EventStatusDraft})
 	err := uc.DeleteEvent(context.Background(), uuid.New(), id)
@@ -71,7 +90,7 @@ func TestDeleteEvent(t *testing.T) {
 }
 
 func TestCreateShift(t *testing.T) {
-	uc, events, _, _, audit := newEventUC()
+	uc, events, _, _, audit, _ := newEventUC()
 	eventID := uuid.New()
 	events.add(&domain.Event{ID: eventID, Status: domain.EventStatusDraft})
 	start := time.Now().UTC()
@@ -85,7 +104,7 @@ func TestCreateShift(t *testing.T) {
 }
 
 func TestCreateShift_BadTimes(t *testing.T) {
-	uc, events, _, _, _ := newEventUC()
+	uc, events, _, _, _, _ := newEventUC()
 	eventID := uuid.New()
 	events.add(&domain.Event{ID: eventID, Status: domain.EventStatusDraft})
 	start := time.Now().UTC()
@@ -94,7 +113,7 @@ func TestCreateShift_BadTimes(t *testing.T) {
 }
 
 func TestGetEventTimeline_Occupancy(t *testing.T) {
-	uc, events, shifts, regs, _ := newEventUC()
+	uc, events, shifts, regs, _, _ := newEventUC()
 	eventID := uuid.New()
 	events.add(&domain.Event{ID: eventID, Status: domain.EventStatusPublished})
 

@@ -45,6 +45,9 @@ export function CallbackPage() {
     const frag = new URLSearchParams(window.location.hash.replace(/^#/, ''));
     const err = frag.get('error');
     const token = frag.get('token');
+    const expiresInRaw = frag.get('expiresIn');
+    const expiresIn = expiresInRaw ? Number(expiresInRaw) : NaN;
+    const expiresAt = Number.isFinite(expiresIn) ? Date.now() + expiresIn * 1000 : null;
 
     // Strip the sensitive fragment from the URL/history immediately.
     window.history.replaceState(null, '', window.location.pathname + window.location.search);
@@ -75,7 +78,7 @@ export function CallbackPage() {
       .then((me) => {
         const displayName = [me.firstName, me.lastName].filter(Boolean).join(' ') || me.email;
         const user: AuthUser = { id: me.id, name: displayName, email: me.email, role: me.role, first: me.firstName, last: me.lastName };
-        login(token, user);
+        login(token, user, expiresAt);
         setRole(roleView(me.role));
         navigate('/', { replace: true });
       })

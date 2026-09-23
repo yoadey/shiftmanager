@@ -18,6 +18,7 @@ type EventUsecase struct {
 	registrations port.RegistrationRepository
 	audit         port.AuditRepository
 	email         port.EmailService
+	members       port.MemberRepository
 }
 
 // NewEventUsecase creates a new EventUsecase.
@@ -27,6 +28,7 @@ func NewEventUsecase(
 	registrations port.RegistrationRepository,
 	audit port.AuditRepository,
 	emailSvc port.EmailService,
+	members port.MemberRepository,
 ) *EventUsecase {
 	return &EventUsecase{
 		events:        events,
@@ -34,6 +36,7 @@ func NewEventUsecase(
 		registrations: registrations,
 		audit:         audit,
 		email:         emailSvc,
+		members:       members,
 	}
 }
 
@@ -206,6 +209,8 @@ func (uc *EventUsecase) PublishEvent(ctx context.Context, actorID uuid.UUID, id 
 	aid := actorID
 	_ = uc.writeAudit(ctx, &aid, domain.AuditActionUpdate, domain.AuditEntityEvent, id.String(), nil, map[string]string{"status": "published"})
 
+	uc.notifyNewEvent(ctx, e)
+
 	return e, nil
 }
 
@@ -239,6 +244,31 @@ func (uc *EventUsecase) CompleteEvent(ctx context.Context, actorID uuid.UUID, id
 	_ = uc.writeAudit(ctx, &aid, domain.AuditActionUpdate, domain.AuditEntityEvent, id.String(), nil, map[string]string{"status": "completed"})
 
 	return e, nil
+}
+
+// notifyNewEvent sends the opt-in "new event published" mail (KANN) to every
+// active member who opted in. Best-effort: a failed lookup or send never
+// fails the publish.
+func (uc *EventUsecase) notifyNewEvent(ctx context.Context, e *domain.Event) {
+	if uc.email == nil || uc.members == nil {
+		return
+	}
+	active := true
+	members, err := uc.members.List(ctx, port.MemberFilter{IsActive: &active})
+	if err != nil {
+		return
+	}
+	data := map[string]any{
+		"EventName": e.Name,
+		"Location":  e.Location,
+		"StartAt":   e.StartDate.Format("02.01.2006 15:04"),
+	}
+	for _, m := range members {
+		if !m.NotifyNewEvents {
+			continue
+		}
+		_ = uc.email.SendByTemplate(ctx, m.Email, domain.EmailTemplateNewEvent, data)
+	}
 }
 
 // ListEvents returns events matching the filter.

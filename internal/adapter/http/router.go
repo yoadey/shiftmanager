@@ -133,6 +133,7 @@ func NewRouter(h Handlers, cfg RouterConfig) http.Handler {
 
 			// Auth/session.
 			auth.Get("/auth/me", h.Auth.Me)
+			auth.Post("/auth/refresh", h.Auth.Refresh)
 			auth.Post("/auth/logout", h.Auth.Logout)
 
 			// Members (board+ for write operations).

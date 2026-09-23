@@ -21,7 +21,7 @@ RUN cd frontend && npm run build
 
 
 # ---- Stage 2: Go build --------------------------------------
-FROM golang:1.22-alpine AS go-builder
+FROM golang:1.24-alpine AS go-builder
 
 # Install git so `go mod download` can fetch VCS-tagged modules
 RUN apk add --no-cache git

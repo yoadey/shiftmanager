@@ -43,6 +43,51 @@ describe('ErrorBoundary', () => {
     expect(screen.getByText('noch da')).toBeInTheDocument();
   });
 
+  it('reloads once (guarded) when a child throws a stale-chunk error', () => {
+    sessionStorage.clear();
+    const reloadSpy = vi.fn();
+    const originalLocation = window.location;
+    Object.defineProperty(window, 'location', { configurable: true, value: { ...originalLocation, reload: reloadSpy } });
+
+    function ChunkBoom(): JSX.Element {
+      throw new Error('Failed to fetch dynamically imported module: https://example.com/assets/Foo-abc123.js');
+    }
+
+    render(
+      <ErrorBoundary>
+        <ChunkBoom />
+      </ErrorBoundary>,
+    );
+
+    expect(reloadSpy).toHaveBeenCalledTimes(1);
+    expect(sessionStorage.getItem('sm_reloaded_after_preload_error')).toBe('1');
+
+    Object.defineProperty(window, 'location', { configurable: true, value: originalLocation });
+    sessionStorage.clear();
+  });
+
+  it('does not reload again once the per-session guard is already set', () => {
+    sessionStorage.setItem('sm_reloaded_after_preload_error', '1');
+    const reloadSpy = vi.fn();
+    const originalLocation = window.location;
+    Object.defineProperty(window, 'location', { configurable: true, value: { ...originalLocation, reload: reloadSpy } });
+
+    function ChunkBoom(): JSX.Element {
+      throw new Error('error loading dynamically imported module: foo.js');
+    }
+
+    render(
+      <ErrorBoundary>
+        <ChunkBoom />
+      </ErrorBoundary>,
+    );
+
+    expect(reloadSpy).not.toHaveBeenCalled();
+
+    Object.defineProperty(window, 'location', { configurable: true, value: originalLocation });
+    sessionStorage.clear();
+  });
+
   it('recovers via "Erneut versuchen" once the child stops throwing', () => {
     let healthy = false;
     function Flaky(): JSX.Element {

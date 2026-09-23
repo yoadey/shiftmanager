@@ -132,6 +132,15 @@ func (f *fakeMemberRepo) SetReminderOptOut(ctx context.Context, id uuid.UUID, op
 	return nil
 }
 
+func (f *fakeMemberRepo) SetNotifyNewEvents(ctx context.Context, id uuid.UUID, notify bool) error {
+	m, ok := f.members[id]
+	if !ok {
+		return domain.ErrMemberNotFound
+	}
+	m.NotifyNewEvents = notify
+	return nil
+}
+
 func (f *fakeMemberRepo) Anonymize(ctx context.Context, id uuid.UUID, leftAt time.Time) error {
 	m, ok := f.members[id]
 	if !ok {

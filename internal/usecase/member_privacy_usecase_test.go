@@ -68,6 +68,17 @@ func TestSetReminderOptOut(t *testing.T) {
 	assert.True(t, audit.has(domain.AuditActionUpdate, domain.AuditEntityMember))
 }
 
+func TestSetNotifyNewEvents(t *testing.T) {
+	uc, members, _, _, audit := newPrivacyUC()
+	mid := uuid.New()
+	members.add(&domain.Member{ID: mid, IsActive: true})
+
+	require.NoError(t, uc.SetNotifyNewEvents(context.Background(), mid, mid, true))
+	m, _ := members.GetByID(context.Background(), mid)
+	assert.True(t, m.NotifyNewEvents)
+	assert.True(t, audit.has(domain.AuditActionUpdate, domain.AuditEntityMember))
+}
+
 func TestGDPRDelete_NotFound(t *testing.T) {
 	uc, _, _, _, _ := newPrivacyUC()
 	err := uc.GDPRDelete(context.Background(), uuid.New(), uuid.New())

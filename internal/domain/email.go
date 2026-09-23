@@ -25,6 +25,7 @@ const (
 	EmailTemplateYearBilling       = "year-billing"
 	EmailTemplateMissingHours      = "missing-hours-warning"
 	EmailTemplateUnderstaffed      = "shift-understaffed"
+	EmailTemplateNewEvent          = "new-event"
 )
 
 // EmailTemplate is an overridable transactional email template. Subject and body

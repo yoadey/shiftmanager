@@ -1,7 +1,6 @@
 package handler
 
 import (
-	"context"
 	"net/http"
 	"strconv"
 	"time"
@@ -222,12 +221,4 @@ func parseIntQuery(r *http.Request, key string, def int) int {
 
 func writeError(w http.ResponseWriter, status int, msg string) {
 	writeJSON(w, status, map[string]string{"error": msg})
-}
-
-// contextKey re-export so handler package is self-contained.
-type ctxKey string
-
-// withContext is a utility to attach a value to a context.
-func withContext(ctx context.Context, key ctxKey, val interface{}) context.Context {
-	return context.WithValue(ctx, key, val)
 }

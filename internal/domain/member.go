@@ -21,6 +21,9 @@ type Member struct {
 	OIDCSubject         *string    `json:"oidcSubject,omitempty"`
 	Role                string     `json:"role"`
 	ReminderOptOut      bool       `json:"reminderOptOut"`
+	// NotifyNewEvents is an opt-in preference: when true, the member receives an
+	// e-mail whenever a new event is published ("Neue Veranstaltung", opt-in).
+	NotifyNewEvents bool `json:"notifyNewEvents"`
 }
 
 // OIDCLink stores the link between a member and an OIDC provider subject.

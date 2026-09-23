@@ -55,6 +55,7 @@ export interface Member {
   goal: number | null;   // ← individualGoalHours
   active?: boolean;      // ← isActive
   reminderOptOut?: boolean;
+  notifyNewEvents?: boolean;
 }
 
 export type EventStatus =
