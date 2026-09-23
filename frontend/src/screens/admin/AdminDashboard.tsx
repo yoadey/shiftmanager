@@ -93,7 +93,7 @@ export function AdminDashboard() {
       </div>
       <div className="sm-pad">
         <div className="sm-stat-grid">
-          <StatCard icon="hours" label="Bestätigte Stunden" val={hrs(totalConfirmedHours)} sub={`Vereinsjahr ${clubYear}`} />
+          <StatCard icon="hours" label="Bestätigte Stunden" val={hrs(totalConfirmedHours)} sub={`Abrechnungsjahr ${clubYear}`} />
           <StatCard icon="users" label="Aktive Mitglieder" val={activeMembers} sub={`${membersBelowTarget} unter Ziel`} />
           <StatCard icon="calendar" label="Kommende Schichten" val={upcomingShifts} sub="in der Zukunft" />
           <StatCard icon="layers" label="Unterbesetzte Schichten" val={openShifts} sub="unter Mindesthelfern" accent />
@@ -102,8 +102,6 @@ export function AdminDashboard() {
         <Button icon="plus" onClick={() => setCreateOpen(true)} style={{ marginTop: 14 }}>Neue Veranstaltung</Button>
         <div style={{ height: 14 }} />
         <Button variant="soft" icon="plus" onClick={() => push('manual')}>Stunden manuell buchen</Button>
-        <div style={{ height: 10 }} />
-        <Button variant="soft" icon="euro" onClick={() => push('billing')}>Jahresabrechnung</Button>
 
         <Section title="Unterbesetzte Schichten" />
         {understaffed.length === 0

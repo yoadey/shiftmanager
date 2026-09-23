@@ -18,7 +18,8 @@ func newHourUC() (*HourUsecase, *fakeHourRepo, *fakeMemberRepo, *fakeShiftRepo, 
 	audit := newFakeAuditRepo()
 	email := &fakeEmailService{}
 	events := newFakeEventRepo()
-	return NewHourUsecase(hours, members, shifts, audit, email, events), hours, members, shifts, audit
+	regs := newFakeRegistrationRepo()
+	return NewHourUsecase(hours, members, shifts, regs, audit, email, events), hours, members, shifts, audit
 }
 
 func seedYear(hours *fakeHourRepo, defaultTarget float64) *domain.ClubYear {

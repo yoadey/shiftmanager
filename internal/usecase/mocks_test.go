@@ -380,6 +380,17 @@ func (f *fakeRegistrationRepo) FindByGuestEmailAndShift(ctx context.Context, gue
 	return nil, domain.ErrRegistrationNotFound
 }
 
+func (f *fakeRegistrationRepo) ConfirmRegisteredByShift(_ context.Context, shiftID uuid.UUID) (int, error) {
+	n := 0
+	for _, r := range f.regs {
+		if r.ShiftID == shiftID && r.State == domain.RegistrationStateRegistered {
+			r.State = domain.RegistrationStateConfirmed
+			n++
+		}
+	}
+	return n, nil
+}
+
 func (f *fakeRegistrationRepo) CountActiveByShift(ctx context.Context, shiftID uuid.UUID) (int, error) {
 	n := 0
 	for _, r := range f.regs {
@@ -509,6 +520,29 @@ func (f *fakeHourRepo) CreateClubYear(ctx context.Context, y *domain.ClubYear) e
 	return nil
 }
 
+func (f *fakeHourRepo) UpdateClubYear(ctx context.Context, y *domain.ClubYear) error {
+	if _, ok := f.years[y.ID]; !ok {
+		return domain.ErrClubYearNotFound
+	}
+	cp := *y
+	f.years[y.ID] = &cp
+	if y.IsActive {
+		f.activeYr = &cp
+	}
+	return nil
+}
+
+func (f *fakeHourRepo) DeleteClubYear(ctx context.Context, id uuid.UUID) error {
+	if _, ok := f.years[id]; !ok {
+		return domain.ErrClubYearNotFound
+	}
+	delete(f.years, id)
+	if f.activeYr != nil && f.activeYr.ID == id {
+		f.activeYr = nil
+	}
+	return nil
+}
+
 func (f *fakeHourRepo) GetActiveClubYear(ctx context.Context) (*domain.ClubYear, error) {
 	if f.activeYr == nil {
 		return nil, domain.ErrClubYearNotFound
@@ -547,6 +581,14 @@ func (f *fakeHourRepo) GetHourTarget(ctx context.Context, memberID, clubYearID u
 func (f *fakeHourRepo) UpsertHourTarget(ctx context.Context, t *domain.HourTarget) error {
 	cp := *t
 	f.targets[targetKey(t.MemberID, t.ClubYearID)] = &cp
+	return nil
+}
+
+func (f *fakeHourRepo) DeactivateAllClubYears(_ context.Context) error {
+	for _, y := range f.years {
+		y.IsActive = false
+	}
+	f.activeYr = nil
 	return nil
 }
 

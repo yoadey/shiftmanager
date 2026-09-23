@@ -303,7 +303,7 @@ export function MemberDetail({ id }: { id: string }) {
         )}
         <div className="sm-card pad" style={{ marginTop: 12 }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline' }}>
-            <span style={{ fontWeight: 700, color: 'var(--ink-2)', fontSize: 14 }}>Stundenkonto {settings?.clubYear ?? new Date().getFullYear()}</span>
+            <span style={{ fontWeight: 700, color: 'var(--ink-2)', fontSize: 14 }}>Stundenkonto {hoursQ.data?.clubYearLabel ?? settings?.clubYear ?? new Date().getFullYear()}</span>
             <span><b style={{ fontFamily: 'Bricolage Grotesque', fontSize: 19 }}>{hrs(h)}</b> <span style={{ color: 'var(--muted)', fontWeight: 700 }}>/ {goal} h</span></span>
           </div>
           <div style={{ marginTop: 10 }}>

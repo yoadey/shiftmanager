@@ -200,6 +200,86 @@ func (h *ShiftHandler) ConfirmRegistration(w http.ResponseWriter, r *http.Reques
 	writeJSON(w, http.StatusOK, reg)
 }
 
+// PatchRegistration updates the state and/or booked hours of a registration.
+// PATCH /api/v1/registrations/:id
+func (h *ShiftHandler) PatchRegistration(w http.ResponseWriter, r *http.Request) {
+	id, err := parseUUIDParam(r, "id")
+	if err != nil {
+		writeError(w, http.StatusBadRequest, "invalid registration id")
+		return
+	}
+
+	var body struct {
+		State       *string  `json:"state"`
+		BookedHours *float64 `json:"bookedHours"`
+	}
+	if err := decodeJSON(r, &body); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid request body")
+		return
+	}
+
+	var state *domain.RegistrationState
+	if body.State != nil {
+		s := domain.RegistrationState(*body.State)
+		state = &s
+	}
+
+	actorID := middleware.GetUserID(r.Context())
+	reg, err := h.regUC.UpdateRegistration(r.Context(), actorID, id, state, body.BookedHours)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, reg)
+}
+
+// ForceDeleteReg force-removes a registration regardless of deadline or event status.
+// DELETE /api/v1/registrations/:id
+func (h *ShiftHandler) ForceDeleteReg(w http.ResponseWriter, r *http.Request) {
+	id, err := parseUUIDParam(r, "id")
+	if err != nil {
+		writeError(w, http.StatusBadRequest, "invalid registration id")
+		return
+	}
+
+	actorID := middleware.GetUserID(r.Context())
+	if err := h.regUC.ForceDeleteRegistration(r.Context(), actorID, id); err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
+// AddMember registers any member for a shift, bypassing event status and capacity.
+// POST /api/v1/shifts/:id/add-member
+func (h *ShiftHandler) AddMember(w http.ResponseWriter, r *http.Request) {
+	shiftID, err := parseUUIDParam(r, "id")
+	if err != nil {
+		writeError(w, http.StatusBadRequest, "invalid shift id")
+		return
+	}
+
+	var body struct {
+		MemberID uuid.UUID `json:"memberId"`
+	}
+	if err := decodeJSON(r, &body); err != nil || body.MemberID == uuid.Nil {
+		writeError(w, http.StatusBadRequest, "memberId is required")
+		return
+	}
+
+	actorID := middleware.GetUserID(r.Context())
+	reg, err := h.regUC.OrganizerRegister(r.Context(), actorID, shiftID, body.MemberID)
+	if err != nil {
+		status := http.StatusBadRequest
+		if err == domain.ErrAlreadyRegistered {
+			status = http.StatusConflict
+		}
+		writeError(w, status, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusCreated, reg)
+}
+
 // ConfirmByToken handles the one-time confirmation link from kiosk emails.
 // GET /api/v1/shifts/confirm/:token
 func (h *ShiftHandler) ConfirmByToken(w http.ResponseWriter, r *http.Request) {

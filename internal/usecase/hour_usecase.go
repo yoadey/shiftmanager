@@ -12,12 +12,13 @@ import (
 
 // HourUsecase handles hour tracking and confirmation business logic.
 type HourUsecase struct {
-	hours   port.HourRepository
-	members port.MemberRepository
-	shifts  port.ShiftRepository
-	audit   port.AuditRepository
-	email   port.EmailService
-	events  port.EventRepository
+	hours         port.HourRepository
+	members       port.MemberRepository
+	shifts        port.ShiftRepository
+	registrations port.RegistrationRepository
+	audit         port.AuditRepository
+	email         port.EmailService
+	events        port.EventRepository
 }
 
 // NewHourUsecase creates a new HourUsecase.
@@ -25,17 +26,19 @@ func NewHourUsecase(
 	hours port.HourRepository,
 	members port.MemberRepository,
 	shifts port.ShiftRepository,
+	registrations port.RegistrationRepository,
 	audit port.AuditRepository,
 	emailSvc port.EmailService,
 	events port.EventRepository,
 ) *HourUsecase {
 	return &HourUsecase{
-		hours:   hours,
-		members: members,
-		shifts:  shifts,
-		audit:   audit,
-		email:   emailSvc,
-		events:  events,
+		hours:         hours,
+		members:       members,
+		shifts:        shifts,
+		registrations: registrations,
+		audit:         audit,
+		email:         emailSvc,
+		events:        events,
 	}
 }
 
@@ -256,7 +259,13 @@ type CreateClubYearInput struct {
 }
 
 // CreateClubYear creates a new club year and optionally marks it as active.
+// When SetActive is true, all other years are deactivated first.
 func (uc *HourUsecase) CreateClubYear(ctx context.Context, actorID uuid.UUID, input CreateClubYearInput) (*domain.ClubYear, error) {
+	if input.SetActive {
+		if err := uc.hours.DeactivateAllClubYears(ctx); err != nil {
+			return nil, fmt.Errorf("deactivate existing years: %w", err)
+		}
+	}
 	year := &domain.ClubYear{
 		ID:                 uuid.New(),
 		Label:              input.Label,
@@ -271,37 +280,205 @@ func (uc *HourUsecase) CreateClubYear(ctx context.Context, actorID uuid.UUID, in
 	return year, nil
 }
 
-// MemberAccountFull combines the hour account summary with the raw entries.
-type MemberAccountFull struct {
-	Confirmed float64             `json:"confirmed"`
-	Reserved  float64             `json:"reserved"`
-	Goal      float64             `json:"goal"`
-	Entries   []*domain.HourEntry `json:"entries"`
+// UpdateClubYearInput holds the editable fields for a club year.
+type UpdateClubYearInput struct {
+	Label              string    `json:"label"`
+	StartDate          time.Time `json:"startDate"`
+	EndDate            time.Time `json:"endDate"`
+	DefaultTargetHours float64   `json:"defaultTargetHours"`
+	SetActive          *bool     `json:"setActive"`
 }
 
-// GetMemberAccountFull returns the account summary and raw entries for a member
-// using the active club year. Falls back gracefully when no active year exists.
+// UpdateClubYear updates label, date range, default target hours and active flag of an existing club year.
+func (uc *HourUsecase) UpdateClubYear(ctx context.Context, actorID uuid.UUID, id uuid.UUID, input UpdateClubYearInput) (*domain.ClubYear, error) {
+	year, err := uc.hours.GetClubYearByID(ctx, id)
+	if err != nil {
+		return nil, err
+	}
+	before := *year
+	year.Label = input.Label
+	year.StartDate = input.StartDate
+	year.EndDate = input.EndDate
+	if input.DefaultTargetHours > 0 {
+		year.DefaultTargetHours = input.DefaultTargetHours
+	}
+	if input.SetActive != nil {
+		if *input.SetActive {
+			// Deactivate all others before activating this one.
+			if err := uc.hours.DeactivateAllClubYears(ctx); err != nil {
+				return nil, fmt.Errorf("deactivate existing years: %w", err)
+			}
+		}
+		year.IsActive = *input.SetActive
+	}
+	if err := uc.hours.UpdateClubYear(ctx, year); err != nil {
+		return nil, fmt.Errorf("update club year: %w", err)
+	}
+	aid := actorID
+	_ = uc.writeAudit(ctx, &aid, domain.AuditActionUpdate, domain.AuditEntityClubYear, id.String(), before, *year)
+	return year, nil
+}
+
+// DeleteClubYear removes a club year, including active ones.
+func (uc *HourUsecase) DeleteClubYear(ctx context.Context, actorID uuid.UUID, id uuid.UUID) error {
+	year, err := uc.hours.GetClubYearByID(ctx, id)
+	if err != nil {
+		return err
+	}
+	if err := uc.hours.DeleteClubYear(ctx, id); err != nil {
+		return fmt.Errorf("delete club year: %w", err)
+	}
+	aid := actorID
+	_ = uc.writeAudit(ctx, &aid, domain.AuditActionDelete, domain.AuditEntityClubYear, id.String(), year, nil)
+	return nil
+}
+
+// MemberHourEntry is the per-entry view returned in MemberAccountFull.
+// It extends the core HourEntry fields with optional display-only enrichment.
+type MemberHourEntry struct {
+	ID          uuid.UUID              `json:"id"`
+	MemberID    uuid.UUID              `json:"memberId"`
+	ShiftID     *uuid.UUID             `json:"shiftId,omitempty"`
+	ClubYearID  uuid.UUID              `json:"clubYearId"`
+	Hours       float64                `json:"hours"`
+	Type        domain.HourEntryType   `json:"type"`
+	Status      domain.HourEntryStatus `json:"status"`
+	BookedBy    *uuid.UUID             `json:"bookedBy,omitempty"`
+	Description string                 `json:"description"`
+	CreatedAt   time.Time              `json:"createdAt"`
+	Manual      bool                   `json:"manual,omitempty"`
+	Desc        string                 `json:"desc,omitempty"`
+	Date        string                 `json:"date,omitempty"`
+	EventName   string                 `json:"eventName,omitempty"`
+	ShiftName   string                 `json:"shiftName,omitempty"`
+}
+
+// MemberAccountFull combines the hour account summary with enriched entries.
+type MemberAccountFull struct {
+	Confirmed      float64            `json:"confirmed"`
+	Reserved       float64            `json:"reserved"`
+	Goal           float64            `json:"goal"`
+	ClubYearLabel  string             `json:"clubYearLabel"`
+	Entries        []*MemberHourEntry `json:"entries"`
+}
+
+// GetMemberAccountFull returns the account summary and enriched entries for a member
+// using the active club year. It counts both explicit HourEntry records and
+// confirmed shift registrations so the total matches the billing computation.
 func (uc *HourUsecase) GetMemberAccountFull(ctx context.Context, memberID uuid.UUID) (*MemberAccountFull, error) {
+	empty := &MemberAccountFull{Entries: []*MemberHourEntry{}}
+
 	year, err := uc.hours.GetActiveClubYear(ctx)
 	if err != nil {
-		return &MemberAccountFull{Entries: []*domain.HourEntry{}}, nil
+		return empty, nil
 	}
-	account, err := uc.GetMemberAccount(ctx, memberID, year.ID)
+
+	// Determine target hours for this member.
+	targetHours := year.DefaultTargetHours
+	if ht, err := uc.hours.GetHourTarget(ctx, memberID, year.ID); err == nil && ht != nil {
+		targetHours = ht.TargetHours
+	}
+
+	// Collect explicit HourEntry records and track which shifts they cover.
+	rawEntries, err := uc.hours.FindEntriesByMemberAndYear(ctx, memberID, year.ID)
 	if err != nil {
-		return &MemberAccountFull{Entries: []*domain.HourEntry{}}, nil
+		rawEntries = nil
 	}
-	entries, err := uc.hours.FindEntriesByMemberAndYear(ctx, memberID, year.ID)
-	if err != nil {
-		entries = nil
+
+	type shiftKey = uuid.UUID
+	coveredShifts := make(map[shiftKey]bool)
+	var confirmed, pending float64
+	result := make([]*MemberHourEntry, 0, len(rawEntries))
+
+	for _, e := range rawEntries {
+		switch e.Status {
+		case domain.HourEntryStatusConfirmed:
+			confirmed += e.Hours
+			if e.ShiftID != nil {
+				coveredShifts[*e.ShiftID] = true
+			}
+		case domain.HourEntryStatusPending:
+			pending += e.Hours
+		}
+		me := &MemberHourEntry{
+			ID:          e.ID,
+			MemberID:    e.MemberID,
+			ShiftID:     e.ShiftID,
+			ClubYearID:  e.ClubYearID,
+			Hours:       e.Hours,
+			Type:        e.Type,
+			Status:      e.Status,
+			BookedBy:    e.BookedBy,
+			Description: e.Description,
+			CreatedAt:   e.CreatedAt,
+			Manual:      e.Type == domain.HourEntryTypeManual,
+			Desc:        e.Description,
+			Date:        e.CreatedAt.UTC().Format("2006-01-02"),
+		}
+		result = append(result, me)
 	}
-	if entries == nil {
-		entries = []*domain.HourEntry{}
+
+	// Also count and display confirmed shift registrations not already covered by an entry.
+	if uc.registrations != nil && uc.shifts != nil {
+		memberRegs, regErr := uc.registrations.FindByMemberID(ctx, memberID)
+		if regErr == nil {
+			// Build a map of confirmed shift IDs from member's registrations.
+			confirmedRegByShift := make(map[uuid.UUID]*domain.Registration)
+			for _, reg := range memberRegs {
+				if reg.State == domain.RegistrationStateConfirmed && reg.MemberID != nil {
+					confirmedRegByShift[reg.ShiftID] = reg
+				}
+			}
+
+			if len(confirmedRegByShift) > 0 {
+				shiftsInYear, shErr := uc.shifts.FindShiftsStartingBetween(ctx, year.StartDate, year.EndDate.Add(time.Minute))
+				if shErr == nil {
+					for _, s := range shiftsInYear {
+						if coveredShifts[s.ID] {
+							continue
+						}
+						reg, ok := confirmedRegByShift[s.ID]
+						if !ok {
+							continue
+						}
+						hours := s.EndAt.Sub(s.StartAt).Hours()
+						if hours <= 0 {
+							continue
+						}
+						confirmed += hours
+
+						eventName := ""
+						if uc.events != nil {
+							if ev, evErr := uc.events.GetByID(ctx, s.EventID); evErr == nil {
+								eventName = ev.Name
+							}
+						}
+						result = append(result, &MemberHourEntry{
+							ID:          reg.ID,
+							MemberID:    memberID,
+							ShiftID:     &s.ID,
+							ClubYearID:  year.ID,
+							Hours:       hours,
+							Type:        domain.HourEntryTypeShift,
+							Status:      domain.HourEntryStatusConfirmed,
+							Description: s.Name,
+							CreatedAt:   s.StartAt,
+							Date:        s.StartAt.UTC().Format("2006-01-02"),
+							EventName:   eventName,
+							ShiftName:   s.Name,
+						})
+					}
+				}
+			}
+		}
 	}
+
 	return &MemberAccountFull{
-		Confirmed: account.ConfirmedHours,
-		Reserved:  account.PendingHours,
-		Goal:      account.TargetHours,
-		Entries:   entries,
+		Confirmed:     confirmed,
+		Reserved:      pending,
+		Goal:          targetHours,
+		ClubYearLabel: year.Label,
+		Entries:       result,
 	}, nil
 }
 

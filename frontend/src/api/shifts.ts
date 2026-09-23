@@ -1,5 +1,5 @@
 import { useMutation, useQueryClient } from '@tanstack/react-query';
-import { apiPost, apiPut, apiDelete } from './client';
+import { apiPost, apiPut, apiPatch, apiDelete } from './client';
 
 export interface ShiftPayload {
   eventId: string;
@@ -95,6 +95,46 @@ export function useDeregisterShift() {
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['events'] });
       qc.invalidateQueries({ queryKey: ['my-hours'] });
+    },
+  });
+}
+
+export function usePatchRegistration() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ registrationId, state, bookedHours }: {
+      registrationId: string;
+      eventId: string;
+      state?: string;
+      bookedHours?: number;
+    }) => apiPatch(`/registrations/${registrationId}`, { state, bookedHours }),
+    onSuccess: (_d, vars) => {
+      qc.invalidateQueries({ queryKey: ['events'] });
+      qc.invalidateQueries({ queryKey: ['events', vars.eventId] });
+    },
+  });
+}
+
+export function useForceDeleteRegistration() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ registrationId }: { registrationId: string; eventId: string }) =>
+      apiDelete<void>(`/registrations/${registrationId}`),
+    onSuccess: (_d, vars) => {
+      qc.invalidateQueries({ queryKey: ['events'] });
+      qc.invalidateQueries({ queryKey: ['events', vars.eventId] });
+    },
+  });
+}
+
+export function useAddMemberToShift() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ shiftId, memberId }: { shiftId: string; memberId: string; eventId: string }) =>
+      apiPost(`/shifts/${shiftId}/add-member`, { memberId }),
+    onSuccess: (_d, vars) => {
+      qc.invalidateQueries({ queryKey: ['events'] });
+      qc.invalidateQueries({ queryKey: ['events', vars.eventId] });
     },
   });
 }

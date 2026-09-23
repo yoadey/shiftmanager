@@ -209,6 +209,38 @@ func (uc *EventUsecase) PublishEvent(ctx context.Context, actorID uuid.UUID, id 
 	return e, nil
 }
 
+// CompleteEvent transitions a published event to completed and bulk-confirms all
+// registrations that are still in the "registered" state across all its shifts.
+func (uc *EventUsecase) CompleteEvent(ctx context.Context, actorID uuid.UUID, id uuid.UUID) (*domain.Event, error) {
+	e, err := uc.events.GetByID(ctx, id)
+	if err != nil {
+		return nil, err
+	}
+	if !e.CanComplete() {
+		return nil, domain.ErrEventNotCompletable
+	}
+
+	if err := uc.events.UpdateStatus(ctx, id, domain.EventStatusCompleted); err != nil {
+		return nil, fmt.Errorf("complete event: %w", err)
+	}
+	e.Status = domain.EventStatusCompleted
+
+	shifts, err := uc.shifts.FindByEventID(ctx, id)
+	if err != nil {
+		return nil, fmt.Errorf("load shifts: %w", err)
+	}
+	for _, s := range shifts {
+		if _, err := uc.registrations.ConfirmRegisteredByShift(ctx, s.ID); err != nil {
+			return nil, fmt.Errorf("confirm registrations for shift %s: %w", s.ID, err)
+		}
+	}
+
+	aid := actorID
+	_ = uc.writeAudit(ctx, &aid, domain.AuditActionUpdate, domain.AuditEntityEvent, id.String(), nil, map[string]string{"status": "completed"})
+
+	return e, nil
+}
+
 // ListEvents returns events matching the filter.
 func (uc *EventUsecase) ListEvents(ctx context.Context, filter port.EventFilter) ([]*domain.Event, error) {
 	return uc.events.List(ctx, filter)

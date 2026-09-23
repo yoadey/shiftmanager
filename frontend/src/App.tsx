@@ -45,6 +45,7 @@ const ADMIN_TABS = [
   { key: 'start', label: 'Übersicht', icon: 'chart' },
   { key: 'events', label: 'Termine', icon: 'calendar' },
   { key: 'mitglieder', label: 'Mitglieder', icon: 'users' },
+  { key: 'abrechnungen', label: 'Abrechnungen', icon: 'euro' },
   { key: 'settings', label: 'Einstellungen', icon: 'settings' },
 ];
 
@@ -67,7 +68,6 @@ function ScreenRouter() {
     if (top.name === 'audit') return <AuditLog />;
     if (top.name === 'email-templates') return <EmailTemplates />;
     if (top.name === 'email-log') return <EmailLog />;
-    if (top.name === 'billing') return <AdminBilling />;
   }
 
   if (role === 'mitglied') {
@@ -79,6 +79,7 @@ function ScreenRouter() {
     if (tab === 'start') return <AdminDashboard />;
     if (tab === 'events') return <AdminEvents />;
     if (tab === 'mitglieder') return <AdminMembers />;
+    if (tab === 'abrechnungen') return <AdminBilling />;
     if (tab === 'settings') return <AdminSettings />;
   }
   return null;

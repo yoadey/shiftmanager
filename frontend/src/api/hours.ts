@@ -4,17 +4,25 @@ import type { HourEntry } from '@/types';
 
 // ── Queries ────────────────────────────────────────────────────────────────
 
+export interface MemberHourAccount {
+  confirmed: number;
+  reserved: number;
+  goal: number;
+  clubYearLabel?: string;
+  entries: HourEntry[];
+}
+
 export function useMyHours() {
   return useQuery({
     queryKey: ['my-hours'],
-    queryFn: () => apiGet<{ entries: HourEntry[]; confirmed: number; reserved: number; goal: number }>('/hours/me'),
+    queryFn: () => apiGet<MemberHourAccount>('/hours/me'),
   });
 }
 
 export function useMemberHours(memberId: string) {
   return useQuery({
     queryKey: ['hours', memberId],
-    queryFn: () => apiGet<{ entries: HourEntry[]; confirmed: number; reserved: number; goal: number }>(`/hours/${memberId}`),
+    queryFn: () => apiGet<MemberHourAccount>(`/hours/${memberId}`),
     enabled: !!memberId,
   });
 }
