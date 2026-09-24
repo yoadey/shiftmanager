@@ -1,18 +1,14 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState } from 'react';
 import { Icon } from '@/components/ui/Icon';
-import { IOSFrame } from '@/components/device/IOSFrame';
+import { Sheet } from '@/components/ui/Sheet';
 import { useAppStore } from '@/store/app.store';
-import { useBranding } from '@/api/settings';
 import { isSectionStart, type NavTab } from '@/utils/navTabs';
 
-const DEFAULT_CLUB = 'TSC Schwarz-Gelb Aachen';
-
-function clubInitials(name: string): string {
-  const words = name.split(/\s+/).filter(Boolean);
-  if (words.length === 0) return 'SG';
-  if (words.length === 1) return words[0].slice(0, 2).toUpperCase();
-  return (words[0][0] + words[words.length - 1][0]).toUpperCase();
-}
+// The bottom bar evenly spreads up to this many items; once the
+// veranstaltungsleiter/vorstand/admin-only tabs are appended it no longer
+// fits, so the rest are tucked behind a "Mehr" button that opens a menu
+// instead of making the bar scrollable.
+const MAX_VISIBLE_TABS = 4;
 
 interface MobileShellProps {
   tabs: NavTab[];
@@ -21,70 +17,72 @@ interface MobileShellProps {
 
 export function MobileShell({ tabs, children }: MobileShellProps) {
   const { tab, go, navStack } = useAppStore();
-  const { data: branding } = useBranding();
-  const clubName = branding?.clubName ?? DEFAULT_CLUB;
-  const [scale, setScale] = useState(1);
-  // The bottom bar evenly spreads a handful of items; once the
-  // veranstaltungsleiter/vorstand/admin-only tabs are appended it no longer
-  // fits, so it switches to a horizontally scrollable strip instead.
-  const scrollable = tabs.length > 4;
+  const [moreOpen, setMoreOpen] = useState(false);
 
-  useEffect(() => {
-    const fit = () => {
-      const pad = window.innerWidth < 520 ? 0 : 24;
-      const s = Math.min(
-        1,
-        (window.innerHeight - 86 - pad) / 874,
-        (window.innerWidth - pad) / 402,
-      );
-      setScale(Math.max(0.4, s));
-    };
-    fit();
-    window.addEventListener('resize', fit);
-    return () => window.removeEventListener('resize', fit);
-  }, []);
+  const overflow = tabs.length > MAX_VISIBLE_TABS;
+  const visibleTabs = overflow ? tabs.slice(0, MAX_VISIBLE_TABS - 1) : tabs;
+  const overflowTabs = overflow ? tabs.slice(MAX_VISIBLE_TABS - 1) : [];
+  const overflowActive = overflowTabs.some((t) => t.key === tab);
 
   return (
-    <div className="stage">
-      <div className="rolebar">
-        <div className="rb-brand" title={clubName}>
-          {branding?.logoUrl ? (
-            <img src={branding.logoUrl} alt={clubName} className="rb-logo" style={{ objectFit: 'cover' }} />
-          ) : (
-            <span className="rb-logo">{clubInitials(clubName)}</span>
+    <div className="sm-app">
+      <div className="sm-main" key={tab + navStack.length}>
+        {children}
+      </div>
+
+      {navStack.length === 0 && (
+        <nav className="sm-nav">
+          {visibleTabs.map(({ key, label, icon }, i) => (
+            <React.Fragment key={key}>
+              {isSectionStart(visibleTabs, i) && <span className="nav-sep" />}
+              <button
+                className={'sm-navitem' + (tab === key ? ' active' : '')}
+                onClick={() => go(key)}
+              >
+                <span className="ni-ico">
+                  <Icon name={icon} size={21} stroke={tab === key ? 2.4 : 2} />
+                </span>
+                {label}
+              </button>
+            </React.Fragment>
+          ))}
+          {overflow && (
+            <button
+              className={'sm-navitem' + (overflowActive ? ' active' : '')}
+              onClick={() => setMoreOpen(true)}
+            >
+              <span className="ni-ico">
+                <Icon name="more" size={21} stroke={overflowActive ? 2.4 : 2} />
+              </span>
+              Mehr
+            </button>
           )}
-          <span>ShiftManager</span>
-        </div>
-      </div>
+        </nav>
+      )}
 
-      <div className="scaler" style={{ transform: `scale(${scale})` }}>
-        <IOSFrame>
-          <div className="sm-app">
-            <div className="sm-main" key={tab + navStack.length}>
-              {children}
-            </div>
-
-            {navStack.length === 0 && (
-              <nav className={'sm-nav' + (scrollable ? ' scroll' : '')}>
-                {tabs.map(({ key, label, icon }, i) => (
-                  <React.Fragment key={key}>
-                    {isSectionStart(tabs, i) && <span className="nav-sep" />}
-                    <button
-                      className={'sm-navitem' + (tab === key ? ' active' : '')}
-                      onClick={() => go(key)}
-                    >
-                      <span className="ni-ico">
-                        <Icon name={icon} size={21} stroke={tab === key ? 2.4 : 2} />
-                      </span>
-                      {label}
-                    </button>
-                  </React.Fragment>
-                ))}
-              </nav>
-            )}
+      {moreOpen && (
+        <Sheet onClose={() => setMoreOpen(false)} title="Mehr">
+          <div className="sm-more-list">
+            {overflowTabs.map(({ key, label, icon }, i) => (
+              <React.Fragment key={key}>
+                {isSectionStart(overflowTabs, i) && <div className="sm-more-sep" />}
+                <button
+                  className={'sm-more-item' + (tab === key ? ' active' : '')}
+                  onClick={() => {
+                    go(key);
+                    setMoreOpen(false);
+                  }}
+                >
+                  <span className="ni-ico">
+                    <Icon name={icon} size={20} stroke={tab === key ? 2.4 : 2} />
+                  </span>
+                  {label}
+                </button>
+              </React.Fragment>
+            ))}
           </div>
-        </IOSFrame>
-      </div>
+        </Sheet>
+      )}
     </div>
   );
 }
