@@ -98,7 +98,8 @@ function ManualBookingRoute() {
   return <ManualBooking id={id} />;
 }
 
-function ScreenRoutes() {
+// Exported for testing the route/role matrix in isolation (App.routes.test.tsx).
+export function ScreenRoutes() {
   const isVorstand = useIsVorstand();
   const isEventManager = useIsEventManager();
   const role = useAuthStore((s) => s.user?.role);
@@ -116,7 +117,12 @@ function ScreenRoutes() {
       <Route path="uebersicht" element={<RequireRole allowed={isEventManager}><AdminDashboard /></RequireRole>} />
       <Route path="events" element={<RequireRole allowed={isEventManager}><AdminEvents /></RequireRole>} />
       <Route path="events/neu" element={<RequireRole allowed={isEventManager}><CreateEventFlowRoute /></RequireRole>} />
-      <Route path="events/:id/*" element={<RequireRole allowed={isEventManager}><EventDetail /></RequireRole>} />
+      {/* Unlike the management routes above, event detail is not role-gated:
+          members reach it from Start/Entdecken/Schichten to view and sign
+          up for shifts, exactly like the old ungated 'event' nav frame did.
+          Board-only actions within the page (edit/delete/complete, adding a
+          helper, …) are still gated on isBoard inside EventDetail itself. */}
+      <Route path="events/:id/*" element={<EventDetail />} />
 
       <Route path="stunden-buchen" element={<RequireRole allowed={isEventManager}><ManualBookingRoute /></RequireRole>} />
 

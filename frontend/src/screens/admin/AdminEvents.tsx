@@ -141,7 +141,7 @@ export function AdminEvents() {
                       className="pressable"
                       onClick={(e) => {
                         e.stopPropagation();
-                        navigate(`${routes.events}?serie=${ev.id}`);
+                        navigate(routes.eventSerie(ev.id));
                       }}
                       style={{ width: 32, height: 32, borderRadius: '50%', border: '1px solid var(--line)', background: 'var(--surface)', display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer' }}
                       title="Als Serie anlegen"

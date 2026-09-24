@@ -28,7 +28,10 @@ export const routes = {
   eventNeu: `${TAB_PATHS.events}/neu`,
   event: (id: string) => `${TAB_PATHS.events}/${id}`,
   eventBearbeiten: (id: string) => `${TAB_PATHS.events}/${id}/bearbeiten`,
-  eventSerie: (id: string) => `${TAB_PATHS.events}/${id}/serie`,
+  // The recurrence dialog overlays the events *list* (it's opened from a
+  // card there), not the event-detail page, so it's a query param on
+  // /events rather than a path segment under /events/:id.
+  eventSerie: (id: string) => `${TAB_PATHS.events}?serie=${id}`,
   eventAnmelden: (id: string, shiftId: string) => `${TAB_PATHS.events}/${id}/anmelden/${shiftId}`,
   eventHelfer: (id: string, shiftId: string) => `${TAB_PATHS.events}/${id}/helfer/${shiftId}`,
   eventZeit: (id: string, signupId: string) => `${TAB_PATHS.events}/${id}/zeit/${signupId}`,
