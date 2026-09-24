@@ -5,7 +5,7 @@ import { Button } from '@/components/ui/Button';
 import { useAuthStore } from '@/store/auth.store';
 import { useAppStore } from '@/store/app.store';
 import { getMe } from '@/api/auth';
-import type { AuthUser, UserRole } from '@/types';
+import type { AuthUser } from '@/types';
 
 // Friendly German messages for the error codes the backend passes in the
 // callback URL fragment (#error=...).
@@ -22,10 +22,6 @@ const ERROR_MESSAGES: Record<string, string> = {
 // waiting for an administrator to activate it.
 const PENDING_CODES = new Set(['registered', 'inactive']);
 
-function roleView(role: UserRole): 'mitglied' | 'vorstand' {
-  return role === 'mitglied' ? 'mitglied' : 'vorstand';
-}
-
 type Status =
   | { kind: 'loading' }
   | { kind: 'error'; message: string }
@@ -34,7 +30,7 @@ type Status =
 export function CallbackPage() {
   const navigate = useNavigate();
   const login = useAuthStore((s) => s.login);
-  const setRole = useAppStore((s) => s.setRole);
+  const go = useAppStore((s) => s.go);
   const [status, setStatus] = useState<Status>({ kind: 'loading' });
   const ran = useRef(false);
 
@@ -79,14 +75,17 @@ export function CallbackPage() {
         const displayName = [me.firstName, me.lastName].filter(Boolean).join(' ') || me.email;
         const user: AuthUser = { id: me.id, name: displayName, email: me.email, role: me.role, first: me.firstName, last: me.lastName };
         login(token, user, expiresAt);
-        setRole(roleView(me.role));
+        // Land veranstaltungsleiter and above on their admin overview (see
+        // useIsEventManager), plain members on the member start screen —
+        // matching the tabs App.tsx actually shows them.
+        go(me.role === 'mitglied' ? 'start' : 'uebersicht');
         navigate('/', { replace: true });
       })
       .catch(() => {
         localStorage.removeItem('sm_token');
         setStatus({ kind: 'error', message: 'Dein Profil konnte nicht geladen werden. Bitte erneut anmelden.' });
       });
-  }, [login, setRole, navigate]);
+  }, [login, navigate, go]);
 
   return (
     <div style={{ minHeight: '100vh', background: 'var(--bg)', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 24 }}>

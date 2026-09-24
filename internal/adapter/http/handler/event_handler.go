@@ -14,12 +14,15 @@ import (
 
 // EventHandler handles HTTP requests for event operations.
 type EventHandler struct {
-	uc *usecase.EventUsecase
+	uc      *usecase.EventUsecase
+	storage port.MediaStorage // event attachment upload (V-008)
 }
 
-// NewEventHandler creates a new EventHandler.
-func NewEventHandler(uc *usecase.EventUsecase) *EventHandler {
-	return &EventHandler{uc: uc}
+// NewEventHandler creates a new EventHandler. storage configures where event
+// attachment uploads (V-008) are written, mirroring the logo upload in
+// SettingsHandler.
+func NewEventHandler(uc *usecase.EventUsecase, storage port.MediaStorage) *EventHandler {
+	return &EventHandler{uc: uc, storage: storage}
 }
 
 // List returns events filtered by status, date range, etc.
@@ -164,9 +167,13 @@ func (h *EventHandler) Delete(w http.ResponseWriter, r *http.Request) {
 	}
 
 	actorID := middleware.GetUserID(r.Context())
-	if err := h.uc.DeleteEvent(r.Context(), actorID, id); err != nil {
+	deletedAttachments, err := h.uc.DeleteEvent(r.Context(), actorID, id)
+	if err != nil {
 		writeError(w, http.StatusBadRequest, err.Error())
 		return
+	}
+	for _, a := range deletedAttachments {
+		_ = h.storage.Delete(r.Context(), a.URL)
 	}
 	w.WriteHeader(http.StatusNoContent)
 }
@@ -231,5 +238,145 @@ func (h *EventHandler) CopyEvent(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusCreated, event)
 }
 
-// unused import guard
-var _ uuid.UUID
+// GenerateRecurrence turns an event into a recurring series (V-007),
+// creating follow-up occurrences (weekly or monthly, up to "until") as
+// full copies of the event including its shifts.
+// POST /api/v1/events/{id}/recurrence
+func (h *EventHandler) GenerateRecurrence(w http.ResponseWriter, r *http.Request) {
+	id, err := parseUUIDParam(r, "id")
+	if err != nil {
+		writeError(w, http.StatusBadRequest, "invalid event id")
+		return
+	}
+
+	var body struct {
+		Frequency domain.RecurrenceFrequency `json:"frequency"`
+		Until     time.Time                  `json:"until"`
+	}
+	if err := decodeJSON(r, &body); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid request body")
+		return
+	}
+
+	actorID := middleware.GetUserID(r.Context())
+	events, err := h.uc.GenerateRecurrence(r.Context(), actorID, id, body.Frequency, body.Until)
+	if err != nil {
+		if err == domain.ErrEventNotFound {
+			writeError(w, http.StatusNotFound, "event not found")
+			return
+		}
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusCreated, events)
+}
+
+// maxAttachmentSize is the per-file upload limit for event attachments (V-008).
+const maxAttachmentSize = 5 << 20 // 5MB
+
+// UploadAttachment accepts an image or document upload for an event, stores it
+// under the uploads dir and records it against the event (V-008).
+//
+// SVG is deliberately not in the allow-list: unlike the club-logo upload
+// (Vorstand-only), this endpoint is reachable by any Veranstaltungsleiter,
+// and an SVG can embed a <script> that would execute in the app's own origin
+// for anyone who opens the attachment — a stored-XSS path we don't want to
+// open up at this broader privilege level.
+// POST /api/v1/events/{id}/attachments  (multipart/form-data, field "file")
+func (h *EventHandler) UploadAttachment(w http.ResponseWriter, r *http.Request) {
+	eventID, err := parseUUIDParam(r, "id")
+	if err != nil {
+		writeError(w, http.StatusBadRequest, "invalid event id")
+		return
+	}
+
+	fileURL, originalName, contentType, size, ok := receiveUpload(
+		w, r, h.storage, maxAttachmentSize, "event-attach-",
+		isAllowedEventAttachment, "only PNG, JPEG, GIF, WEBP and PDF files are allowed",
+	)
+	if !ok {
+		return
+	}
+
+	actorID := middleware.GetUserID(r.Context())
+	a, err := h.uc.AddAttachment(r.Context(), actorID, eventID, originalName, fileURL, contentType, size)
+	if err != nil {
+		_ = h.storage.Delete(r.Context(), fileURL)
+		if err == domain.ErrEventNotFound {
+			writeError(w, http.StatusNotFound, "event not found")
+			return
+		}
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusCreated, a)
+}
+
+// isAllowedEventAttachment validates the extension and (when present) content type.
+func isAllowedEventAttachment(ext, contentType string) bool {
+	switch ext {
+	case ".png":
+		return contentType == "" || contentType == "image/png"
+	case ".jpg", ".jpeg":
+		return contentType == "" || contentType == "image/jpeg"
+	case ".gif":
+		return contentType == "" || contentType == "image/gif"
+	case ".webp":
+		return contentType == "" || contentType == "image/webp"
+	case ".pdf":
+		return contentType == "" || contentType == "application/pdf"
+	default:
+		return false
+	}
+}
+
+// ListAttachments returns the files attached to an event (V-008).
+// GET /api/v1/events/{id}/attachments
+func (h *EventHandler) ListAttachments(w http.ResponseWriter, r *http.Request) {
+	eventID, err := parseUUIDParam(r, "id")
+	if err != nil {
+		writeError(w, http.StatusBadRequest, "invalid event id")
+		return
+	}
+	list, err := h.uc.ListAttachments(r.Context(), eventID)
+	if err != nil {
+		if err == domain.ErrEventNotFound {
+			writeError(w, http.StatusNotFound, "event not found")
+			return
+		}
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, list)
+}
+
+// DeleteAttachment removes an attachment from an event and, best-effort, its
+// underlying file (V-008).
+// DELETE /api/v1/events/{id}/attachments/{attachmentId}
+func (h *EventHandler) DeleteAttachment(w http.ResponseWriter, r *http.Request) {
+	eventID, err := parseUUIDParam(r, "id")
+	if err != nil {
+		writeError(w, http.StatusBadRequest, "invalid event id")
+		return
+	}
+	attachmentID, err := parseUUIDParam(r, "attachmentId")
+	if err != nil {
+		writeError(w, http.StatusBadRequest, "invalid attachment id")
+		return
+	}
+
+	actorID := middleware.GetUserID(r.Context())
+	deleted, err := h.uc.DeleteAttachment(r.Context(), actorID, eventID, attachmentID)
+	if err != nil {
+		if err == domain.ErrEventAttachmentNotFound {
+			writeError(w, http.StatusNotFound, "attachment not found")
+			return
+		}
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+
+	_ = h.storage.Delete(r.Context(), deleted.URL)
+
+	w.WriteHeader(http.StatusNoContent)
+}

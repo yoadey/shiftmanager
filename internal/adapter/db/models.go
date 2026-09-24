@@ -33,20 +33,36 @@ func (OIDCLinkModel) TableName() string { return "oidc_links" }
 
 // EventModel is the GORM model for the "events" table.
 type EventModel struct {
-	ID          string    `gorm:"column:id;type:text;primaryKey"`
-	Name        string    `gorm:"column:name;type:text"`
-	Description string    `gorm:"column:description;type:text"`
-	Location    string    `gorm:"column:location;type:text"`
-	Category    string    `gorm:"column:category;type:text"`
-	StartDate   time.Time `gorm:"column:start_date"`
-	EndDate     time.Time `gorm:"column:end_date"`
-	Status      string    `gorm:"column:status;type:text;index"`
-	Visibility  string    `gorm:"column:visibility;type:text"`
-	CreatedAt   time.Time `gorm:"column:created_at"`
-	UpdatedAt   time.Time `gorm:"column:updated_at"`
+	ID                  string     `gorm:"column:id;type:text;primaryKey"`
+	Name                string     `gorm:"column:name;type:text"`
+	Description         string     `gorm:"column:description;type:text"`
+	Location            string     `gorm:"column:location;type:text"`
+	Category            string     `gorm:"column:category;type:text"`
+	StartDate           time.Time  `gorm:"column:start_date"`
+	EndDate             time.Time  `gorm:"column:end_date"`
+	Status              string     `gorm:"column:status;type:text;index"`
+	Visibility          string     `gorm:"column:visibility;type:text"`
+	CreatedAt           time.Time  `gorm:"column:created_at"`
+	UpdatedAt           time.Time  `gorm:"column:updated_at"`
+	RecurrenceFrequency string     `gorm:"column:recurrence_frequency;type:text"`
+	RecurrenceUntil     *time.Time `gorm:"column:recurrence_until"`
+	RecurrenceGroupID   *string    `gorm:"column:recurrence_group_id;type:text;index"`
 }
 
 func (EventModel) TableName() string { return "events" }
+
+// EventAttachmentModel is the GORM model for the "event_attachments" table (V-008).
+type EventAttachmentModel struct {
+	ID          string    `gorm:"column:id;type:text;primaryKey"`
+	EventID     string    `gorm:"column:event_id;type:text;index"`
+	FileName    string    `gorm:"column:file_name;type:text"`
+	URL         string    `gorm:"column:url;type:text"`
+	ContentType string    `gorm:"column:content_type;type:text"`
+	SizeBytes   int64     `gorm:"column:size_bytes"`
+	UploadedAt  time.Time `gorm:"column:uploaded_at"`
+}
+
+func (EventAttachmentModel) TableName() string { return "event_attachments" }
 
 // ShiftModel is the GORM model for the "shifts" table.
 type ShiftModel struct {
@@ -68,6 +84,7 @@ type RegistrationModel struct {
 	ID                string     `gorm:"column:id;type:text;primaryKey"`
 	ShiftID           string     `gorm:"column:shift_id;type:text;index"`
 	MemberID          *string    `gorm:"column:member_id;type:text;index"`
+	GuestName         *string    `gorm:"column:guest_name;type:text"`
 	GuestEmail        *string    `gorm:"column:guest_email;type:text"`
 	State             string     `gorm:"column:state;type:text"`
 	Comment           string     `gorm:"column:comment;type:text"`
@@ -103,6 +120,7 @@ type ClubYearModel struct {
 	EndDate            time.Time `gorm:"column:end_date"`
 	DefaultTargetHours float64   `gorm:"column:default_target_hours"`
 	IsActive           bool      `gorm:"column:is_active"`
+	CarryOverEnabled   bool      `gorm:"column:carry_over_enabled"`
 }
 
 func (ClubYearModel) TableName() string { return "club_years" }

@@ -139,6 +139,18 @@ export function useAddMemberToShift() {
   });
 }
 
+export function useAddGuestToShift() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ shiftId, name, email }: { shiftId: string; name: string; email?: string; eventId: string }) =>
+      apiPost(`/shifts/${shiftId}/add-guest`, { name, email: email || undefined }),
+    onSuccess: (_d, vars) => {
+      qc.invalidateQueries({ queryKey: ['events'] });
+      qc.invalidateQueries({ queryKey: ['events', vars.eventId] });
+    },
+  });
+}
+
 export function useConfirmShiftHours() {
   const qc = useQueryClient();
   return useMutation({

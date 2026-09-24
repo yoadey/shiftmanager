@@ -46,6 +46,12 @@ type EventRepository interface {
 	Update(ctx context.Context, e *domain.Event) error
 	Delete(ctx context.Context, id uuid.UUID) error
 	UpdateStatus(ctx context.Context, id uuid.UUID, status domain.EventStatus) error
+	// MarkRecurring atomically stamps an event as the head of a recurring
+	// series (V-007), but only if it isn't already part of one. Returns
+	// applied=false (no error) if another concurrent call won the race and
+	// already stamped it, so the caller can distinguish "lost the race" from
+	// a real failure.
+	MarkRecurring(ctx context.Context, id uuid.UUID, frequency domain.RecurrenceFrequency, until time.Time, groupID uuid.UUID) (applied bool, err error)
 }
 
 // EventFilter holds optional filters when listing events.
@@ -56,6 +62,17 @@ type EventFilter struct {
 	ToDate     *time.Time
 	Limit      int
 	Offset     int
+}
+
+// EventAttachmentRepository persists files attached to events (V-008).
+type EventAttachmentRepository interface {
+	Create(ctx context.Context, a *domain.EventAttachment) error
+	ListByEvent(ctx context.Context, eventID uuid.UUID) ([]*domain.EventAttachment, error)
+	GetByID(ctx context.Context, id uuid.UUID) (*domain.EventAttachment, error)
+	Delete(ctx context.Context, id uuid.UUID) error
+	// DeleteByEvent removes every attachment row for an event in one call
+	// (used when the event itself is deleted).
+	DeleteByEvent(ctx context.Context, eventID uuid.UUID) error
 }
 
 // ShiftRepository defines persistence operations for shifts.
@@ -99,6 +116,10 @@ type HourRepository interface {
 	DeleteEntry(ctx context.Context, id uuid.UUID) error
 
 	CreateClubYear(ctx context.Context, y *domain.ClubYear) error
+	// CreateActiveClubYear creates y as the sole active club year in one
+	// atomic operation (insert + deactivate every other year), so "exactly
+	// one active club year" holds even under concurrent calls.
+	CreateActiveClubYear(ctx context.Context, y *domain.ClubYear) error
 	UpdateClubYear(ctx context.Context, y *domain.ClubYear) error
 	DeleteClubYear(ctx context.Context, id uuid.UUID) error
 	GetActiveClubYear(ctx context.Context) (*domain.ClubYear, error)

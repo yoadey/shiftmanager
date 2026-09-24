@@ -1,8 +1,15 @@
 import { Icon } from '@/components/ui/Icon';
 import { Button } from '@/components/ui/Button';
-import { oidcLoginUrl } from '@/api/auth';
+import { oidcLoginUrl, useOIDCProviders } from '@/api/auth';
+
+function goToProvider(provider?: string) {
+  window.location.href = oidcLoginUrl(provider);
+}
 
 export function LoginPage() {
+  const providersQ = useOIDCProviders();
+  const providers = providersQ.data;
+
   return (
     <div
       style={{
@@ -23,9 +30,27 @@ export function LoginPage() {
           Melde dich mit deinem Vereinskonto an, um deine Schichten und dein Stundenkonto zu verwalten.
         </p>
 
-        <Button icon="lock" onClick={() => { window.location.href = oidcLoginUrl(); }}>
-          Login via OIDC
-        </Button>
+        {/* A-005: one button per configured OIDC provider. While the list is
+            still loading, or if it failed to load, fall back to a single
+            generic button with no ?provider= — correct for the common
+            single-provider deployment either way. */}
+        {providers && providers.length > 1 ? (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+            {providers.map((p) => (
+              <Button key={p.name} icon="lock" onClick={() => goToProvider(p.name)}>
+                Anmelden mit {p.label}
+              </Button>
+            ))}
+          </div>
+        ) : (
+          <Button
+            icon="lock"
+            disabled={providersQ.isLoading}
+            onClick={() => goToProvider(providers?.[0]?.name)}
+          >
+            Anmelden mit {providers?.[0]?.label ?? 'Vereinskonto'}
+          </Button>
+        )}
 
         <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 18, color: 'var(--muted)', fontSize: 12, fontWeight: 600, justifyContent: 'center' }}>
           <Icon name="shield" size={14} color="var(--muted)" />

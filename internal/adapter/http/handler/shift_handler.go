@@ -280,6 +280,38 @@ func (h *ShiftHandler) AddMember(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusCreated, reg)
 }
 
+// AddGuest adds a non-member helper (name, optional email) to a shift,
+// bypassing event status and capacity like AddMember.
+// POST /api/v1/shifts/:id/add-guest
+func (h *ShiftHandler) AddGuest(w http.ResponseWriter, r *http.Request) {
+	shiftID, err := parseUUIDParam(r, "id")
+	if err != nil {
+		writeError(w, http.StatusBadRequest, "invalid shift id")
+		return
+	}
+
+	var body struct {
+		Name  string  `json:"name"`
+		Email *string `json:"email"`
+	}
+	if err := decodeJSON(r, &body); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid request body")
+		return
+	}
+
+	actorID := middleware.GetUserID(r.Context())
+	reg, err := h.regUC.OrganizerAddGuest(r.Context(), actorID, shiftID, body.Name, body.Email)
+	if err != nil {
+		status := http.StatusBadRequest
+		if err == domain.ErrAlreadyRegistered {
+			status = http.StatusConflict
+		}
+		writeError(w, status, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusCreated, reg)
+}
+
 // ConfirmByToken handles the one-time confirmation link from kiosk emails.
 // GET /api/v1/shifts/confirm/:token
 func (h *ShiftHandler) ConfirmByToken(w http.ResponseWriter, r *http.Request) {

@@ -48,7 +48,7 @@ interface Prefs {
 }
 
 export function MemberProfile() {
-  const { setRole, showToast } = useAppStore();
+  const { showToast } = useAppStore();
   const { user, logout } = useAuthStore();
   const uid = user?.id ?? '';
   const { data: profile } = useMember(uid);
@@ -147,25 +147,13 @@ export function MemberProfile() {
           <LinkRow icon="shield" label="Löschung beantragen" sub="Recht auf Vergessen" onClick={() => setDeleteOpen(true)} />
         </div>
 
-        <Section title="Demo" />
-        <div className="sm-card pad" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-          <div>
-            <div style={{ fontWeight: 700, fontSize: 14.5 }}>Vorstands-Ansicht testen</div>
-            <div style={{ color: 'var(--muted)', fontSize: 12.5, fontWeight: 600 }}>Wechselt in die Admin-Oberfläche</div>
-          </div>
-          <Button variant="dark" size="sm" icon="arrowR" onClick={() => setRole('vorstand')}>Wechseln</Button>
-        </div>
-
         <Section title="Konto" />
         <div className="sm-card">
           <LinkRow
             icon="lock"
             label="Abmelden"
             sub="Sitzung beenden"
-            onClick={() => {
-              logout();
-              setRole('mitglied');
-            }}
+            onClick={() => logout()}
           />
         </div>
       </div>

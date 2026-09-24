@@ -91,7 +91,8 @@ func (a *fakeAudit) WriteAudit(_ *http.Request, _ *uuid.UUID, action, _, _ strin
 func newHandler(store *fakeMemberStore, claims *port.OIDCClaims, bootstrapEmail string) (*AuthHandler, *fakeAudit) {
 	audit := &fakeAudit{}
 	return &AuthHandler{
-		oidc:                &fakeOIDC{claims: claims},
+		oidc:                map[string]port.OIDCService{"default": &fakeOIDC{claims: claims}},
+		providers:           []OIDCProviderInfo{{Name: "default", Label: "Vereinskonto"}},
 		members:             store,
 		audit:               audit,
 		jwtSecret:           "test-secret",
@@ -106,7 +107,7 @@ func newHandler(store *fakeMemberStore, claims *port.OIDCClaims, bootstrapEmail 
 func callback(t *testing.T, h *AuthHandler) string {
 	t.Helper()
 	req := httptest.NewRequest(http.MethodGet, "/api/v1/auth/callback?code=c&state=s", nil)
-	req.AddCookie(&http.Cookie{Name: "oidc_state", Value: "s"})
+	req.AddCookie(&http.Cookie{Name: "oidc_state", Value: "s" + oidcStateSeparator + "default"})
 	rec := httptest.NewRecorder()
 	h.Callback(rec, req)
 	if rec.Code != http.StatusFound {
@@ -317,5 +318,138 @@ func TestCallback_InvalidState(t *testing.T) {
 	}
 	if !strings.Contains(rec.Header().Get("Location"), "#error=invalid_state") {
 		t.Fatalf("want invalid_state, got %q", rec.Header().Get("Location"))
+	}
+}
+
+// --- A-005: multiple simultaneous OIDC providers ----------------------------
+
+func TestLogin_SingleProvider_NoQueryParam_UsesIt(t *testing.T) {
+	h, _ := newHandler(newFakeStore(), &port.OIDCClaims{}, "")
+
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/auth/login", nil)
+	rec := httptest.NewRecorder()
+	h.Login(rec, req)
+
+	if rec.Code != http.StatusFound {
+		t.Fatalf("expected 302, got %d", rec.Code)
+	}
+	cookies := rec.Result().Cookies()
+	if len(cookies) != 1 || !strings.HasSuffix(cookies[0].Value, oidcStateSeparator+"default") {
+		t.Fatalf("expected oidc_state cookie ending in %q, got %v", oidcStateSeparator+"default", cookies)
+	}
+}
+
+func TestLogin_MultipleProviders_RequiresProviderParam(t *testing.T) {
+	h, _ := newHandler(newFakeStore(), &port.OIDCClaims{}, "")
+	h.oidc["google"] = &fakeOIDC{}
+	h.providers = append(h.providers, OIDCProviderInfo{Name: "google", Label: "Google"})
+
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/auth/login", nil)
+	rec := httptest.NewRecorder()
+	h.Login(rec, req)
+
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400 when provider is ambiguous, got %d", rec.Code)
+	}
+}
+
+func TestLogin_UnknownProvider_Returns400(t *testing.T) {
+	h, _ := newHandler(newFakeStore(), &port.OIDCClaims{}, "")
+
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/auth/login?provider=nope", nil)
+	rec := httptest.NewRecorder()
+	h.Login(rec, req)
+
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400 for unknown provider, got %d", rec.Code)
+	}
+}
+
+func TestLogin_MultipleProviders_SelectsRequestedProvider(t *testing.T) {
+	h, _ := newHandler(newFakeStore(), &port.OIDCClaims{}, "")
+	h.oidc["google"] = &fakeOIDC{}
+	h.providers = append(h.providers, OIDCProviderInfo{Name: "google", Label: "Google"})
+
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/auth/login?provider=google", nil)
+	rec := httptest.NewRecorder()
+	h.Login(rec, req)
+
+	if rec.Code != http.StatusFound {
+		t.Fatalf("expected 302, got %d", rec.Code)
+	}
+	cookies := rec.Result().Cookies()
+	if len(cookies) != 1 || !strings.HasSuffix(cookies[0].Value, oidcStateSeparator+"google") {
+		t.Fatalf("expected oidc_state cookie for provider google, got %v", cookies)
+	}
+}
+
+// TestCallback_RoutesToCorrectProvider verifies the provider name carried in
+// the state cookie (set by Login) determines which provider's Exchange/
+// VerifyIDToken run in Callback — not any client-suppliable query parameter.
+func TestCallback_RoutesToCorrectProvider(t *testing.T) {
+	store := newFakeStore()
+	defaultClaims := &port.OIDCClaims{Subject: "sub-default", Email: "a@club.de", Provider: "default-issuer"}
+	googleClaims := &port.OIDCClaims{Subject: "sub-google", Email: "b@club.de", Provider: "google-issuer"}
+	h, _ := newHandler(store, defaultClaims, "")
+	h.oidc["google"] = &fakeOIDC{claims: googleClaims}
+	h.providers = append(h.providers, OIDCProviderInfo{Name: "google", Label: "Google"})
+
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/auth/callback?code=c&state=s", nil)
+	req.AddCookie(&http.Cookie{Name: "oidc_state", Value: "s" + oidcStateSeparator + "google"})
+	rec := httptest.NewRecorder()
+	h.Callback(rec, req)
+
+	if rec.Code != http.StatusFound {
+		t.Fatalf("expected 302, got %d: %s", rec.Code, rec.Body.String())
+	}
+	if len(store.created) != 1 || store.created[0].Email != "b@club.de" {
+		t.Fatalf("expected the google provider's claims to be used, got %+v", store.created)
+	}
+}
+
+func TestCallback_UnknownProviderInCookie_InvalidState(t *testing.T) {
+	h, _ := newHandler(newFakeStore(), &port.OIDCClaims{}, "")
+
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/auth/callback?code=c&state=s", nil)
+	req.AddCookie(&http.Cookie{Name: "oidc_state", Value: "s" + oidcStateSeparator + "removed-provider"})
+	rec := httptest.NewRecorder()
+	h.Callback(rec, req)
+
+	if !strings.Contains(rec.Header().Get("Location"), "#error=invalid_state") {
+		t.Fatalf("want invalid_state, got %q", rec.Header().Get("Location"))
+	}
+}
+
+func TestProviders_ReturnsConfiguredList(t *testing.T) {
+	h, _ := newHandler(newFakeStore(), &port.OIDCClaims{}, "")
+	h.providers = append(h.providers, OIDCProviderInfo{Name: "google", Label: "Google"})
+
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/auth/providers", nil)
+	rec := httptest.NewRecorder()
+	h.Providers(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d", rec.Code)
+	}
+	body := rec.Body.String()
+	if !strings.Contains(body, `"name":"default"`) || !strings.Contains(body, `"name":"google"`) {
+		t.Fatalf("expected both providers in response, got %s", body)
+	}
+}
+
+// TestProviders_NilProvidersReturnsEmptyArray guards against json.Marshal's
+// nil-slice-becomes-null behavior: api/openapi.yaml documents this endpoint
+// as always an array, and internal/testmode/server.go passes a nil
+// providers list, so a bare `null` here would be a real response for every
+// TEST_MODE deployment, not just a theoretical edge case.
+func TestProviders_NilProvidersReturnsEmptyArray(t *testing.T) {
+	h := &AuthHandler{providers: nil}
+
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/auth/providers", nil)
+	rec := httptest.NewRecorder()
+	h.Providers(rec, req)
+
+	if got := strings.TrimSpace(rec.Body.String()); got != "[]" {
+		t.Fatalf("expected [], got %q", got)
 	}
 }

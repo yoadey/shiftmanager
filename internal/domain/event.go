@@ -25,6 +25,20 @@ const (
 	EventVisibilityPrivate EventVisibility = "private"
 )
 
+// RecurrenceFrequency describes how often a recurring event repeats (V-007).
+type RecurrenceFrequency string
+
+const (
+	RecurrenceFrequencyNone    RecurrenceFrequency = ""
+	RecurrenceFrequencyWeekly  RecurrenceFrequency = "weekly"
+	RecurrenceFrequencyMonthly RecurrenceFrequency = "monthly"
+)
+
+// Valid reports whether f is a frequency occurrences can actually be generated for.
+func (f RecurrenceFrequency) Valid() bool {
+	return f == RecurrenceFrequencyWeekly || f == RecurrenceFrequencyMonthly
+}
+
 // Event represents a club event that has one or more shifts.
 type Event struct {
 	ID          uuid.UUID       `json:"id"`
@@ -38,6 +52,12 @@ type Event struct {
 	Visibility  EventVisibility `json:"visibility"`
 	CreatedAt   time.Time       `json:"createdAt"`
 	UpdatedAt   time.Time       `json:"updatedAt"`
+	// Recurrence (V-007): set on every occurrence generated as part of a
+	// series, including the source event that started it, so the UI can show
+	// them as a series. Zero values mean the event is not part of a series.
+	RecurrenceFrequency RecurrenceFrequency `json:"recurrenceFrequency,omitempty"`
+	RecurrenceUntil     *time.Time          `json:"recurrenceUntil,omitempty"`
+	RecurrenceGroupID   *uuid.UUID          `json:"recurrenceGroupId,omitempty"`
 }
 
 // IsMultiDay returns true when the event spans more than one calendar day.
@@ -58,6 +78,13 @@ func (e *Event) CanComplete() bool {
 // CanDelete returns true when the event may be deleted.
 func (e *Event) CanDelete() bool {
 	return e.Status == EventStatusDraft || e.Status == EventStatusCancelled
+}
+
+// CanRecur returns true when the event may become the head of a recurring
+// series (V-007). A cancelled or already-completed event should not spawn
+// fresh occurrences.
+func (e *Event) CanRecur() bool {
+	return e.Status == EventStatusDraft || e.Status == EventStatusPublished
 }
 
 // Shift represents a single work block within an event.
@@ -90,9 +117,13 @@ const (
 
 // Registration links a member (or guest) to a shift.
 type Registration struct {
-	ID                uuid.UUID         `json:"id"`
-	ShiftID           uuid.UUID         `json:"shiftId"`
-	MemberID          *uuid.UUID        `json:"memberId,omitempty"`
+	ID       uuid.UUID  `json:"id"`
+	ShiftID  uuid.UUID  `json:"shiftId"`
+	MemberID *uuid.UUID `json:"memberId,omitempty"`
+	// GuestName is set for a helper an organizer added who isn't a member
+	// (name only, no account) — distinct from GuestEmail, which is set for a
+	// self-service kiosk guest registration (email only, no name).
+	GuestName         *string           `json:"guestName,omitempty"`
 	GuestEmail        *string           `json:"guestEmail,omitempty"`
 	State             RegistrationState `json:"state"`
 	Comment           string            `json:"comment"`
@@ -194,15 +225,31 @@ type EventTimeline struct {
 	Days  []TimelineDay `json:"days"`
 }
 
+// EventAttachment is a file (image or document) attached to an event (V-008).
+// Whether it's an image (vs. a generic document, e.g. a PDF) is derived by
+// callers from ContentType's "image/" prefix rather than tracked separately.
+type EventAttachment struct {
+	ID          uuid.UUID `json:"id"`
+	EventID     uuid.UUID `json:"eventId"`
+	FileName    string    `json:"fileName"`
+	URL         string    `json:"url"`
+	ContentType string    `json:"contentType"`
+	SizeBytes   int64     `json:"sizeBytes"`
+	UploadedAt  time.Time `json:"uploadedAt"`
+}
+
 // Errors for event operations.
 var (
-	ErrEventNotFound        = fmt.Errorf("event not found")
-	ErrEventNotPublishable  = fmt.Errorf("event cannot be published in current state")
-	ErrEventNotCompletable  = fmt.Errorf("event cannot be completed in current state")
-	ErrShiftNotFound      = fmt.Errorf("shift not found")
-	ErrShiftFull          = fmt.Errorf("shift is fully booked")
-	ErrAlreadyRegistered  = fmt.Errorf("already registered for this shift")
-	ErrRegistrationNotFound = fmt.Errorf("registration not found")
+	ErrEventNotFound            = fmt.Errorf("event not found")
+	ErrEventNotPublishable      = fmt.Errorf("event cannot be published in current state")
+	ErrEventNotCompletable      = fmt.Errorf("event cannot be completed in current state")
+	ErrShiftNotFound            = fmt.Errorf("shift not found")
+	ErrShiftFull                = fmt.Errorf("shift is fully booked")
+	ErrAlreadyRegistered        = fmt.Errorf("already registered for this shift")
+	ErrRegistrationNotFound     = fmt.Errorf("registration not found")
 	ErrDeregisterDeadlinePassed = fmt.Errorf("deregistration deadline has passed")
-	ErrInvalidToken       = fmt.Errorf("invalid or expired confirmation token")
+	ErrInvalidToken             = fmt.Errorf("invalid or expired confirmation token")
+	ErrEventAttachmentNotFound  = fmt.Errorf("event attachment not found")
+	ErrInvalidRecurrence        = fmt.Errorf("invalid recurrence configuration")
+	ErrAlreadyRecurring         = fmt.Errorf("event is already part of a recurrence series")
 )

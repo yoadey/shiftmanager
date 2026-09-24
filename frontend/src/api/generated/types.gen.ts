@@ -44,6 +44,17 @@ export type MemberPreferences = {
   notifyNewEvents?: boolean;
 };
 
+export type OidcProvider = {
+  /**
+   * Short key passed as ?provider= to /auth/login
+   */
+  name: string;
+  /**
+   * Display label for the login button, e.g. "Google"
+   */
+  label: string;
+};
+
 export type MeResponse = {
   id: Uuid;
   role: MemberRole;
@@ -75,6 +86,16 @@ export type Event = {
   visibility: EventVisibility;
   createdAt?: string;
   updatedAt?: string;
+  recurrenceFrequency?: RecurrenceFrequency;
+  recurrenceUntil?: string;
+  recurrenceGroupId?: Uuid;
+};
+
+export type RecurrenceFrequency = "weekly" | "monthly";
+
+export type EventRecurrenceRequest = {
+  frequency: RecurrenceFrequency;
+  until: string;
 };
 
 export type EventWrite = {
@@ -135,6 +156,16 @@ export type EventTimeline = {
   days: Array<ShiftDay>;
 };
 
+export type EventAttachment = {
+  id: Uuid;
+  eventId: Uuid;
+  fileName: string;
+  url: string;
+  contentType: string;
+  sizeBytes: number;
+  uploadedAt: string;
+};
+
 export type RegisterShiftRequest = {
   comment?: string;
   otherEmail?: string;
@@ -162,7 +193,7 @@ export type HourEntry = {
   memberId: Uuid;
   clubYearId: Uuid;
   hours: number;
-  type: "shift" | "manual";
+  type: "shift" | "manual" | "carryover";
   status: HourEntryStatus;
   bookedBy?: Uuid;
   description: string;
@@ -211,6 +242,10 @@ export type ClubYear = {
   endDate: string;
   defaultTargetHours: number;
   isActive: boolean;
+  /**
+   * Whether excess confirmed hours (beyond target) in this year are credited to members in whichever club year is opened next (S-006).
+   */
+  carryOverEnabled?: boolean;
 };
 
 export type AppSettings = {
@@ -309,11 +344,40 @@ export type ErrorResponse = {
   error: string;
 };
 
-export type AuthLoginData = {
+export type ListOidcProvidersData = {
   body?: never;
   path?: never;
   query?: never;
+  url: "/auth/providers";
+};
+
+export type ListOidcProvidersResponses = {
+  /**
+   * Configured providers, in login-button display order
+   */
+  200: Array<OidcProvider>;
+};
+
+export type ListOidcProvidersResponse =
+  ListOidcProvidersResponses[keyof ListOidcProvidersResponses];
+
+export type AuthLoginData = {
+  body?: never;
+  path?: never;
+  query?: {
+    /**
+     * Provider name from GET /auth/providers (A-005). Optional when only one provider is configured.
+     */
+    provider?: string;
+  };
   url: "/auth/login";
+};
+
+export type AuthLoginErrors = {
+  /**
+   * Unknown or missing provider
+   */
+  400: unknown;
 };
 
 export type AuthCallbackData = {
@@ -933,6 +997,157 @@ export type GetEventTimelineResponses = {
 
 export type GetEventTimelineResponse =
   GetEventTimelineResponses[keyof GetEventTimelineResponses];
+
+export type ListEventAttachmentsData = {
+  body?: never;
+  path: {
+    id: Uuid;
+  };
+  query?: never;
+  url: "/events/{id}/attachments";
+};
+
+export type ListEventAttachmentsErrors = {
+  /**
+   * Missing or invalid JWT
+   */
+  401: ErrorResponse;
+};
+
+export type ListEventAttachmentsError =
+  ListEventAttachmentsErrors[keyof ListEventAttachmentsErrors];
+
+export type ListEventAttachmentsResponses = {
+  /**
+   * Attachments
+   */
+  200: Array<EventAttachment>;
+};
+
+export type ListEventAttachmentsResponse =
+  ListEventAttachmentsResponses[keyof ListEventAttachmentsResponses];
+
+export type UploadEventAttachmentData = {
+  body: {
+    file: Blob | File;
+  };
+  path: {
+    id: Uuid;
+  };
+  query?: never;
+  url: "/events/{id}/attachments";
+};
+
+export type UploadEventAttachmentErrors = {
+  /**
+   * Missing or invalid JWT
+   */
+  401: ErrorResponse;
+  /**
+   * Insufficient role
+   */
+  403: ErrorResponse;
+  /**
+   * Resource not found
+   */
+  404: ErrorResponse;
+  /**
+   * Unsupported file type
+   */
+  415: unknown;
+};
+
+export type UploadEventAttachmentError =
+  UploadEventAttachmentErrors[keyof UploadEventAttachmentErrors];
+
+export type UploadEventAttachmentResponses = {
+  /**
+   * Uploaded attachment
+   */
+  201: EventAttachment;
+};
+
+export type UploadEventAttachmentResponse =
+  UploadEventAttachmentResponses[keyof UploadEventAttachmentResponses];
+
+export type GenerateEventRecurrenceData = {
+  body: EventRecurrenceRequest;
+  path: {
+    id: Uuid;
+  };
+  query?: never;
+  url: "/events/{id}/recurrence";
+};
+
+export type GenerateEventRecurrenceErrors = {
+  /**
+   * Invalid request
+   */
+  400: ErrorResponse;
+  /**
+   * Missing or invalid JWT
+   */
+  401: ErrorResponse;
+  /**
+   * Insufficient role
+   */
+  403: ErrorResponse;
+  /**
+   * Resource not found
+   */
+  404: ErrorResponse;
+};
+
+export type GenerateEventRecurrenceError =
+  GenerateEventRecurrenceErrors[keyof GenerateEventRecurrenceErrors];
+
+export type GenerateEventRecurrenceResponses = {
+  /**
+   * Source event and newly created occurrences
+   */
+  201: Array<Event>;
+};
+
+export type GenerateEventRecurrenceResponse =
+  GenerateEventRecurrenceResponses[keyof GenerateEventRecurrenceResponses];
+
+export type DeleteEventAttachmentData = {
+  body?: never;
+  path: {
+    id: Uuid;
+    attachmentId: Uuid;
+  };
+  query?: never;
+  url: "/events/{id}/attachments/{attachmentId}";
+};
+
+export type DeleteEventAttachmentErrors = {
+  /**
+   * Missing or invalid JWT
+   */
+  401: ErrorResponse;
+  /**
+   * Insufficient role
+   */
+  403: ErrorResponse;
+  /**
+   * Resource not found
+   */
+  404: ErrorResponse;
+};
+
+export type DeleteEventAttachmentError =
+  DeleteEventAttachmentErrors[keyof DeleteEventAttachmentErrors];
+
+export type DeleteEventAttachmentResponses = {
+  /**
+   * Deleted
+   */
+  204: void;
+};
+
+export type DeleteEventAttachmentResponse =
+  DeleteEventAttachmentResponses[keyof DeleteEventAttachmentResponses];
 
 export type CreateShiftData = {
   body: ShiftWrite;

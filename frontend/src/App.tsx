@@ -7,6 +7,8 @@ import { TweaksPanel } from '@/components/tweaks/TweaksPanel';
 import { useAppStore } from '@/store/app.store';
 import { useBranding, useSettings } from '@/api/settings';
 import { useTokenRefresh } from '@/hooks/useTokenRefresh';
+import { useIsVorstand } from '@/hooks/useIsVorstand';
+import { useIsEventManager } from '@/hooks/useIsEventManager';
 
 // Screens — lazy loaded
 const MemberDashboard = lazy(() => import('@/screens/member/MemberDashboard').then(m => ({ default: m.MemberDashboard })));
@@ -42,9 +44,19 @@ const MEMBER_TABS = [
   { key: 'profil', label: 'Profil', icon: 'user' },
 ];
 
-const ADMIN_TABS = [
-  { key: 'start', label: 'Übersicht', icon: 'chart' },
+// Shown additionally, in the same list, for veranstaltungsleiter and above —
+// no separate "view" to switch into; `section` marks where the extra group
+// starts so the shells can set it apart visually. Matches the backend's own
+// RequireRole(RoleVeranstaltungsleiter) gate on event/shift management.
+const EVENT_MANAGER_TABS = [
+  { key: 'uebersicht', label: 'Übersicht', icon: 'chart', section: 'Verwaltung' },
   { key: 'events', label: 'Termine', icon: 'calendar' },
+];
+
+// Shown additionally for vorstand/admin only — member management, billing
+// and settings are RequireRole(RoleVorstand) on the backend, a strictly
+// higher tier than event management.
+const BOARD_TABS = [
   { key: 'mitglieder', label: 'Mitglieder', icon: 'users' },
   { key: 'abrechnungen', label: 'Abrechnungen', icon: 'euro' },
   { key: 'settings', label: 'Einstellungen', icon: 'settings' },
@@ -59,7 +71,9 @@ function LoadingFallback() {
 }
 
 function ScreenRouter() {
-  const { role, tab, navStack } = useAppStore();
+  const { tab, navStack } = useAppStore();
+  const isVorstand = useIsVorstand();
+  const isEventManager = useIsEventManager();
 
   if (navStack.length > 0) {
     const top = navStack[navStack.length - 1];
@@ -71,26 +85,37 @@ function ScreenRouter() {
     if (top.name === 'email-log') return <EmailLog />;
   }
 
-  if (role === 'mitglied') {
-    if (tab === 'start') return <MemberDashboard />;
-    if (tab === 'entdecken') return <MemberDiscover />;
-    if (tab === 'schichten') return <MyShifts />;
-    if (tab === 'profil') return <MemberProfile />;
-  } else {
-    if (tab === 'start') return <AdminDashboard />;
+  if (tab === 'start') return <MemberDashboard />;
+  if (tab === 'entdecken') return <MemberDiscover />;
+  if (tab === 'schichten') return <MyShifts />;
+  if (tab === 'profil') return <MemberProfile />;
+
+  // Guarded on the real role, not just on which tabs are shown: a stray
+  // `tab` value left over from a role downgrade must not render a screen
+  // the current role no longer has access to.
+  if (isEventManager) {
+    if (tab === 'uebersicht') return <AdminDashboard />;
     if (tab === 'events') return <AdminEvents />;
+  }
+  if (isVorstand) {
     if (tab === 'mitglieder') return <AdminMembers />;
     if (tab === 'abrechnungen') return <AdminBilling />;
     if (tab === 'settings') return <AdminSettings />;
   }
-  return null;
+
+  // `tab` holds a key the current role no longer has (e.g. an admin-only tab
+  // left over from before a role downgrade) — fall back to that role's home
+  // screen instead of leaving the content area blank.
+  return isEventManager ? <AdminDashboard /> : <MemberDashboard />;
 }
 
 export default function App() {
-  const { role, tab, navStack, tweaks, setTweak, setNameMode } = useAppStore();
+  const { tab, navStack, tweaks, setTweak, setNameMode } = useAppStore();
+  const isVorstand = useIsVorstand();
+  const isEventManager = useIsEventManager();
   // Reset the screen error boundary whenever the user navigates, so a crash on
   // one screen never sticks after switching tabs or drilling into a detail.
-  const navKey = `${role}:${tab}:${navStack.map((n) => `${n.name}/${n.params?.id ?? ''}`).join('>')}`;
+  const navKey = `${tab}:${navStack.map((n) => `${n.name}/${n.params?.id ?? ''}`).join('>')}`;
   const [isDesktop, setIsDesktop] = useState(() => window.innerWidth >= 900);
   const [createOpen, setCreateOpen] = useState(false);
 
@@ -154,7 +179,11 @@ export default function App() {
     return () => window.removeEventListener('resize', check);
   }, []);
 
-  const tabs = role === 'mitglied' ? MEMBER_TABS : ADMIN_TABS;
+  const tabs = [
+    ...MEMBER_TABS,
+    ...(isEventManager ? EVENT_MANAGER_TABS : []),
+    ...(isVorstand ? BOARD_TABS : []),
+  ];
 
   const screenContent = (
     <Suspense fallback={<LoadingFallback />}>

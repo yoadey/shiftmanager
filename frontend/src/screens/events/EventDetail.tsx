@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useRef, useState } from 'react';
 import { Icon } from '@/components/ui/Icon';
 import { Avatar } from '@/components/ui/Avatar';
 import { OccBadge } from '@/components/ui/Badge';
@@ -8,15 +8,35 @@ import { Sheet } from '@/components/ui/Sheet';
 import { Field, Input, Textarea, Select } from '@/components/forms/Field';
 import { useAppStore } from '@/store/app.store';
 import { useAuthStore } from '@/store/auth.store';
-import { useRegisterShift, useDeregisterShift, useCreateShift, useUpdateShift, useDeleteShift, usePatchRegistration, useForceDeleteRegistration, useAddMemberToShift } from '@/api/shifts';
-import { useEvent, useEventTimeline, useUpdateEvent, useDeleteEvent, useCompleteEvent } from '@/api/events';
+import {
+  useRegisterShift,
+  useDeregisterShift,
+  useCreateShift,
+  useUpdateShift,
+  useDeleteShift,
+  usePatchRegistration,
+  useForceDeleteRegistration,
+  useAddMemberToShift,
+  useAddGuestToShift,
+} from '@/api/shifts';
+import {
+  useEvent,
+  useEventTimeline,
+  useUpdateEvent,
+  useDeleteEvent,
+  useCompleteEvent,
+  useEventAttachments,
+  useUploadEventAttachment,
+  useDeleteEventAttachment,
+} from '@/api/events';
 import { useMembers } from '@/api/members';
 import { useSettings } from '@/api/settings';
 import { calcOccupancy } from '@/hooks/useOccupancy';
 import { useNameFormat } from '@/hooks/useNameFormat';
+import { useIsEventManager } from '@/hooks/useIsEventManager';
 import { LoadingState, ErrorState } from '@/components/ui/States';
 import { fmtDate, hrs, durH, catGradient } from '@/screens/_demo';
-import type { Event, Shift, Signup, Member } from '@/types';
+import type { Event, Shift, Signup, Member, EventAttachment } from '@/types';
 
 const dotColor: Record<string, string> = {
   ok: 'var(--ok)',
@@ -215,7 +235,11 @@ function AddMemberSheet({
   const { showToast } = useAppStore();
   const formatName = useNameFormat();
   const addMember = useAddMemberToShift();
+  const addGuest = useAddGuestToShift();
+  const [mode, setMode] = useState<'member' | 'guest'>('member');
   const [search, setSearch] = useState('');
+  const [guestName, setGuestName] = useState('');
+  const [guestEmail, setGuestEmail] = useState('');
 
   const existingIds = new Set(shift.signups.map((s) => s.memberId));
   const filtered = members.filter((m) => {
@@ -234,40 +258,82 @@ function AddMemberSheet({
     onClose();
   };
 
+  const addGuestHelper = () => {
+    const name = guestName.trim();
+    if (!name) return;
+    addGuest.mutate({ shiftId: shift.id, name, email: guestEmail.trim() || undefined, eventId }, {
+      onSuccess: () => showToast('Helfer hinzugefügt.'),
+      onError: () => showToast('Hinzufügen fehlgeschlagen.', 'crit'),
+    });
+    onClose();
+  };
+
+  const segStyle = (active: boolean): React.CSSProperties => ({
+    flex: 1, border: 'none', cursor: 'pointer', padding: '9px 0', borderRadius: 9, fontWeight: 700, fontSize: 13.5, fontFamily: 'inherit',
+    background: active ? 'var(--surface)' : 'transparent', color: active ? 'var(--ink)' : 'var(--muted)', boxShadow: active ? 'var(--shadow)' : 'none',
+  });
+
   return (
     <Sheet onClose={onClose} title="Helfer hinzufügen">
-      <Field label="Suche">
-        <Input placeholder="Name oder E-Mail…" value={search} onChange={(e) => setSearch(e.target.value)} />
-      </Field>
-      <div style={{ display: 'flex', flexDirection: 'column', gap: 6, marginTop: 4 }}>
-        {filtered.length === 0 && (
-          <span style={{ fontSize: 13, color: 'var(--muted)', fontWeight: 600, padding: '10px 0' }}>
-            {search ? 'Keine Mitglieder gefunden.' : 'Alle Mitglieder bereits eingetragen.'}
-          </span>
-        )}
-        {filtered.slice(0, 50).map((m) => (
-          <button key={m.id} onClick={() => add(m.id)} className="pressable"
-            style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '10px 12px', borderRadius: 12, border: '1px solid var(--line)', background: 'var(--surface)', cursor: 'pointer', fontFamily: 'inherit', textAlign: 'left', width: '100%' }}
-          >
-            <div style={{ flex: 1, minWidth: 0 }}>
-              <div style={{ fontWeight: 700, fontSize: 14 }}>{formatName(m, { viewerFull: true })}</div>
-              <div style={{ fontSize: 12, color: 'var(--muted)', fontWeight: 600 }}>{m.email}</div>
-            </div>
-            <Icon name="plus" size={16} stroke={2.4} color="var(--primary)" />
-          </button>
-        ))}
+      <div style={{ display: 'flex', gap: 6, marginBottom: 14, background: 'var(--surface-2)', borderRadius: 12, padding: 4, border: '1px solid var(--line)' }}>
+        <button className="pressable" onClick={() => setMode('member')} style={segStyle(mode === 'member')}>Mitglied</button>
+        <button className="pressable" onClick={() => setMode('guest')} style={segStyle(mode === 'guest')}>Gast</button>
       </div>
+
+      {mode === 'member' ? (
+        <>
+          <Field label="Suche">
+            <Input placeholder="Name oder E-Mail…" value={search} onChange={(e) => setSearch(e.target.value)} autoFocus />
+          </Field>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 6, marginTop: 4 }}>
+            {filtered.length === 0 && (
+              <span style={{ fontSize: 13, color: 'var(--muted)', fontWeight: 600, padding: '10px 0' }}>
+                {search ? 'Keine Mitglieder gefunden.' : 'Alle Mitglieder bereits eingetragen.'}
+              </span>
+            )}
+            {filtered.slice(0, 50).map((m) => (
+              <button key={m.id} onClick={() => add(m.id)} className="pressable"
+                style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '10px 12px', borderRadius: 12, border: '1px solid var(--line)', background: 'var(--surface)', cursor: 'pointer', fontFamily: 'inherit', textAlign: 'left', width: '100%' }}
+              >
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <div style={{ fontWeight: 700, fontSize: 14 }}>{formatName(m, { viewerFull: true })}</div>
+                  <div style={{ fontSize: 12, color: 'var(--muted)', fontWeight: 600 }}>{m.email}</div>
+                </div>
+                <Icon name="plus" size={16} stroke={2.4} color="var(--primary)" />
+              </button>
+            ))}
+          </div>
+        </>
+      ) : (
+        <>
+          <Field label="Name">
+            <Input placeholder="Vor- und Nachname" value={guestName} onChange={(e) => setGuestName(e.target.value)} autoFocus />
+          </Field>
+          <Field label="E-Mail (optional)">
+            <Input type="email" placeholder="name@beispiel.de" value={guestEmail} onChange={(e) => setGuestEmail(e.target.value)} />
+          </Field>
+          <Button
+            icon="plus"
+            onClick={addGuestHelper}
+            disabled={!guestName.trim() || addGuest.isPending}
+            style={{ width: '100%', marginTop: 8 }}
+          >
+            Hinzufügen
+          </Button>
+        </>
+      )}
     </Sheet>
   );
 }
 
 function ShiftRow({ sh, eventId, onRegister, onDeregister, memberMap }: { sh: Shift; eventId: string; onRegister: () => void; onDeregister: () => void; memberMap: Record<string, Member> }) {
-  const { role } = useAppStore();
   const { user } = useAuthStore();
+  // Organizer controls here (registrant list, add/remove helper) map to the
+  // backend's shift-management endpoints, which are veranstaltungsleiter+.
+  const isBoard = useIsEventManager();
   const uid = user?.id ?? '';
   const o = calcOccupancy(sh);
   const mine = sh.signups.find((s) => s.memberId === uid && (s.status === 'angemeldet' || s.status === 'reserviert'));
-  const isBoard = role === 'vorstand';
   const [open, setOpen] = useState(false);
   const [addingMember, setAddingMember] = useState(false);
 
@@ -766,10 +832,146 @@ function DeleteEventDialog({ ev, onClose, onDeleted }: { ev: Event; onClose: () 
   );
 }
 
+// SVG is intentionally excluded: it can embed <script>, and unlike the
+// Vorstand-only logo upload this is reachable by any Veranstaltungsleiter.
+const ALLOWED_ATTACHMENT_TYPES = 'image/png,image/jpeg,image/gif,image/webp,application/pdf';
+
+// Confirms removing a single attachment before it happens — a stray tap on
+// the small delete button (20x20, easy to misclick, especially on touch)
+// would otherwise delete it with no undo, unlike full event deletion which
+// already goes through DeleteEventDialog.
+function DeleteAttachmentDialog({ attachment, onClose, onConfirm }: { attachment: EventAttachment; onClose: () => void; onConfirm: () => void }) {
+  return (
+    <Sheet variant="dialog" onClose={onClose}>
+      <div style={{ textAlign: 'center', padding: '6px 4px 4px' }}>
+        <div style={{ width: 54, height: 54, borderRadius: '50%', background: 'var(--crit-bg)', display: 'flex', alignItems: 'center', justifyContent: 'center', margin: '0 auto 14px' }}>
+          <Icon name="trash" size={26} stroke={2.4} color="var(--crit)" />
+        </div>
+        <h3 style={{ fontSize: 19, fontWeight: 800 }}>Anhang entfernen?</h3>
+        <p style={{ color: 'var(--ink-2)', fontSize: 14, fontWeight: 600, margin: '8px 0 18px', lineHeight: 1.45 }}>
+          „{attachment.fileName}" wird unwiderruflich entfernt.
+        </p>
+        <div style={{ display: 'flex', gap: 10 }}>
+          <Button variant="ghost" onClick={onClose}>Abbrechen</Button>
+          <Button variant="danger" onClick={onConfirm}>Entfernen</Button>
+        </div>
+      </div>
+    </Sheet>
+  );
+}
+
+// Images and other attachments for an event (V-008). Board members can add
+// and remove files; everyone else just sees what's there (and the section is
+// hidden entirely for them when it's empty, to keep the detail page tidy).
+function AttachmentsSection({ eventId, isBoard }: { eventId: string; isBoard: boolean }) {
+  const { showToast } = useAppStore();
+  const { data: attachments } = useEventAttachments(eventId);
+  const upload = useUploadEventAttachment(eventId);
+  const remove = useDeleteEventAttachment(eventId);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  const [confirmDelete, setConfirmDelete] = useState<EventAttachment | null>(null);
+  // Tracked separately from remove.isPending, which is shared across the
+  // whole mutation and would otherwise disable every attachment's delete
+  // button while any single one is in flight. A Set (not a single id) so
+  // confirming a second delete while a first is still in flight doesn't
+  // re-enable the first attachment's button before its request settles.
+  const [deletingIds, setDeletingIds] = useState<ReadonlySet<string>>(new Set());
+
+  const onFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    e.target.value = '';
+    if (!file) return;
+    upload.mutate(file, {
+      onError: () => showToast('Datei konnte nicht hochgeladen werden.', 'crit'),
+    });
+  };
+
+  const confirmRemove = () => {
+    if (!confirmDelete) return;
+    const id = confirmDelete.id;
+    setDeletingIds((current) => new Set(current).add(id));
+    remove.mutate(id, {
+      onError: () => showToast('Anhang konnte nicht entfernt werden.', 'crit'),
+      onSettled: () =>
+        setDeletingIds((current) => {
+          const next = new Set(current);
+          next.delete(id);
+          return next;
+        }),
+    });
+    setConfirmDelete(null);
+  };
+
+  if (!isBoard && (!attachments || attachments.length === 0)) return null;
+
+  return (
+    <div style={{ margin: '18px 0 4px' }}>
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 9 }}>
+        <span style={{ fontWeight: 700, fontSize: 12.5, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: 0.3 }}>Anhänge</span>
+        {isBoard && (
+          <>
+            <button
+              onClick={() => fileInputRef.current?.click()}
+              disabled={upload.isPending}
+              className="pressable"
+              title="Bild oder Datei hinzufügen"
+              style={{ width: 26, height: 26, borderRadius: '50%', border: '1px solid var(--line-2)', background: 'var(--surface)', display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer' }}
+            >
+              <Icon name="plus" size={13} stroke={2.6} color="var(--ink-2)" />
+            </button>
+            <input
+              ref={fileInputRef}
+              type="file"
+              accept={ALLOWED_ATTACHMENT_TYPES}
+              style={{ display: 'none' }}
+              onChange={onFileChange}
+            />
+          </>
+        )}
+      </div>
+      {attachments && attachments.length > 0 && (
+        <div style={{ display: 'flex', gap: 8, overflowX: 'auto', paddingBottom: 2 }}>
+          {attachments.map((a) => (
+            <div key={a.id} className="sm-card" style={{ position: 'relative', flexShrink: 0, width: 84, padding: 0, overflow: 'hidden' }}>
+              <a href={a.url} target="_blank" rel="noreferrer" style={{ display: 'block', color: 'inherit', textDecoration: 'none' }}>
+                {a.contentType.startsWith('image/') ? (
+                  <img src={a.url} alt={a.fileName} style={{ width: '100%', height: 64, objectFit: 'cover', display: 'block' }} />
+                ) : (
+                  <div style={{ width: '100%', height: 64, display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'var(--surface-2)' }}>
+                    <Icon name="paperclip" size={20} color="var(--muted)" />
+                  </div>
+                )}
+                <div style={{ fontSize: 10, fontWeight: 600, color: 'var(--muted)', padding: '4px 6px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                  {a.fileName}
+                </div>
+              </a>
+              {isBoard && (
+                <button
+                  onClick={() => setConfirmDelete(a)}
+                  disabled={deletingIds.has(a.id)}
+                  className="pressable"
+                  title="Anhang entfernen"
+                  style={{ position: 'absolute', top: 4, right: 4, width: 20, height: 20, borderRadius: '50%', border: 'none', background: 'rgba(0,0,0,0.55)', display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer' }}
+                >
+                  <Icon name="x" size={11} stroke={3} color="#fff" />
+                </button>
+              )}
+            </div>
+          ))}
+        </div>
+      )}
+      {confirmDelete && (
+        <DeleteAttachmentDialog attachment={confirmDelete} onClose={() => setConfirmDelete(null)} onConfirm={confirmRemove} />
+      )}
+    </div>
+  );
+}
+
 export function EventDetail({ id }: { id: string }) {
   const { back } = useAppStore();
-  const { role } = useAppStore();
-  const isBoard = role === 'vorstand';
+  // Edit/delete/complete and attachment management map to the backend's
+  // event-management endpoints, which are veranstaltungsleiter+.
+  const isBoard = useIsEventManager();
   const isOrganizer = isBoard;
   const [sheet, setSheet] = useState<Shift | null>(null);
   const [confirmOff, setConfirmOff] = useState<Shift | null>(null);
@@ -871,6 +1073,8 @@ export function EventDetail({ id }: { id: string }) {
           <span style={{ display: 'flex', alignItems: 'center', gap: 9 }}><Icon name="pin" size={17} color="var(--muted)" />{ev.location}</span>
         </div>
         <p style={{ color: 'var(--ink-2)', fontSize: 14, lineHeight: 1.5, margin: '14px 0 0' }}>{ev.description}</p>
+
+        <AttachmentsSection eventId={id} isBoard={isBoard} />
 
         <div style={{ display: 'flex', gap: 10, margin: '16px 0 4px' }}>
           <MiniStat label="Schichten" val={allShifts.length} />

@@ -120,13 +120,16 @@ func (e EventVisibility) Valid() bool {
 
 // Defines values for HourEntryType.
 const (
-	HourEntryTypeManual HourEntryType = "manual"
-	HourEntryTypeShift  HourEntryType = "shift"
+	HourEntryTypeCarryover HourEntryType = "carryover"
+	HourEntryTypeManual    HourEntryType = "manual"
+	HourEntryTypeShift     HourEntryType = "shift"
 )
 
 // Valid indicates whether the value is a known member of the HourEntryType enum.
 func (e HourEntryType) Valid() bool {
 	switch e {
+	case HourEntryTypeCarryover:
+		return true
 	case HourEntryTypeManual:
 		return true
 	case HourEntryTypeShift:
@@ -181,6 +184,24 @@ func (e MemberRole) Valid() bool {
 	}
 }
 
+// Defines values for RecurrenceFrequency.
+const (
+	Monthly RecurrenceFrequency = "monthly"
+	Weekly  RecurrenceFrequency = "weekly"
+)
+
+// Valid indicates whether the value is a known member of the RecurrenceFrequency enum.
+func (e RecurrenceFrequency) Valid() bool {
+	switch e {
+	case Monthly:
+		return true
+	case Weekly:
+		return true
+	default:
+		return false
+	}
+}
+
 // AppSettings defines model for AppSettings.
 type AppSettings struct {
 	BillingMode         AppSettingsBillingMode `json:"billingMode"`
@@ -191,8 +212,8 @@ type AppSettings struct {
 	KioskLocked         *bool                  `json:"kioskLocked,omitempty"`
 	KioskSearch         bool                   `json:"kioskSearch"`
 	NameMode            AppSettingsNameMode    `json:"nameMode"`
+	ReminderLeadWeeks   *int                   `json:"reminderLeadWeeks,omitempty"`
 	ReservationHours    int                    `json:"reservationHours"`
-	ReminderLeadWeeks   int                    `json:"reminderLeadWeeks"`
 	YearGoal            float32                `json:"yearGoal"`
 }
 
@@ -245,12 +266,14 @@ type ConfirmShiftHoursRequest struct {
 
 // EmailLogEntry defines model for EmailLogEntry.
 type EmailLogEntry struct {
-	ErrorMsg *string             `json:"errorMsg,omitempty"`
-	Id       UUID                `json:"id"`
-	SentAt   time.Time           `json:"sentAt"`
-	Status   EmailLogEntryStatus `json:"status"`
-	Subject  string              `json:"subject"`
-	To       openapi_types.Email `json:"to"`
+	Body      *string             `json:"body,omitempty"`
+	CreatedAt time.Time           `json:"createdAt"`
+	Error     *string             `json:"error,omitempty"`
+	Id        UUID                `json:"id"`
+	Status    EmailLogEntryStatus `json:"status"`
+	Subject   string              `json:"subject"`
+	Template  *string             `json:"template,omitempty"`
+	To        openapi_types.Email `json:"to"`
 }
 
 // EmailLogEntryStatus defines model for EmailLogEntry.Status.
@@ -270,15 +293,35 @@ type ErrorResponse struct {
 
 // Event defines model for Event.
 type Event struct {
-	Category    *string         `json:"category,omitempty"`
-	CreatedAt   *time.Time      `json:"createdAt,omitempty"`
-	Description *string         `json:"description,omitempty"`
-	Id          UUID            `json:"id"`
-	Location    *string         `json:"location,omitempty"`
-	Name        string          `json:"name"`
-	Status      EventStatus     `json:"status"`
-	UpdatedAt   *time.Time      `json:"updatedAt,omitempty"`
-	Visibility  EventVisibility `json:"visibility"`
+	Category            *string              `json:"category,omitempty"`
+	CreatedAt           *time.Time           `json:"createdAt,omitempty"`
+	Description         *string              `json:"description,omitempty"`
+	Id                  UUID                 `json:"id"`
+	Location            *string              `json:"location,omitempty"`
+	Name                string               `json:"name"`
+	RecurrenceFrequency *RecurrenceFrequency `json:"recurrenceFrequency,omitempty"`
+	RecurrenceGroupId   *UUID                `json:"recurrenceGroupId,omitempty"`
+	RecurrenceUntil     *time.Time           `json:"recurrenceUntil,omitempty"`
+	Status              EventStatus          `json:"status"`
+	UpdatedAt           *time.Time           `json:"updatedAt,omitempty"`
+	Visibility          EventVisibility      `json:"visibility"`
+}
+
+// EventAttachment defines model for EventAttachment.
+type EventAttachment struct {
+	ContentType string    `json:"contentType"`
+	EventId     UUID      `json:"eventId"`
+	FileName    string    `json:"fileName"`
+	Id          UUID      `json:"id"`
+	SizeBytes   int       `json:"sizeBytes"`
+	UploadedAt  time.Time `json:"uploadedAt"`
+	Url         string    `json:"url"`
+}
+
+// EventRecurrenceRequest defines model for EventRecurrenceRequest.
+type EventRecurrenceRequest struct {
+	Frequency RecurrenceFrequency `json:"frequency"`
+	Until     time.Time           `json:"until"`
 }
 
 // EventStatus defines model for EventStatus.
@@ -305,22 +348,28 @@ type EventWrite struct {
 
 // FeeTier defines model for FeeTier.
 type FeeTier struct {
-	Amount float32 `json:"amount"`
-	Id     UUID    `json:"id"`
-	Label  string  `json:"label"`
+	AmountCents int  `json:"amountCents"`
+	ClubYearId  UUID `json:"clubYearId"`
+	Id          UUID `json:"id"`
+	Position    int  `json:"position"`
 }
 
 // HourEntry defines model for HourEntry.
 type HourEntry struct {
-	BookedBy    *UUID           `json:"bookedBy,omitempty"`
-	ClubYearId  UUID            `json:"clubYearId"`
-	CreatedAt   time.Time       `json:"createdAt"`
-	Description string          `json:"description"`
-	Hours       float32         `json:"hours"`
-	Id          UUID            `json:"id"`
-	MemberId    UUID            `json:"memberId"`
-	Status      HourEntryStatus `json:"status"`
-	Type        HourEntryType   `json:"type"`
+	BookedBy    *UUID               `json:"bookedBy,omitempty"`
+	ClubYearId  UUID                `json:"clubYearId"`
+	CreatedAt   time.Time           `json:"createdAt"`
+	Date        *openapi_types.Date `json:"date,omitempty"`
+	Desc        *string             `json:"desc,omitempty"`
+	Description string              `json:"description"`
+	EventName   *string             `json:"eventName,omitempty"`
+	Hours       float32             `json:"hours"`
+	Id          UUID                `json:"id"`
+	Manual      *bool               `json:"manual,omitempty"`
+	MemberId    UUID                `json:"memberId"`
+	ShiftName   *string             `json:"shiftName,omitempty"`
+	Status      HourEntryStatus     `json:"status"`
+	Type        HourEntryType       `json:"type"`
 }
 
 // HourEntryType defines model for HourEntry.Type.
@@ -369,15 +418,18 @@ type Member struct {
 	JoinedAt            time.Time           `json:"joinedAt"`
 	LastName            string              `json:"lastName"`
 	LeftAt              *time.Time          `json:"leftAt,omitempty"`
+	NotifyNewEvents     *bool               `json:"notifyNewEvents,omitempty"`
 	ReminderOptOut      *bool               `json:"reminderOptOut,omitempty"`
 	Role                MemberRole          `json:"role"`
 }
 
 // MemberFeeTier defines model for MemberFeeTier.
 type MemberFeeTier struct {
-	ClubYearId UUID `json:"clubYearId"`
-	MemberId   UUID `json:"memberId"`
-	TierId     UUID `json:"tierId"`
+	AmountCents int   `json:"amountCents"`
+	ClubYearId  UUID  `json:"clubYearId"`
+	Id          UUID  `json:"id"`
+	MemberId    *UUID `json:"memberId,omitempty"`
+	Position    int   `json:"position"`
 }
 
 // MemberHourAccount defines model for MemberHourAccount.
@@ -390,7 +442,9 @@ type MemberHourAccount struct {
 
 // MemberPreferences defines model for MemberPreferences.
 type MemberPreferences struct {
-	ReminderOptOut bool `json:"reminderOptOut"`
+	// NotifyNewEvents Opt-in: receive an e-mail when a new event is published
+	NotifyNewEvents *bool `json:"notifyNewEvents,omitempty"`
+	ReminderOptOut  bool  `json:"reminderOptOut"`
 }
 
 // MemberRole defines model for MemberRole.
@@ -411,6 +465,18 @@ type MemberWrite struct {
 type MessageResponse struct {
 	Message string `json:"message"`
 }
+
+// OIDCProvider defines model for OIDCProvider.
+type OIDCProvider struct {
+	// Label Display label for the login button, e.g. "Google"
+	Label string `json:"label"`
+
+	// Name Short key passed as ?provider= to /auth/login
+	Name string `json:"name"`
+}
+
+// RecurrenceFrequency defines model for RecurrenceFrequency.
+type RecurrenceFrequency string
 
 // RegisterShiftRequest defines model for RegisterShiftRequest.
 type RegisterShiftRequest struct {
@@ -487,6 +553,15 @@ type SystemStats struct {
 	UpcomingShifts      int     `json:"upcomingShifts"`
 }
 
+// TokenResponse defines model for TokenResponse.
+type TokenResponse struct {
+	// ExpiresIn Seconds until the new token expires
+	ExpiresIn int `json:"expiresIn"`
+
+	// Token Freshly signed JWT
+	Token string `json:"token"`
+}
+
 // UUID defines model for UUID.
 type UUID = openapi_types.UUID
 
@@ -511,6 +586,12 @@ type AuthCallbackParams struct {
 	State *string `form:"state,omitempty" json:"state,omitempty"`
 }
 
+// AuthLoginParams defines parameters for AuthLogin.
+type AuthLoginParams struct {
+	// Provider Provider name from GET /auth/providers (A-005). Optional when only one provider is configured.
+	Provider *string `form:"provider,omitempty" json:"provider,omitempty"`
+}
+
 // ListEventsParams defines parameters for ListEvents.
 type ListEventsParams struct {
 	Status     *EventStatus        `form:"status,omitempty" json:"status,omitempty"`
@@ -519,6 +600,11 @@ type ListEventsParams struct {
 	To         *openapi_types.Date `form:"to,omitempty" json:"to,omitempty"`
 	Limit      *int                `form:"limit,omitempty" json:"limit,omitempty"`
 	Offset     *int                `form:"offset,omitempty" json:"offset,omitempty"`
+}
+
+// UploadEventAttachmentMultipartBody defines parameters for UploadEventAttachment.
+type UploadEventAttachmentMultipartBody struct {
+	File openapi_types.File `json:"file"`
 }
 
 // GetMemberAccountParams defines parameters for GetMemberAccount.
@@ -609,6 +695,12 @@ type CreateShiftJSONRequestBody = ShiftWrite
 // UpdateEventJSONRequestBody defines body for UpdateEvent for application/json ContentType.
 type UpdateEventJSONRequestBody = EventWrite
 
+// UploadEventAttachmentMultipartRequestBody defines body for UploadEventAttachment for multipart/form-data ContentType.
+type UploadEventAttachmentMultipartRequestBody UploadEventAttachmentMultipartBody
+
+// GenerateEventRecurrenceJSONRequestBody defines body for GenerateEventRecurrence for application/json ContentType.
+type GenerateEventRecurrenceJSONRequestBody = EventRecurrenceRequest
+
 // ConfirmShiftHoursJSONRequestBody defines body for ConfirmShiftHours for application/json ContentType.
 type ConfirmShiftHoursJSONRequestBody = ConfirmShiftHoursRequest
 
@@ -667,13 +759,19 @@ type ServerInterface interface {
 	AuthCallback(w http.ResponseWriter, r *http.Request, params AuthCallbackParams)
 	// Begin OIDC login flow
 	// (GET /auth/login)
-	AuthLogin(w http.ResponseWriter, r *http.Request)
+	AuthLogin(w http.ResponseWriter, r *http.Request, params AuthLoginParams)
 	// Invalidate the session
 	// (POST /auth/logout)
 	Logout(w http.ResponseWriter, r *http.Request)
 	// Return the currently authenticated user
 	// (GET /auth/me)
 	GetMe(w http.ResponseWriter, r *http.Request)
+	// List the configured OIDC providers (A-005)
+	// (GET /auth/providers)
+	ListOIDCProviders(w http.ResponseWriter, r *http.Request)
+	// Re-issue a JWT with a fresh expiry for the current session (A-004)
+	// (POST /auth/refresh)
+	RefreshToken(w http.ResponseWriter, r *http.Request)
 	// Compute billing for a club year (Vorstand+)
 	// (GET /billing/{clubYearId})
 	GetBilling(w http.ResponseWriter, r *http.Request, clubYearId UUID)
@@ -701,9 +799,21 @@ type ServerInterface interface {
 	// Update an event (Veranstaltungsleiter+)
 	// (PUT /events/{id})
 	UpdateEvent(w http.ResponseWriter, r *http.Request, id UUID)
+	// List files attached to an event (V-008)
+	// (GET /events/{id}/attachments)
+	ListEventAttachments(w http.ResponseWriter, r *http.Request, id UUID)
+	// Upload an image or document attachment for an event (Veranstaltungsleiter+, V-008)
+	// (POST /events/{id}/attachments)
+	UploadEventAttachment(w http.ResponseWriter, r *http.Request, id UUID)
+	// Delete an event attachment (Veranstaltungsleiter+, V-008)
+	// (DELETE /events/{id}/attachments/{attachmentId})
+	DeleteEventAttachment(w http.ResponseWriter, r *http.Request, id UUID, attachmentId UUID)
 	// Publish a draft event (Veranstaltungsleiter+)
 	// (POST /events/{id}/publish)
 	PublishEvent(w http.ResponseWriter, r *http.Request, id UUID)
+	// Turn an event into a recurring series, weekly or monthly (Veranstaltungsleiter+, V-007)
+	// (POST /events/{id}/recurrence)
+	GenerateEventRecurrence(w http.ResponseWriter, r *http.Request, id UUID)
 	// Get just the shift timeline for an event
 	// (GET /events/{id}/timeline)
 	GetEventTimeline(w http.ResponseWriter, r *http.Request, id UUID)
@@ -853,7 +963,7 @@ func (_ Unimplemented) AuthCallback(w http.ResponseWriter, r *http.Request, para
 
 // Begin OIDC login flow
 // (GET /auth/login)
-func (_ Unimplemented) AuthLogin(w http.ResponseWriter, r *http.Request) {
+func (_ Unimplemented) AuthLogin(w http.ResponseWriter, r *http.Request, params AuthLoginParams) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
@@ -866,6 +976,18 @@ func (_ Unimplemented) Logout(w http.ResponseWriter, r *http.Request) {
 // Return the currently authenticated user
 // (GET /auth/me)
 func (_ Unimplemented) GetMe(w http.ResponseWriter, r *http.Request) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// List the configured OIDC providers (A-005)
+// (GET /auth/providers)
+func (_ Unimplemented) ListOIDCProviders(w http.ResponseWriter, r *http.Request) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// Re-issue a JWT with a fresh expiry for the current session (A-004)
+// (POST /auth/refresh)
+func (_ Unimplemented) RefreshToken(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
@@ -923,9 +1045,33 @@ func (_ Unimplemented) UpdateEvent(w http.ResponseWriter, r *http.Request, id UU
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
+// List files attached to an event (V-008)
+// (GET /events/{id}/attachments)
+func (_ Unimplemented) ListEventAttachments(w http.ResponseWriter, r *http.Request, id UUID) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// Upload an image or document attachment for an event (Veranstaltungsleiter+, V-008)
+// (POST /events/{id}/attachments)
+func (_ Unimplemented) UploadEventAttachment(w http.ResponseWriter, r *http.Request, id UUID) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// Delete an event attachment (Veranstaltungsleiter+, V-008)
+// (DELETE /events/{id}/attachments/{attachmentId})
+func (_ Unimplemented) DeleteEventAttachment(w http.ResponseWriter, r *http.Request, id UUID, attachmentId UUID) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
 // Publish a draft event (Veranstaltungsleiter+)
 // (POST /events/{id}/publish)
 func (_ Unimplemented) PublishEvent(w http.ResponseWriter, r *http.Request, id UUID) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// Turn an event into a recurring series, weekly or monthly (Veranstaltungsleiter+, V-007)
+// (POST /events/{id}/recurrence)
+func (_ Unimplemented) GenerateEventRecurrence(w http.ResponseWriter, r *http.Request, id UUID) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
@@ -1257,8 +1403,27 @@ func (siw *ServerInterfaceWrapper) AuthCallback(w http.ResponseWriter, r *http.R
 // AuthLogin operation middleware
 func (siw *ServerInterfaceWrapper) AuthLogin(w http.ResponseWriter, r *http.Request) {
 
+	var err error
+	_ = err
+
+	// Parameter object where we will unmarshal all parameters from the context
+	var params AuthLoginParams
+
+	// ------------- Optional query parameter "provider" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "provider", r.URL.Query(), &params.Provider, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "provider"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "provider", Err: err})
+		}
+		return
+	}
+
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		siw.Handler.AuthLogin(w, r)
+		siw.Handler.AuthLogin(w, r, params)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -1299,6 +1464,40 @@ func (siw *ServerInterfaceWrapper) GetMe(w http.ResponseWriter, r *http.Request)
 
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		siw.Handler.GetMe(w, r)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// ListOIDCProviders operation middleware
+func (siw *ServerInterfaceWrapper) ListOIDCProviders(w http.ResponseWriter, r *http.Request) {
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.ListOIDCProviders(w, r)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// RefreshToken operation middleware
+func (siw *ServerInterfaceWrapper) RefreshToken(w http.ResponseWriter, r *http.Request) {
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, BearerAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.RefreshToken(w, r)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -1656,6 +1855,111 @@ func (siw *ServerInterfaceWrapper) UpdateEvent(w http.ResponseWriter, r *http.Re
 	handler.ServeHTTP(w, r)
 }
 
+// ListEventAttachments operation middleware
+func (siw *ServerInterfaceWrapper) ListEventAttachments(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "id" -------------
+	var id UUID
+
+	err = runtime.BindStyledParameterWithOptions("simple", "id", chi.URLParam(r, "id"), &id, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "uuid"})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "id", Err: err})
+		return
+	}
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, BearerAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.ListEventAttachments(w, r, id)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// UploadEventAttachment operation middleware
+func (siw *ServerInterfaceWrapper) UploadEventAttachment(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "id" -------------
+	var id UUID
+
+	err = runtime.BindStyledParameterWithOptions("simple", "id", chi.URLParam(r, "id"), &id, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "uuid"})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "id", Err: err})
+		return
+	}
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, BearerAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.UploadEventAttachment(w, r, id)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// DeleteEventAttachment operation middleware
+func (siw *ServerInterfaceWrapper) DeleteEventAttachment(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "id" -------------
+	var id UUID
+
+	err = runtime.BindStyledParameterWithOptions("simple", "id", chi.URLParam(r, "id"), &id, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "uuid"})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "id", Err: err})
+		return
+	}
+
+	// ------------- Path parameter "attachmentId" -------------
+	var attachmentId UUID
+
+	err = runtime.BindStyledParameterWithOptions("simple", "attachmentId", chi.URLParam(r, "attachmentId"), &attachmentId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "uuid"})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "attachmentId", Err: err})
+		return
+	}
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, BearerAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.DeleteEventAttachment(w, r, id, attachmentId)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
 // PublishEvent operation middleware
 func (siw *ServerInterfaceWrapper) PublishEvent(w http.ResponseWriter, r *http.Request) {
 
@@ -1679,6 +1983,38 @@ func (siw *ServerInterfaceWrapper) PublishEvent(w http.ResponseWriter, r *http.R
 
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		siw.Handler.PublishEvent(w, r, id)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// GenerateEventRecurrence operation middleware
+func (siw *ServerInterfaceWrapper) GenerateEventRecurrence(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "id" -------------
+	var id UUID
+
+	err = runtime.BindStyledParameterWithOptions("simple", "id", chi.URLParam(r, "id"), &id, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "uuid"})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "id", Err: err})
+		return
+	}
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, BearerAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.GenerateEventRecurrence(w, r, id)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -3169,6 +3505,12 @@ func HandlerWithOptions(si ServerInterface, options ChiServerOptions) http.Handl
 		r.Get(options.BaseURL+"/auth/me", wrapper.GetMe)
 	})
 	r.Group(func(r chi.Router) {
+		r.Get(options.BaseURL+"/auth/providers", wrapper.ListOIDCProviders)
+	})
+	r.Group(func(r chi.Router) {
+		r.Post(options.BaseURL+"/auth/refresh", wrapper.RefreshToken)
+	})
+	r.Group(func(r chi.Router) {
 		r.Get(options.BaseURL+"/billing/{clubYearId}", wrapper.GetBilling)
 	})
 	r.Group(func(r chi.Router) {
@@ -3196,7 +3538,19 @@ func HandlerWithOptions(si ServerInterface, options ChiServerOptions) http.Handl
 		r.Put(options.BaseURL+"/events/{id}", wrapper.UpdateEvent)
 	})
 	r.Group(func(r chi.Router) {
+		r.Get(options.BaseURL+"/events/{id}/attachments", wrapper.ListEventAttachments)
+	})
+	r.Group(func(r chi.Router) {
+		r.Post(options.BaseURL+"/events/{id}/attachments", wrapper.UploadEventAttachment)
+	})
+	r.Group(func(r chi.Router) {
+		r.Delete(options.BaseURL+"/events/{id}/attachments/{attachmentId}", wrapper.DeleteEventAttachment)
+	})
+	r.Group(func(r chi.Router) {
 		r.Post(options.BaseURL+"/events/{id}/publish", wrapper.PublishEvent)
+	})
+	r.Group(func(r chi.Router) {
+		r.Post(options.BaseURL+"/events/{id}/recurrence", wrapper.GenerateEventRecurrence)
 	})
 	r.Group(func(r chi.Router) {
 		r.Get(options.BaseURL+"/events/{id}/timeline", wrapper.GetEventTimeline)

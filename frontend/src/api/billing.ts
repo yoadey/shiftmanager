@@ -17,6 +17,9 @@ export interface CreateClubYearInput {
   endDate: string;
   defaultTargetHours: number;
   setActive: boolean;
+  // Whether excess confirmed hours from THIS year carry over into whichever
+  // club year is opened next (S-006).
+  carryOverEnabled?: boolean;
 }
 
 export function useCreateClubYear() {

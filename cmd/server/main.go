@@ -24,6 +24,8 @@ import (
 	httpadapter "github.com/yoadey/shiftmanager/internal/adapter/http"
 	"github.com/yoadey/shiftmanager/internal/adapter/http/handler"
 	oidcadapter "github.com/yoadey/shiftmanager/internal/adapter/oidc"
+	localstorage "github.com/yoadey/shiftmanager/internal/adapter/storage/local"
+	s3storage "github.com/yoadey/shiftmanager/internal/adapter/storage/s3"
 	"github.com/yoadey/shiftmanager/internal/config"
 	"github.com/yoadey/shiftmanager/internal/infrastructure/logger"
 	"github.com/yoadey/shiftmanager/internal/infrastructure/scheduler"
@@ -101,6 +103,7 @@ func run() error {
 	// --- Repositories ---
 	memberRepo := db.NewMemberRepo(gdb)
 	eventRepo := db.NewEventRepo(gdb)
+	eventAttachmentRepo := db.NewEventAttachmentRepo(gdb)
 	shiftRepo := db.NewShiftRepo(gdb)
 	regRepo := db.NewRegistrationRepo(gdb)
 	hourRepo := db.NewHourRepo(gdb)
@@ -125,24 +128,51 @@ func run() error {
 		return fmt.Errorf("init email service: %w", err)
 	}
 
-	var oidcSvc port.OIDCService
-	if cfg.OIDCIssuer != "" {
+	// One OIDCService per configured provider (A-005). The common
+	// single-provider case still yields exactly one entry, named "default".
+	oidcSvcs := map[string]port.OIDCService{}
+	var oidcProviders []handler.OIDCProviderInfo
+	for _, p := range cfg.Providers() {
+		if p.Issuer == "" {
+			continue
+		}
 		svc, err := oidcadapter.New(rootCtx, oidcadapter.Config{
-			Issuer:       cfg.OIDCIssuer,
-			ClientID:     cfg.OIDCClientID,
-			ClientSecret: cfg.OIDCClientSecret,
-			RedirectURL:  cfg.OIDCRedirectURL,
+			Issuer:       p.Issuer,
+			ClientID:     p.ClientID,
+			ClientSecret: p.ClientSecret,
+			RedirectURL:  p.RedirectURL,
 		})
 		if err != nil {
-			log.Warn().Err(err).Msg("OIDC provider init failed; auth login will be unavailable")
-		} else {
-			oidcSvc = svc
+			log.Warn().Err(err).Str("provider", p.Name).Msg("OIDC provider init failed; login via this provider will be unavailable")
+			continue
 		}
+		oidcSvcs[p.Name] = svc
+		oidcProviders = append(oidcProviders, handler.OIDCProviderInfo{Name: p.Name, Label: p.Label})
+	}
+
+	var mediaStorage port.MediaStorage
+	switch cfg.MediaStorage {
+	case "s3":
+		s3Storage, err := s3storage.New(rootCtx, s3storage.Config{
+			Endpoint:        cfg.S3Endpoint,
+			Region:          cfg.S3Region,
+			Bucket:          cfg.S3Bucket,
+			AccessKeyID:     cfg.S3AccessKeyID,
+			SecretAccessKey: cfg.S3SecretAccessKey,
+			ForcePathStyle:  cfg.S3ForcePathStyle,
+			PublicBaseURL:   cfg.S3PublicBaseURL,
+		})
+		if err != nil {
+			return fmt.Errorf("init s3 media storage: %w", err)
+		}
+		mediaStorage = s3Storage
+	default:
+		mediaStorage = localstorage.New(cfg.UploadDir, cfg.BaseURL)
 	}
 
 	// --- Usecases ---
 	memberUC := usecase.NewMemberUsecase(memberRepo, auditRepo)
-	eventUC := usecase.NewEventUsecase(eventRepo, shiftRepo, regRepo, auditRepo, emailSvc, memberRepo)
+	eventUC := usecase.NewEventUsecase(eventRepo, shiftRepo, regRepo, auditRepo, emailSvc, memberRepo, eventAttachmentRepo)
 	regUC := usecase.NewRegistrationUsecase(regRepo, shiftRepo, eventRepo, memberRepo, emailSvc, auditRepo, settingsRepo)
 	hourUC := usecase.NewHourUsecase(hourRepo, memberRepo, shiftRepo, regRepo, auditRepo, emailSvc, eventRepo)
 	billingUC := usecase.NewBillingUsecase(hourRepo, memberRepo, settingsRepo, auditRepo, shiftRepo, regRepo)
@@ -156,13 +186,13 @@ func run() error {
 
 	// --- Handlers ---
 	handlers := httpadapter.Handlers{
-		Auth:     handler.BuildAuthHandler(oidcSvc, memberRepo, auditRepo, cfg.JWTSecret, cfg.JWTExpiration, cfg.LoginRedirectURL, cfg.BootstrapAdminEmail),
+		Auth:     handler.BuildAuthHandler(oidcSvcs, oidcProviders, memberRepo, auditRepo, cfg.JWTSecret, cfg.JWTExpiration, cfg.LoginRedirectURL, cfg.BootstrapAdminEmail),
 		Member:   handler.NewMemberHandler(memberUC),
-		Event:    handler.NewEventHandler(eventUC),
+		Event:    handler.NewEventHandler(eventUC, mediaStorage),
 		Shift:    handler.NewShiftHandler(eventUC, regUC),
 		Hour:     handler.NewHourHandler(hourUC),
 		Kiosk:    handler.NewKioskHandler(regUC, eventUC, memberUC, settingsUC),
-		Settings: handler.NewSettingsHandler(settingsUC, templateUC, cfg.UploadDir, cfg.BaseURL),
+		Settings: handler.NewSettingsHandler(settingsUC, templateUC, mediaStorage),
 		Billing:  handler.NewBillingHandler(billingUC),
 		Stats:    handler.NewStatsHandler(statsUC),
 		Privacy:  handler.NewPrivacyHandler(privacyUC),
@@ -172,13 +202,20 @@ func run() error {
 		handlers.DevAuth = handler.NewDevAuthHandler(cfg.JWTSecret)
 	}
 
+	// The /uploads/* static route only serves local media storage; with
+	// MEDIA_STORAGE=s3 nothing is ever written under UploadDir, so the route
+	// is left unmounted (RouterConfig.UploadDir == "" disables it).
+	routerUploadDir := cfg.UploadDir
+	if cfg.MediaStorage == "s3" {
+		routerUploadDir = ""
+	}
 	router := httpadapter.NewRouter(handlers, httpadapter.RouterConfig{
 		JWTSecret:    cfg.JWTSecret,
 		RateLimitRPM: 120,
 		Logger:       log,
 		Ready:        dbReadyFunc(gdb),
 		Static:       static.Handler(),
-		UploadDir:    cfg.UploadDir,
+		UploadDir:    routerUploadDir,
 		TestMode:     cfg.TestMode,
 	})
 

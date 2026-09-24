@@ -6,6 +6,7 @@ import { Stepper } from '@/components/ui/Stepper';
 import { Toggle } from '@/components/ui/Toggle';
 import { useAppStore } from '@/store/app.store';
 import { useAuthStore } from '@/store/auth.store';
+import { useIsVorstand } from '@/hooks/useIsVorstand';
 import { useSettings, useUpdateSettings, useBranding, useUploadLogo, useUpdateBranding, useBrandingHistory, useRollbackBranding } from '@/api/settings';
 import { LoadingState, ErrorState } from '@/components/ui/States';
 import { DEMO_STATE } from '@/screens/_demo';
@@ -42,9 +43,9 @@ function SegRadio<T extends string>({ value, onChange, options }: { value: T; on
 }
 
 export function AdminSettings() {
-  const { push, setNameMode, showToast, setRole } = useAppStore();
-  const { user, logout } = useAuthStore();
-  const isAdmin = user?.role === 'admin' || user?.role === 'vorstand';
+  const { push, setNameMode, showToast } = useAppStore();
+  const { logout } = useAuthStore();
+  const isAdmin = useIsVorstand();
   const settingsQ = useSettings();
   const { data: branding } = useBranding();
 
@@ -348,10 +349,7 @@ export function AdminSettings() {
             icon="lock"
             label="Abmelden"
             sub="Sitzung beenden"
-            onClick={() => {
-              logout();
-              setRole('mitglied');
-            }}
+            onClick={() => logout()}
           />
         </div>
       </div>

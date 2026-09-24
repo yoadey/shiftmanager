@@ -37,6 +37,8 @@ export type {
   ConfirmResult,
   MessageResponse,
   ErrorResponse,
+  EventAttachment,
+  RecurrenceFrequency,
   // Raw backend member shape (camelCase) — used in api/members.ts mapper.
   Member as RawMember,
 } from '@/api/generated/types.gen';
@@ -100,6 +102,8 @@ export interface Event {
   status: EventStatus;
   description: string;
   days: ShiftDay[];
+  // Set when the event is part of a recurring series (V-007).
+  recurrenceFrequency?: import('@/api/generated/types.gen').RecurrenceFrequency;
 }
 
 export interface EventTimeline {

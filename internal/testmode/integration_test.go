@@ -1,14 +1,17 @@
 package testmode_test
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
 	"io"
+	"mime/multipart"
 	"net/http"
 	"strings"
 	"testing"
 
+	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"github.com/yoadey/shiftmanager/internal/adapter/db"
@@ -70,6 +73,43 @@ func put(t *testing.T, s *testmode.Server, path, tok, body string) *http.Respons
 	req, err := http.NewRequest(http.MethodPut, s.URL+path, strings.NewReader(body))
 	require.NoError(t, err)
 	req.Header.Set("Content-Type", "application/json")
+	if tok != "" {
+		req.Header.Set("Authorization", "Bearer "+tok)
+	}
+	resp, err := http.DefaultClient.Do(req)
+	require.NoError(t, err)
+	return resp
+}
+
+// uploadFile performs a multipart POST with a single "file" field.
+func uploadFile(t *testing.T, s *testmode.Server, path, tok, fileName, contentType string, content []byte) *http.Response {
+	t.Helper()
+	var buf bytes.Buffer
+	mw := multipart.NewWriter(&buf)
+	part, err := mw.CreatePart(map[string][]string{
+		"Content-Disposition": {`form-data; name="file"; filename="` + fileName + `"`},
+		"Content-Type":        {contentType},
+	})
+	require.NoError(t, err)
+	_, err = part.Write(content)
+	require.NoError(t, err)
+	require.NoError(t, mw.Close())
+
+	req, err := http.NewRequest(http.MethodPost, s.URL+path, &buf)
+	require.NoError(t, err)
+	req.Header.Set("Content-Type", mw.FormDataContentType())
+	if tok != "" {
+		req.Header.Set("Authorization", "Bearer "+tok)
+	}
+	resp, err := http.DefaultClient.Do(req)
+	require.NoError(t, err)
+	return resp
+}
+
+func del(t *testing.T, s *testmode.Server, path, tok string) *http.Response {
+	t.Helper()
+	req, err := http.NewRequest(http.MethodDelete, s.URL+path, nil)
+	require.NoError(t, err)
 	if tok != "" {
 		req.Header.Set("Authorization", "Bearer "+tok)
 	}
@@ -413,6 +453,118 @@ func TestCreateAndPublishEvent(t *testing.T) {
 	assert.Equal(t, "published", published["status"])
 }
 
+func TestEventAttachments_UploadListDelete(t *testing.T) {
+	s := startServer(t)
+	tok := token(t, s, "veranstaltungsleiter", db.AdminID.String(), "admin@test.local")
+
+	uploadResp := uploadFile(t, s, "/api/v1/events/"+db.EventID.String()+"/attachments", tok, "flyer.png", "image/png", []byte("fake-png-bytes"))
+	require.Equal(t, http.StatusCreated, uploadResp.StatusCode)
+	var attachment map[string]any
+	decode(t, uploadResp, &attachment)
+	assert.Equal(t, "flyer.png", attachment["fileName"])
+	assert.Equal(t, "image/png", attachment["contentType"])
+	attachmentID := attachment["id"].(string)
+	require.NotEmpty(t, attachmentID)
+
+	listResp := get(t, s, "/api/v1/events/"+db.EventID.String()+"/attachments", tok)
+	require.Equal(t, http.StatusOK, listResp.StatusCode)
+	var list []map[string]any
+	decode(t, listResp, &list)
+	require.Len(t, list, 1)
+	assert.Equal(t, attachmentID, list[0]["id"])
+
+	// The uploaded file is actually downloadable from /uploads/*. The stored
+	// URL is absolute against the handler's configured public base (a fixed
+	// "http://localhost" in test mode), not the ephemeral httptest address,
+	// so re-base its path onto the real server URL.
+	fileURL, ok := attachment["url"].(string)
+	require.True(t, ok)
+	urlPath := fileURL[strings.LastIndex(fileURL, "/uploads/"):]
+	fileResp, err := http.Get(s.URL + urlPath) //nolint:noctx
+	require.NoError(t, err)
+	fileBody, err := io.ReadAll(fileResp.Body)
+	require.NoError(t, err)
+	fileResp.Body.Close()
+	assert.Equal(t, http.StatusOK, fileResp.StatusCode)
+	assert.Equal(t, "fake-png-bytes", string(fileBody))
+	// Guards against a browser content-sniffing an uploaded file into
+	// something it isn't (e.g. a PNG/HTML polyglot) and executing it.
+	assert.Equal(t, "nosniff", fileResp.Header.Get("X-Content-Type-Options"))
+
+	delResp := del(t, s, "/api/v1/events/"+db.EventID.String()+"/attachments/"+attachmentID, tok)
+	assert.Equal(t, http.StatusNoContent, delResp.StatusCode)
+
+	listResp2 := get(t, s, "/api/v1/events/"+db.EventID.String()+"/attachments", tok)
+	require.Equal(t, http.StatusOK, listResp2.StatusCode)
+	var list2 []map[string]any
+	decode(t, listResp2, &list2)
+	assert.Empty(t, list2)
+}
+
+// Without this, http.FileServer serves an HTML index of every uploaded file
+// (logos and event attachments, including ones on draft/unpublished events)
+// to anyone, with no auth — bypassing the JWT-gated attachments API entirely.
+func TestUploadsDirectoryListingIsBlocked(t *testing.T) {
+	s := startServer(t)
+	tok := token(t, s, "veranstaltungsleiter", db.AdminID.String(), "admin@test.local")
+	uploadResp := uploadFile(t, s, "/api/v1/events/"+db.EventID.String()+"/attachments", tok, "flyer.png", "image/png", []byte("fake-png-bytes"))
+	require.Equal(t, http.StatusCreated, uploadResp.StatusCode)
+	var attachment map[string]any
+	decode(t, uploadResp, &attachment)
+
+	resp, err := http.Get(s.URL + "/uploads/") //nolint:noctx
+	require.NoError(t, err)
+	body, err := io.ReadAll(resp.Body)
+	require.NoError(t, err)
+	resp.Body.Close()
+
+	assert.NotEqual(t, http.StatusOK, resp.StatusCode)
+	assert.NotContains(t, string(body), "flyer")
+}
+
+func TestEventAttachments_RejectsOversizedFile(t *testing.T) {
+	s := startServer(t)
+	tok := token(t, s, "veranstaltungsleiter", db.AdminID.String(), "admin@test.local")
+
+	oversized := make([]byte, 6<<20) // 6MB > the 5MB attachment limit
+	resp := uploadFile(t, s, "/api/v1/events/"+db.EventID.String()+"/attachments", tok, "huge.png", "image/png", oversized)
+	assert.Equal(t, http.StatusRequestEntityTooLarge, resp.StatusCode)
+}
+
+func TestEventAttachments_RejectsDisallowedType(t *testing.T) {
+	s := startServer(t)
+	tok := token(t, s, "veranstaltungsleiter", db.AdminID.String(), "admin@test.local")
+
+	resp := uploadFile(t, s, "/api/v1/events/"+db.EventID.String()+"/attachments", tok, "malware.exe", "application/octet-stream", []byte("x"))
+	assert.Equal(t, http.StatusUnsupportedMediaType, resp.StatusCode)
+}
+
+// SVG can embed <script>, and this endpoint (unlike the Vorstand-only logo
+// upload) is reachable by any Veranstaltungsleiter — must stay rejected.
+func TestEventAttachments_RejectsSVG(t *testing.T) {
+	s := startServer(t)
+	tok := token(t, s, "veranstaltungsleiter", db.AdminID.String(), "admin@test.local")
+
+	resp := uploadFile(t, s, "/api/v1/events/"+db.EventID.String()+"/attachments", tok, "flyer.svg", "image/svg+xml", []byte("<svg><script>alert(1)</script></svg>"))
+	assert.Equal(t, http.StatusUnsupportedMediaType, resp.StatusCode)
+}
+
+func TestEventAttachments_ListUnknownEvent404s(t *testing.T) {
+	s := startServer(t)
+	tok := token(t, s, "veranstaltungsleiter", db.AdminID.String(), "admin@test.local")
+
+	resp := get(t, s, "/api/v1/events/"+uuid.NewString()+"/attachments", tok)
+	assert.Equal(t, http.StatusNotFound, resp.StatusCode)
+}
+
+func TestEventAttachments_RequiresVeranstaltungsleiter(t *testing.T) {
+	s := startServer(t)
+	memberTok := token(t, s, "mitglied", db.MemberID.String(), "max@test.local")
+
+	resp := uploadFile(t, s, "/api/v1/events/"+db.EventID.String()+"/attachments", memberTok, "flyer.png", "image/png", []byte("x"))
+	assert.Equal(t, http.StatusForbidden, resp.StatusCode)
+}
+
 func TestUnauthorizedAccessDenied(t *testing.T) {
 	s := startServer(t)
 
@@ -422,4 +574,239 @@ func TestUnauthorizedAccessDenied(t *testing.T) {
 	resp := post(t, s, "/api/v1/hours/manual", memberTok, body)
 	assert.Equal(t, http.StatusForbidden, resp.StatusCode)
 	resp.Body.Close()
+}
+
+// The seed event (db.EventID) starts 2026-07-04T14:00:00Z with two shifts.
+func TestGenerateRecurrence_Weekly(t *testing.T) {
+	s := startServer(t)
+	tok := token(t, s, "veranstaltungsleiter", db.AdminID.String(), "admin@test.local")
+
+	resp := post(t, s, "/api/v1/events/"+db.EventID.String()+"/recurrence", tok,
+		`{"frequency": "weekly", "until": "2026-07-26T00:00:00Z"}`)
+	require.Equal(t, http.StatusCreated, resp.StatusCode)
+	var events []map[string]any
+	decode(t, resp, &events)
+	require.Len(t, events, 4) // source + 3 weekly occurrences (07-11, 07-18, 07-25, all 14:00Z)
+	assert.Equal(t, db.EventID.String(), events[0]["id"])
+	assert.Equal(t, "weekly", events[0]["recurrenceFrequency"])
+	require.NotEmpty(t, events[0]["recurrenceGroupId"])
+
+	for _, occ := range events[1:] {
+		assert.NotEqual(t, db.EventID.String(), occ["id"])
+		assert.Equal(t, "Sommerfest", occ["name"])
+		assert.Equal(t, "draft", occ["status"])
+		assert.Equal(t, events[0]["recurrenceGroupId"], occ["recurrenceGroupId"])
+
+		// Each occurrence must have carried over the source event's shifts.
+		listResp := get(t, s, "/api/v1/events/"+occ["id"].(string)+"/timeline", tok)
+		require.Equal(t, http.StatusOK, listResp.StatusCode)
+		var tl map[string]any
+		decode(t, listResp, &tl)
+		days, _ := tl["days"].([]any)
+		var shiftCount int
+		for _, d := range days {
+			day, _ := d.(map[string]any)
+			shifts, _ := day["shifts"].([]any)
+			shiftCount += len(shifts)
+		}
+		assert.Equal(t, 2, shiftCount)
+	}
+}
+
+func TestGenerateRecurrence_AlreadyRecurring(t *testing.T) {
+	s := startServer(t)
+	tok := token(t, s, "veranstaltungsleiter", db.AdminID.String(), "admin@test.local")
+
+	first := post(t, s, "/api/v1/events/"+db.EventID.String()+"/recurrence", tok,
+		`{"frequency": "weekly", "until": "2026-07-12T00:00:00Z"}`)
+	require.Equal(t, http.StatusCreated, first.StatusCode)
+	first.Body.Close()
+
+	again := post(t, s, "/api/v1/events/"+db.EventID.String()+"/recurrence", tok,
+		`{"frequency": "weekly", "until": "2026-07-25T00:00:00Z"}`)
+	assert.Equal(t, http.StatusBadRequest, again.StatusCode)
+}
+
+func TestGenerateRecurrence_RequiresVeranstaltungsleiter(t *testing.T) {
+	s := startServer(t)
+	memberTok := token(t, s, "mitglied", db.MemberID.String(), "max@test.local")
+
+	resp := post(t, s, "/api/v1/events/"+db.EventID.String()+"/recurrence", memberTok,
+		`{"frequency": "weekly", "until": "2026-07-25T00:00:00Z"}`)
+	assert.Equal(t, http.StatusForbidden, resp.StatusCode)
+}
+
+func TestGenerateRecurrence_UnknownEvent404s(t *testing.T) {
+	s := startServer(t)
+	tok := token(t, s, "veranstaltungsleiter", db.AdminID.String(), "admin@test.local")
+
+	resp := post(t, s, "/api/v1/events/"+uuid.NewString()+"/recurrence", tok,
+		`{"frequency": "weekly", "until": "2026-07-25T00:00:00Z"}`)
+	assert.Equal(t, http.StatusNotFound, resp.StatusCode)
+}
+
+// S-006: a club year opened with carryOverEnabled credits members' excess
+// confirmed hours (beyond target) to whichever club year opens next.
+func TestClubYear_CarriesOverExcessHours(t *testing.T) {
+	s := startServer(t)
+	tok := token(t, s, "vorstand", db.AdminID.String(), "admin@test.local")
+
+	yearAResp := post(t, s, "/api/v1/hours/club-years", tok,
+		`{"label":"2027","startDate":"2027-01-01T00:00:00Z","endDate":"2027-12-31T23:59:59Z","defaultTargetHours":10,"setActive":true,"carryOverEnabled":true}`)
+	require.Equal(t, http.StatusCreated, yearAResp.StatusCode)
+	var yearA map[string]any
+	decode(t, yearAResp, &yearA)
+	yearAID := yearA["id"].(string)
+	assert.Equal(t, true, yearA["carryOverEnabled"])
+
+	bookResp := post(t, s, "/api/v1/hours/manual", tok, fmt.Sprintf(
+		`{"memberId":"%s","clubYearId":"%s","hours":25,"description":"test"}`, db.MemberID.String(), yearAID))
+	require.Equal(t, http.StatusCreated, bookResp.StatusCode)
+	bookResp.Body.Close()
+
+	yearBResp := post(t, s, "/api/v1/hours/club-years", tok,
+		`{"label":"2028","startDate":"2028-01-01T00:00:00Z","endDate":"2028-12-31T23:59:59Z","defaultTargetHours":10,"setActive":true}`)
+	require.Equal(t, http.StatusCreated, yearBResp.StatusCode)
+	var yearB map[string]any
+	decode(t, yearBResp, &yearB)
+	yearBID := yearB["id"].(string)
+
+	acctResp := get(t, s, "/api/v1/hours/account?memberId="+db.MemberID.String()+"&clubYearId="+yearBID, tok)
+	require.Equal(t, http.StatusOK, acctResp.StatusCode)
+	var acct map[string]any
+	decode(t, acctResp, &acct)
+	// 25h confirmed in year A against a 10h target -> 15h excess carried over.
+	assert.Equal(t, 15.0, acct["confirmedHours"])
+}
+
+func TestClubYear_NoCarryOverWhenNotEnabled(t *testing.T) {
+	s := startServer(t)
+	tok := token(t, s, "vorstand", db.AdminID.String(), "admin@test.local")
+
+	yearAResp := post(t, s, "/api/v1/hours/club-years", tok,
+		`{"label":"2027","startDate":"2027-01-01T00:00:00Z","endDate":"2027-12-31T23:59:59Z","defaultTargetHours":10,"setActive":true}`)
+	require.Equal(t, http.StatusCreated, yearAResp.StatusCode)
+	var yearA map[string]any
+	decode(t, yearAResp, &yearA)
+	yearAID := yearA["id"].(string)
+	assert.Equal(t, false, yearA["carryOverEnabled"])
+
+	bookResp := post(t, s, "/api/v1/hours/manual", tok, fmt.Sprintf(
+		`{"memberId":"%s","clubYearId":"%s","hours":25,"description":"test"}`, db.MemberID.String(), yearAID))
+	require.Equal(t, http.StatusCreated, bookResp.StatusCode)
+	bookResp.Body.Close()
+
+	yearBResp := post(t, s, "/api/v1/hours/club-years", tok,
+		`{"label":"2028","startDate":"2028-01-01T00:00:00Z","endDate":"2028-12-31T23:59:59Z","defaultTargetHours":10,"setActive":true}`)
+	require.Equal(t, http.StatusCreated, yearBResp.StatusCode)
+	var yearB map[string]any
+	decode(t, yearBResp, &yearB)
+	yearBID := yearB["id"].(string)
+
+	acctResp := get(t, s, "/api/v1/hours/account?memberId="+db.MemberID.String()+"&clubYearId="+yearBID, tok)
+	require.Equal(t, http.StatusOK, acctResp.StatusCode)
+	var acct map[string]any
+	decode(t, acctResp, &acct)
+	assert.Equal(t, 0.0, acct["confirmedHours"])
+}
+
+// A new active club year must supersede the previously active one, so
+// GET /hours/club-years never shows more than one year marked active at once.
+func TestClubYear_ActivatingNewYearDeactivatesPrevious(t *testing.T) {
+	s := startServer(t)
+	tok := token(t, s, "vorstand", db.AdminID.String(), "admin@test.local")
+
+	yearAResp := post(t, s, "/api/v1/hours/club-years", tok,
+		`{"label":"2027","startDate":"2027-01-01T00:00:00Z","endDate":"2027-12-31T23:59:59Z","defaultTargetHours":10,"setActive":true}`)
+	require.Equal(t, http.StatusCreated, yearAResp.StatusCode)
+	var yearA map[string]any
+	decode(t, yearAResp, &yearA)
+
+	yearBResp := post(t, s, "/api/v1/hours/club-years", tok,
+		`{"label":"2028","startDate":"2028-01-01T00:00:00Z","endDate":"2028-12-31T23:59:59Z","defaultTargetHours":10,"setActive":true}`)
+	require.Equal(t, http.StatusCreated, yearBResp.StatusCode)
+
+	listResp := get(t, s, "/api/v1/hours/club-years", tok)
+	require.Equal(t, http.StatusOK, listResp.StatusCode)
+	var years []map[string]any
+	decode(t, listResp, &years)
+
+	activeCount := 0
+	for _, y := range years {
+		if active, _ := y["isActive"].(bool); active {
+			activeCount++
+		}
+	}
+	assert.Equal(t, 1, activeCount, "exactly one club year must be active at a time")
+}
+
+func TestAddGuestToShift(t *testing.T) {
+	s := startServer(t)
+	tok := token(t, s, "veranstaltungsleiter", db.AdminID.String(), "admin@test.local")
+
+	resp := post(t, s, "/api/v1/shifts/"+db.Shift1ID.String()+"/add-guest", tok,
+		`{"name":"Jane Doe","email":"jane@example.com"}`)
+	require.Equal(t, http.StatusCreated, resp.StatusCode)
+	var reg map[string]any
+	decode(t, resp, &reg)
+	assert.Equal(t, "Jane Doe", reg["guestName"])
+	assert.Equal(t, "jane@example.com", reg["guestEmail"])
+	assert.Nil(t, reg["memberId"])
+}
+
+func TestAddGuestToShift_EmailOptional(t *testing.T) {
+	s := startServer(t)
+	tok := token(t, s, "veranstaltungsleiter", db.AdminID.String(), "admin@test.local")
+
+	resp := post(t, s, "/api/v1/shifts/"+db.Shift1ID.String()+"/add-guest", tok, `{"name":"Jane Doe"}`)
+	require.Equal(t, http.StatusCreated, resp.StatusCode)
+	var reg map[string]any
+	decode(t, resp, &reg)
+	assert.Equal(t, "Jane Doe", reg["guestName"])
+	assert.Nil(t, reg["guestEmail"])
+}
+
+func TestAddGuestToShift_RequiresName(t *testing.T) {
+	s := startServer(t)
+	tok := token(t, s, "veranstaltungsleiter", db.AdminID.String(), "admin@test.local")
+
+	resp := post(t, s, "/api/v1/shifts/"+db.Shift1ID.String()+"/add-guest", tok, `{}`)
+	assert.Equal(t, http.StatusBadRequest, resp.StatusCode)
+}
+
+func TestAddGuestToShift_RequiresVeranstaltungsleiter(t *testing.T) {
+	s := startServer(t)
+	memberTok := token(t, s, "mitglied", db.MemberID.String(), "max@test.local")
+
+	resp := post(t, s, "/api/v1/shifts/"+db.Shift1ID.String()+"/add-guest", memberTok, `{"name":"Jane Doe"}`)
+	assert.Equal(t, http.StatusForbidden, resp.StatusCode)
+}
+
+// A guest helper an organizer added should be removable, same as a
+// self-registered member (ForceDeleteRegistration is not scoped to
+// self-service registrations).
+func TestAddGuestToShift_RejectsDuplicateEmail(t *testing.T) {
+	s := startServer(t)
+	tok := token(t, s, "veranstaltungsleiter", db.AdminID.String(), "admin@test.local")
+
+	first := post(t, s, "/api/v1/shifts/"+db.Shift1ID.String()+"/add-guest", tok, `{"name":"Jane Doe","email":"jane@example.com"}`)
+	require.Equal(t, http.StatusCreated, first.StatusCode)
+	first.Body.Close()
+
+	dup := post(t, s, "/api/v1/shifts/"+db.Shift1ID.String()+"/add-guest", tok, `{"name":"J. Doe","email":"Jane@Example.com"}`)
+	assert.Equal(t, http.StatusConflict, dup.StatusCode)
+}
+
+func TestAddGuestToShift_CanBeRemoved(t *testing.T) {
+	s := startServer(t)
+	tok := token(t, s, "veranstaltungsleiter", db.AdminID.String(), "admin@test.local")
+
+	addResp := post(t, s, "/api/v1/shifts/"+db.Shift1ID.String()+"/add-guest", tok, `{"name":"Jane Doe"}`)
+	require.Equal(t, http.StatusCreated, addResp.StatusCode)
+	var reg map[string]any
+	decode(t, addResp, &reg)
+	regID := reg["id"].(string)
+
+	delResp := del(t, s, "/api/v1/registrations/"+regID, tok)
+	assert.Equal(t, http.StatusNoContent, delResp.StatusCode)
 }

@@ -14,8 +14,13 @@ import (
 // interfaces. The AuthHandler's own dependencies (memberGetter / auditWriter)
 // are unexported interfaces, so this constructor lives in the handler package
 // and adapts the port repositories to them.
+//
+// oidc holds one service per configured provider (A-005), keyed by provider
+// name; providers is the same set's public (name/label only) listing, in
+// display order, returned by GET /auth/providers.
 func BuildAuthHandler(
-	oidc port.OIDCService,
+	oidc map[string]port.OIDCService,
+	providers []OIDCProviderInfo,
 	members port.MemberRepository,
 	audit port.AuditRepository,
 	jwtSecret string,
@@ -25,6 +30,7 @@ func BuildAuthHandler(
 ) *AuthHandler {
 	return &AuthHandler{
 		oidc:                oidc,
+		providers:           providers,
 		members:             memberGetterAdapter{repo: members},
 		audit:               auditWriterAdapter{repo: audit},
 		jwtSecret:           jwtSecret,

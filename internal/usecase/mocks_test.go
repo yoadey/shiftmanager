@@ -2,6 +2,7 @@ package usecase
 
 import (
 	"context"
+	"fmt"
 	"strings"
 	"time"
 
@@ -19,6 +20,9 @@ import (
 type fakeMemberRepo struct {
 	members map[uuid.UUID]*domain.Member
 	links   []*domain.OIDCLink
+	// failNextList, when true, makes the next single List call fail and
+	// then resets itself.
+	failNextList bool
 }
 
 var _ port.MemberRepository = (*fakeMemberRepo)(nil)
@@ -64,6 +68,10 @@ func (f *fakeMemberRepo) GetByOIDCSubject(ctx context.Context, provider, subject
 }
 
 func (f *fakeMemberRepo) List(ctx context.Context, filter port.MemberFilter) ([]*domain.Member, error) {
+	if f.failNextList {
+		f.failNextList = false
+		return nil, fmt.Errorf("simulated db failure")
+	}
 	var out []*domain.Member
 	for _, m := range f.members {
 		if filter.IsActive != nil && m.IsActive != *filter.IsActive {
@@ -159,6 +167,15 @@ func (f *fakeMemberRepo) Anonymize(ctx context.Context, id uuid.UUID, leftAt tim
 
 type fakeEventRepo struct {
 	events map[uuid.UUID]*domain.Event
+	// failNextMarkRecurring, when true, makes the next single MarkRecurring
+	// call fail and then resets itself, to simulate e.g. GenerateRecurrence's
+	// final source-event stamp failing after its occurrences were already
+	// created.
+	failNextMarkRecurring bool
+	// forceNextMarkRecurringLost, when true, makes the next single
+	// MarkRecurring call report applied=false (as if a concurrent caller won
+	// the race) regardless of actual state, and then resets itself.
+	forceNextMarkRecurringLost bool
 }
 
 var _ port.EventRepository = (*fakeEventRepo)(nil)
@@ -222,10 +239,92 @@ func (f *fakeEventRepo) UpdateStatus(ctx context.Context, id uuid.UUID, status d
 	return nil
 }
 
+func (f *fakeEventRepo) MarkRecurring(ctx context.Context, id uuid.UUID, frequency domain.RecurrenceFrequency, until time.Time, groupID uuid.UUID) (bool, error) {
+	if f.failNextMarkRecurring {
+		f.failNextMarkRecurring = false
+		return false, fmt.Errorf("simulated mark-recurring failure")
+	}
+	if f.forceNextMarkRecurringLost {
+		f.forceNextMarkRecurringLost = false
+		return false, nil
+	}
+	e, ok := f.events[id]
+	if !ok || e.RecurrenceGroupID != nil {
+		return false, nil
+	}
+	e.RecurrenceFrequency = frequency
+	e.RecurrenceUntil = &until
+	e.RecurrenceGroupID = &groupID
+	return true, nil
+}
+
+// --- EventAttachmentRepo fake ---
+
+type fakeEventAttachmentRepo struct {
+	attachments map[uuid.UUID]*domain.EventAttachment
+}
+
+var _ port.EventAttachmentRepository = (*fakeEventAttachmentRepo)(nil)
+
+func newFakeEventAttachmentRepo() *fakeEventAttachmentRepo {
+	return &fakeEventAttachmentRepo{attachments: map[uuid.UUID]*domain.EventAttachment{}}
+}
+
+func (f *fakeEventAttachmentRepo) Create(ctx context.Context, a *domain.EventAttachment) error {
+	cp := *a
+	f.attachments[a.ID] = &cp
+	return nil
+}
+
+func (f *fakeEventAttachmentRepo) ListByEvent(ctx context.Context, eventID uuid.UUID) ([]*domain.EventAttachment, error) {
+	// Non-nil even when empty, matching EventAttachmentRepo (GORM's
+	// make([]T, 0, n) is always non-nil) — JSON-marshals to [] rather than
+	// null for the frontend either way.
+	out := []*domain.EventAttachment{}
+	for _, a := range f.attachments {
+		if a.EventID == eventID {
+			cp := *a
+			out = append(out, &cp)
+		}
+	}
+	return out, nil
+}
+
+func (f *fakeEventAttachmentRepo) GetByID(ctx context.Context, id uuid.UUID) (*domain.EventAttachment, error) {
+	a, ok := f.attachments[id]
+	if !ok {
+		return nil, domain.ErrEventAttachmentNotFound
+	}
+	cp := *a
+	return &cp, nil
+}
+
+func (f *fakeEventAttachmentRepo) Delete(ctx context.Context, id uuid.UUID) error {
+	if _, ok := f.attachments[id]; !ok {
+		return domain.ErrEventAttachmentNotFound
+	}
+	delete(f.attachments, id)
+	return nil
+}
+
+func (f *fakeEventAttachmentRepo) DeleteByEvent(ctx context.Context, eventID uuid.UUID) error {
+	for id, a := range f.attachments {
+		if a.EventID == eventID {
+			delete(f.attachments, id)
+		}
+	}
+	return nil
+}
+
 // --- ShiftRepo fake ---
 
 type fakeShiftRepo struct {
 	shifts map[uuid.UUID]*domain.Shift
+	// failCreateAt, when non-zero, makes the Nth call to Create (1-indexed)
+	// fail, to simulate a mid-batch failure (e.g. GenerateRecurrence's
+	// partial-failure/retry behavior).
+	failCreateAt int
+	createCalls  int
 }
 
 var _ port.ShiftRepository = (*fakeShiftRepo)(nil)
@@ -240,6 +339,10 @@ func (f *fakeShiftRepo) add(s *domain.Shift) {
 }
 
 func (f *fakeShiftRepo) Create(ctx context.Context, s *domain.Shift) error {
+	f.createCalls++
+	if f.failCreateAt != 0 && f.createCalls == f.failCreateAt {
+		return fmt.Errorf("simulated shift create failure")
+	}
 	cp := *s
 	f.shifts[s.ID] = &cp
 	return nil
@@ -446,6 +549,10 @@ type fakeHourRepo struct {
 	years    map[uuid.UUID]*domain.ClubYear
 	targets  map[string]*domain.HourTarget // key memberID|yearID
 	activeYr *domain.ClubYear
+	// failNextGetActiveClubYear, when true, makes the next single
+	// GetActiveClubYear call fail with a non-ErrClubYearNotFound error, to
+	// simulate a real DB failure rather than "no active year exists yet".
+	failNextGetActiveClubYear bool
 }
 
 var _ port.HourRepository = (*fakeHourRepo)(nil)
@@ -553,6 +660,10 @@ func (f *fakeHourRepo) DeleteClubYear(ctx context.Context, id uuid.UUID) error {
 }
 
 func (f *fakeHourRepo) GetActiveClubYear(ctx context.Context) (*domain.ClubYear, error) {
+	if f.failNextGetActiveClubYear {
+		f.failNextGetActiveClubYear = false
+		return nil, fmt.Errorf("simulated db failure")
+	}
 	if f.activeYr == nil {
 		return nil, domain.ErrClubYearNotFound
 	}
@@ -576,6 +687,20 @@ func (f *fakeHourRepo) ListClubYears(ctx context.Context) ([]*domain.ClubYear, e
 		out = append(out, &cp)
 	}
 	return out, nil
+}
+
+func (f *fakeHourRepo) CreateActiveClubYear(ctx context.Context, y *domain.ClubYear) error {
+	y.IsActive = true
+	f.addYear(y)
+	for id, other := range f.years {
+		if id == y.ID || !other.IsActive {
+			continue
+		}
+		cp := *other
+		cp.IsActive = false
+		f.years[id] = &cp
+	}
+	return nil
 }
 
 func (f *fakeHourRepo) GetHourTarget(ctx context.Context, memberID, clubYearID uuid.UUID) (*domain.HourTarget, error) {

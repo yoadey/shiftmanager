@@ -103,8 +103,11 @@ export function useRollbackBranding() {
 // ── Logo upload (B-004) ─────────────────────────────────────────────────────
 
 /**
- * Uploads a PNG/SVG club logo via multipart FormData. We deliberately do not set
- * a JSON content-type — axios infers the multipart boundary from the FormData.
+ * Uploads a PNG/SVG club logo via multipart FormData. apiClient sets a
+ * default `Content-Type: application/json` header; without overriding it to
+ * null per-request, axios treats that default as authoritative and
+ * JSON-serializes the FormData instead of sending it as multipart (the
+ * file's bytes never reach the server).
  */
 export function useUploadLogo() {
   const qc = useQueryClient();
@@ -113,7 +116,7 @@ export function useUploadLogo() {
       const form = new FormData();
       form.append('file', file);
       return apiClient
-        .post<BrandingConfig>('/settings/logo', form)
+        .post<BrandingConfig>('/settings/logo', form, { headers: { 'Content-Type': null } })
         .then((r) => r.data);
     },
     onSuccess: () => qc.invalidateQueries({ queryKey: ['branding'] }),

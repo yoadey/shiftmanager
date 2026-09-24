@@ -1,10 +1,7 @@
 package handler
 
 import (
-	"io"
 	"net/http"
-	"os"
-	"path/filepath"
 	"strings"
 	"time"
 
@@ -19,19 +16,16 @@ import (
 // SettingsHandler handles application settings, branding, fee tiers, per-member
 // fee-tier overrides, logo upload and audit log.
 type SettingsHandler struct {
-	uc         *usecase.SettingsUsecase
-	templates  *usecase.EmailTemplateUsecase
-	uploadDir  string
-	publicBase string // public base URL used to build served logo URLs
+	uc        *usecase.SettingsUsecase
+	templates *usecase.EmailTemplateUsecase
+	storage   port.MediaStorage // logo upload (B-004)
 }
 
-// NewSettingsHandler creates a new SettingsHandler. templates may be nil if email
-// template CRUD is not wired; uploadDir/publicBase configure logo upload (B-004).
-func NewSettingsHandler(uc *usecase.SettingsUsecase, templates *usecase.EmailTemplateUsecase, uploadDir, publicBase string) *SettingsHandler {
-	if uploadDir == "" {
-		uploadDir = "./uploads"
-	}
-	return &SettingsHandler{uc: uc, templates: templates, uploadDir: uploadDir, publicBase: publicBase}
+// NewSettingsHandler creates a new SettingsHandler. templates may be nil if
+// email template CRUD is not wired; storage configures where logo uploads
+// (B-004) are written.
+func NewSettingsHandler(uc *usecase.SettingsUsecase, templates *usecase.EmailTemplateUsecase, storage port.MediaStorage) *SettingsHandler {
+	return &SettingsHandler{uc: uc, templates: templates, storage: storage}
 }
 
 // GetSettings returns the current application settings.
@@ -224,51 +218,16 @@ func (h *SettingsHandler) UpdateMemberFeeTiers(w http.ResponseWriter, r *http.Re
 // POST /api/v1/settings/logo  (multipart/form-data, field "file")
 func (h *SettingsHandler) UploadLogo(w http.ResponseWriter, r *http.Request) {
 	const maxSize = 2 << 20 // 2MB
-	if err := r.ParseMultipartForm(maxSize); err != nil {
-		writeError(w, http.StatusBadRequest, "invalid multipart form")
-		return
-	}
-	file, hdr, err := r.FormFile("file")
-	if err != nil {
-		writeError(w, http.StatusBadRequest, "file field is required")
-		return
-	}
-	defer file.Close()
 
-	if hdr.Size > maxSize {
-		writeError(w, http.StatusRequestEntityTooLarge, "file exceeds 2MB limit")
+	logoURL, _, _, _, ok := receiveUpload(w, r, h.storage, maxSize, "logo-", isAllowedLogo, "only PNG and SVG files are allowed")
+	if !ok {
 		return
 	}
 
-	ext := strings.ToLower(filepath.Ext(hdr.Filename))
-	contentType := hdr.Header.Get("Content-Type")
-	if !isAllowedLogo(ext, contentType) {
-		writeError(w, http.StatusUnsupportedMediaType, "only PNG and SVG files are allowed")
-		return
-	}
-
-	if err := os.MkdirAll(h.uploadDir, 0o755); err != nil {
-		writeError(w, http.StatusInternalServerError, "cannot create upload dir")
-		return
-	}
-	name := "logo-" + uuid.New().String() + ext
-	dst := filepath.Join(h.uploadDir, name)
-	out, err := os.Create(dst)
-	if err != nil {
-		writeError(w, http.StatusInternalServerError, "cannot store file")
-		return
-	}
-	if _, err := io.Copy(out, io.LimitReader(file, maxSize)); err != nil {
-		_ = out.Close()
-		writeError(w, http.StatusInternalServerError, "cannot write file")
-		return
-	}
-	_ = out.Close()
-
-	logoURL := strings.TrimRight(h.publicBase, "/") + "/uploads/" + name
 	actorID := middleware.GetUserID(r.Context())
 	b, err := h.uc.SetLogoURL(r.Context(), actorID, logoURL)
 	if err != nil {
+		_ = h.storage.Delete(r.Context(), logoURL)
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
 	}

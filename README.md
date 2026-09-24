@@ -138,6 +138,8 @@ Alle Konfigurationsparameter werden ueber Umgebungsvariablen gesteuert. Kopiere 
 | `OIDC_CLIENT_ID` | OIDC Client ID | _(erforderlich)_ |
 | `OIDC_CLIENT_SECRET` | OIDC Client Secret | _(erforderlich)_ |
 | `OIDC_REDIRECT_URL` | Backend-Callback-URL; muss beim IdP **verbatim** als Redirect-URI registriert sein (inkl. `/api/v1`-Prefix), z. B. `http://localhost:8080/api/v1/auth/callback` | _(erforderlich)_ |
+| `OIDC_LABEL` | Beschriftung des Login-Buttons, solange `OIDC_PROVIDERS` nicht gesetzt ist | `Vereinskonto` |
+| `OIDC_PROVIDERS` | Mehrere gleichzeitige OIDC-Provider (A-005): kommagetrennte Liste von Kurznamen, z. B. `verein,google`. Für jeden Namen `N` werden `OIDC_<N>_ISSUER`/`_CLIENT_ID`/`_CLIENT_SECRET`/`_LABEL`/`_REDIRECT_URL` gelesen (siehe `.env.example`); ist leer, gilt einfach der obige einzelne `OIDC_*`-Satz | `""` |
 | `LOGIN_REDIRECT_URL` | SPA-Route, auf die der Callback nach erfolgreichem Login weiterleitet (Token im URL-Fragment) | `/auth/callback` |
 | `BOOTSTRAP_ADMIN_EMAIL` | Mitglied mit dieser E-Mail wird beim Login automatisch angelegt/verknuepft und als aktiver Administrator freigeschaltet (Erst-Admin-Bootstrap) | `""` |
 | `JWT_SECRET` | Signierungsgeheimnis fuer interne JWTs (min. 32 Zeichen) | _(erforderlich)_ |
@@ -150,6 +152,15 @@ Alle Konfigurationsparameter werden ueber Umgebungsvariablen gesteuert. Kopiere 
 | `LOG_LEVEL` | Loglevel: `trace` `debug` `info` `warn` `error` | `info` |
 | `GOMEMLIMIT` | Go Runtime Memory Limit | `200MiB` |
 | `CLUB_NAME` | Vereinsname als Fallback vor DB-Branding | `TSC Schwarz-Gelb Aachen` |
+| `MEDIA_STORAGE` | Speicherort fuer hochgeladene Medien (Logo, Event-Anhaenge): `local` oder `s3` (T-013) | `local` |
+| `UPLOAD_DIR` | Lokales Upload-Verzeichnis, nur bei `MEDIA_STORAGE=local` relevant | `./uploads` |
+| `S3_ENDPOINT` | S3-API-Endpoint fuer nicht-AWS-Anbieter (MinIO, Hetzner, ...); leer = AWS S3 | `""` |
+| `S3_REGION` | S3-Region | `""` |
+| `S3_BUCKET` | S3-Bucket-Name; erforderlich bei `MEDIA_STORAGE=s3` | _(erforderlich bei `s3`)_ |
+| `S3_ACCESS_KEY_ID` | S3 Access Key | `""` |
+| `S3_SECRET_ACCESS_KEY` | S3 Secret Key | `""` |
+| `S3_FORCE_PATH_STYLE` | Path-Style-Adressierung erzwingen (fuer die meisten S3-kompatiblen Anbieter ausserhalb AWS noetig) | `false` |
+| `S3_PUBLIC_BASE_URL` | Ueberschreibt die oeffentliche URL, unter der hochgeladene Dateien ausgeliefert werden (z. B. ein CDN vor dem Bucket) | _(aus Endpoint/Bucket abgeleitet)_ |
 
 ### Erster Login & Mitglieder-Onboarding
 

@@ -1,7 +1,23 @@
 import { create } from 'zustand';
 import type { Tweaks } from '@/types';
 
-type RoleView = 'mitglied' | 'vorstand';
+// Veranstaltungsleiter and above (event managers, see useIsEventManager)
+// land on the admin overview, plain members on the member start screen.
+// Mirrors the same localStorage key auth.store reads, so a hard page reload
+// while already logged in picks the right home screen without waiting for a
+// login effect.
+function initialTab(): string {
+  try {
+    const raw = localStorage.getItem('sm_user');
+    if (raw) {
+      const user = JSON.parse(raw) as { role?: string };
+      if (user.role && user.role !== 'mitglied') return 'uebersicht';
+    }
+  } catch {
+    // ignore malformed/inaccessible storage — fall back to the member start screen
+  }
+  return 'start';
+}
 
 interface NavFrame {
   name: string;
@@ -14,8 +30,7 @@ interface Toast {
 }
 
 interface AppState {
-  // Role / view
-  role: RoleView;
+  // Navigation
   tab: string;
   navStack: NavFrame[];
 
@@ -30,7 +45,6 @@ interface AppState {
   nameMode: 'abbrev' | 'full';
 
   // Actions
-  setRole: (role: RoleView) => void;
   go: (tab: string) => void;
   push: (name: string, params?: Record<string, string>) => void;
   back: () => void;
@@ -40,8 +54,7 @@ interface AppState {
 }
 
 export const useAppStore = create<AppState>((set, get) => ({
-  role: (localStorage.getItem('sm_role') as RoleView) || 'mitglied',
-  tab: 'start',
+  tab: initialTab(),
   navStack: [],
 
   toast: null,
@@ -54,11 +67,6 @@ export const useAppStore = create<AppState>((set, get) => ({
   },
 
   nameMode: 'abbrev',
-
-  setRole: (role) => {
-    localStorage.setItem('sm_role', role);
-    set({ role, tab: 'start', navStack: [] });
-  },
 
   go: (tab) => set({ tab, navStack: [] }),
 

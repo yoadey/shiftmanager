@@ -231,6 +231,35 @@ func (r *HourRepo) ListClubYears(ctx context.Context) ([]*domain.ClubYear, error
 	return years, nil
 }
 
+// CreateActiveClubYear creates y as the sole active club year: within a
+// single DB transaction, it inserts y (IsActive forced true) and deactivates
+// every other *pre-existing* year. Wrapping both statements in one
+// transaction closes the specific race of a plain "deactivate others, then
+// create/activate" sequence, where two concurrent calls could each
+// deactivate only their own prior read and settle on zero active years.
+// It does not by itself guarantee "exactly one active year" against two
+// brand-new inserts racing each other (each transaction's UPDATE only sees
+// rows that existed before it started, so two concurrent creates can both
+// insert with IsActive=true without either seeing the other yet); a full
+// guarantee there would need a DB-level uniqueness constraint (e.g. a
+// partial unique index on is_active) with retry-on-conflict. That window
+// requires two admins creating a club year within the same transaction, an
+// action this small club's admin UI performs at most a few times a year;
+// the visible symptom (more than one year briefly shown "Aktiv") is
+// self-evident and correctable, never silent data loss.
+func (r *HourRepo) CreateActiveClubYear(ctx context.Context, y *domain.ClubYear) error {
+	y.IsActive = true
+	model := toClubYearModel(y)
+	return r.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		if err := tx.Create(&model).Error; err != nil {
+			return err
+		}
+		return tx.Model(&ClubYearModel{}).
+			Where("id != ?", model.ID).
+			Update("is_active", false).Error
+	})
+}
+
 func toClubYearModel(y *domain.ClubYear) ClubYearModel {
 	return ClubYearModel{
 		ID:                 y.ID.String(),
@@ -239,6 +268,7 @@ func toClubYearModel(y *domain.ClubYear) ClubYearModel {
 		EndDate:            y.EndDate,
 		DefaultTargetHours: y.DefaultTargetHours,
 		IsActive:           y.IsActive,
+		CarryOverEnabled:   y.CarryOverEnabled,
 	}
 }
 
@@ -250,6 +280,7 @@ func toClubYearDomain(m ClubYearModel) *domain.ClubYear {
 		EndDate:            m.EndDate,
 		DefaultTargetHours: m.DefaultTargetHours,
 		IsActive:           m.IsActive,
+		CarryOverEnabled:   m.CarryOverEnabled,
 	}
 }
 

@@ -3,6 +3,7 @@ import { Icon } from '@/components/ui/Icon';
 import { Badge } from '@/components/ui/Badge';
 import { Button } from '@/components/ui/Button';
 import { useAppStore } from '@/store/app.store';
+import { useIsVorstand } from '@/hooks/useIsVorstand';
 import { useEvents } from '@/api/events';
 import { useMembers } from '@/api/members';
 import { useSettings, useBranding } from '@/api/settings';
@@ -33,7 +34,8 @@ interface Understaffed {
 }
 
 export function AdminDashboard() {
-  const { push, setRole } = useAppStore();
+  const { push, go } = useAppStore();
+  const isVorstand = useIsVorstand();
   const [createOpen, setCreateOpen] = useState(false);
   const today = new Date().toISOString().slice(0, 10);
 
@@ -85,7 +87,8 @@ export function AdminDashboard() {
         </div>
         <button
           className="pressable"
-          onClick={() => setRole('mitglied')}
+          onClick={() => go('profil')}
+          title="Mein Profil"
           style={{ width: 42, height: 42, borderRadius: '50%', border: '1px solid var(--line)', background: 'var(--surface)', display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', boxShadow: 'var(--shadow)' }}
         >
           <Icon name="user" size={20} color="var(--ink)" />
@@ -100,8 +103,13 @@ export function AdminDashboard() {
         </div>
 
         <Button icon="plus" onClick={() => setCreateOpen(true)} style={{ marginTop: 14 }}>Neue Veranstaltung</Button>
-        <div style={{ height: 14 }} />
-        <Button variant="soft" icon="plus" onClick={() => push('manual')}>Stunden manuell buchen</Button>
+        {isVorstand && (
+          <>
+            <div style={{ height: 14 }} />
+            {/* POST /hours/manual is vorstand-only on the backend (router.go) */}
+            <Button variant="soft" icon="plus" onClick={() => push('manual')}>Stunden manuell buchen</Button>
+          </>
+        )}
 
         <Section title="Unterbesetzte Schichten" />
         {understaffed.length === 0

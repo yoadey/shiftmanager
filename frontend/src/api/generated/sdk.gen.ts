@@ -10,6 +10,7 @@ import { client } from "./client.gen";
 import type {
   AuthCallbackData,
   AuthLoginData,
+  AuthLoginErrors,
   ConfirmKioskRegistrationData,
   ConfirmKioskRegistrationErrors,
   ConfirmKioskRegistrationResponses,
@@ -34,6 +35,9 @@ import type {
   DeactivateMemberData,
   DeactivateMemberErrors,
   DeactivateMemberResponses,
+  DeleteEventAttachmentData,
+  DeleteEventAttachmentErrors,
+  DeleteEventAttachmentResponses,
   DeleteEventData,
   DeleteEventErrors,
   DeleteEventResponses,
@@ -61,6 +65,9 @@ import type {
   GdprDeleteMemberData,
   GdprDeleteMemberErrors,
   GdprDeleteMemberResponses,
+  GenerateEventRecurrenceData,
+  GenerateEventRecurrenceErrors,
+  GenerateEventRecurrenceResponses,
   GetAuditLogData,
   GetAuditLogErrors,
   GetAuditLogResponses,
@@ -123,6 +130,9 @@ import type {
   ListEmailTemplatesData,
   ListEmailTemplatesErrors,
   ListEmailTemplatesResponses,
+  ListEventAttachmentsData,
+  ListEventAttachmentsErrors,
+  ListEventAttachmentsResponses,
   ListEventsData,
   ListEventsErrors,
   ListEventsResponses,
@@ -132,6 +142,8 @@ import type {
   ListMembersData,
   ListMembersErrors,
   ListMembersResponses,
+  ListOidcProvidersData,
+  ListOidcProvidersResponses,
   LogoutData,
   LogoutErrors,
   LogoutResponses,
@@ -180,6 +192,9 @@ import type {
   UpdateShiftData,
   UpdateShiftErrors,
   UpdateShiftResponses,
+  UploadEventAttachmentData,
+  UploadEventAttachmentErrors,
+  UploadEventAttachmentResponses,
   UploadLogoData,
   UploadLogoErrors,
   UploadLogoResponses,
@@ -204,12 +219,24 @@ export type Options<
 };
 
 /**
+ * List the configured OIDC providers (A-005)
+ */
+export const listOidcProviders = <ThrowOnError extends boolean = false>(
+  options?: Options<ListOidcProvidersData, ThrowOnError>,
+) =>
+  (options?.client ?? client).get<
+    ListOidcProvidersResponses,
+    unknown,
+    ThrowOnError
+  >({ url: "/auth/providers", ...options });
+
+/**
  * Begin OIDC login flow
  */
 export const authLogin = <ThrowOnError extends boolean = false>(
   options?: Options<AuthLoginData, ThrowOnError>,
 ) =>
-  (options?.client ?? client).get<unknown, unknown, ThrowOnError>({
+  (options?.client ?? client).get<unknown, AuthLoginErrors, ThrowOnError>({
     url: "/auth/login",
     ...options,
   });
@@ -561,6 +588,81 @@ export const getEventTimeline = <ThrowOnError extends boolean = false>(
   >({
     security: [{ scheme: "bearer", type: "http" }],
     url: "/events/{id}/timeline",
+    ...options,
+  });
+
+/**
+ * List files attached to an event (V-008)
+ */
+export const listEventAttachments = <ThrowOnError extends boolean = false>(
+  options: Options<ListEventAttachmentsData, ThrowOnError>,
+) =>
+  (options.client ?? client).get<
+    ListEventAttachmentsResponses,
+    ListEventAttachmentsErrors,
+    ThrowOnError
+  >({
+    security: [{ scheme: "bearer", type: "http" }],
+    url: "/events/{id}/attachments",
+    ...options,
+  });
+
+/**
+ * Upload an image or document attachment for an event (Veranstaltungsleiter+, V-008)
+ */
+export const uploadEventAttachment = <ThrowOnError extends boolean = false>(
+  options: Options<UploadEventAttachmentData, ThrowOnError>,
+) =>
+  (options.client ?? client).post<
+    UploadEventAttachmentResponses,
+    UploadEventAttachmentErrors,
+    ThrowOnError
+  >({
+    ...formDataBodySerializer,
+    security: [{ scheme: "bearer", type: "http" }],
+    url: "/events/{id}/attachments",
+    ...options,
+    headers: {
+      "Content-Type": null,
+      ...options.headers,
+    },
+  });
+
+/**
+ * Turn an event into a recurring series, weekly or monthly (Veranstaltungsleiter+, V-007)
+ *
+ * Stamps the event with the recurrence config and creates follow-up occurrences (full copies including shifts) up to and including "until". Returns the updated source event followed by the newly created occurrences, in chronological order.
+ */
+export const generateEventRecurrence = <ThrowOnError extends boolean = false>(
+  options: Options<GenerateEventRecurrenceData, ThrowOnError>,
+) =>
+  (options.client ?? client).post<
+    GenerateEventRecurrenceResponses,
+    GenerateEventRecurrenceErrors,
+    ThrowOnError
+  >({
+    security: [{ scheme: "bearer", type: "http" }],
+    url: "/events/{id}/recurrence",
+    ...options,
+    headers: {
+      "Content-Type": "application/json",
+      ...options.headers,
+    },
+  });
+
+/**
+ * Delete an event attachment (Veranstaltungsleiter+, V-008)
+ */
+export const deleteEventAttachment = <ThrowOnError extends boolean = false>(
+  options: Options<DeleteEventAttachmentData, ThrowOnError>,
+) =>
+  (options.client ?? client).delete<
+    DeleteEventAttachmentResponses,
+    DeleteEventAttachmentErrors,
+    ThrowOnError
+  >({
+    security: [{ scheme: "bearer", type: "http" }],
+    url: "/events/{id}/attachments/{attachmentId}",
     ...options,
   });
 
