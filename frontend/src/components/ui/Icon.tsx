@@ -38,6 +38,7 @@ const ICONS: Record<string, string> = {
   star: 'M12 3l2.6 6.3 6.8.5-5.2 4.4 1.7 6.6L12 17.7 6.3 21.3 8 14.7 2.8 10.3l6.8-.5L12 3Z',
   paperclip: 'M17 7v9a4 4 0 0 1-8 0V6a2.5 2.5 0 0 1 5 0v9a1 1 0 0 1-2 0V7',
   repeat: 'M17 2l4 4-4 4M3 11V9a4 4 0 0 1 4-4h14M7 22l-4-4 4-4M21 13v2a4 4 0 0 1-4 4H3',
+  more: 'M5 12h.01M12 12h.01M19 12h.01',
 };
 
 interface IconProps {

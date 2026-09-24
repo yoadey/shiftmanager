@@ -132,24 +132,30 @@ h1,h2,h3,h4 { font-family: 'Bricolage Grotesque', sans-serif; margin: 0; letter-
   flex-shrink: 0; background: rgba(255,255,255,0.88);
   backdrop-filter: blur(18px) saturate(160%); -webkit-backdrop-filter: blur(18px) saturate(160%);
   border-top: 1px solid var(--line);
-  display: flex; padding: 9px 8px 30px; gap: 2px;
+  display: flex; padding: 9px 8px calc(10px + env(safe-area-inset-bottom, 0px));
+  gap: 2px;
 }
-/* More than 4 tabs (veranstaltungsleiter/vorstand/admin extras appended) no
-   longer fit an evenly-spread row, so it becomes a horizontally scrollable
-   strip of fixed-width items instead. */
-.sm-nav.scroll { overflow-x: auto; justify-content: flex-start; -webkit-overflow-scrolling: touch; scrollbar-width: none; }
-.sm-nav.scroll::-webkit-scrollbar { display: none; }
 .sm-navitem {
   flex: 1; background: none; border: none; cursor: pointer; padding: 6px 2px;
   display: flex; flex-direction: column; align-items: center; gap: 4px;
   color: var(--muted); font-weight: 600; font-size: 10.5px; letter-spacing: 0.01em;
   transition: color .15s; font-family: inherit;
 }
-.sm-nav.scroll .sm-navitem { flex: 0 0 62px; }
 .sm-navitem.active { color: var(--ink); }
 .sm-navitem.active .ni-ico { background: color-mix(in srgb, var(--primary) 26%, #fff); }
 .ni-ico { width: 46px; height: 30px; border-radius: 999px; display: flex; align-items: center; justify-content: center; transition: background .15s; }
 .nav-sep { flex-shrink: 0; align-self: center; width: 1px; height: 28px; background: var(--line-2); margin: 0 4px; }
+
+/* ── bottom-nav "Mehr" menu ── */
+.sm-more-list { display: flex; flex-direction: column; gap: 2px; }
+.sm-more-item {
+  background: none; border: none; cursor: pointer; padding: 10px 4px;
+  display: flex; align-items: center; gap: 12px; width: 100%; text-align: left;
+  color: var(--ink-2); font-weight: 600; font-size: 15px; font-family: inherit;
+}
+.sm-more-item.active { color: var(--ink); }
+.sm-more-item.active .ni-ico { background: color-mix(in srgb, var(--primary) 26%, #fff); }
+.sm-more-sep { height: 1px; background: var(--line); margin: 6px 0; }
 
 /* ── field ── */
 .sm-field { margin-bottom: 14px; }
@@ -266,32 +272,17 @@ h1,h2,h3,h4 { font-family: 'Bricolage Grotesque', sans-serif; margin: 0; letter-
   .sm-app.desktop .dt-split { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; align-items: start; }
 }
 
-/* ══════════ STAGE / SHELL (from index.html) ══════════ */
+/* ══════════ STAGE / SHELL (desktop only; the mobile view fills the
+   viewport directly with .sm-app, no surrounding stage) ══════════ */
 .stage {
   height: 100vh; width: 100vw;
   display: flex; flex-direction: column; align-items: center;
-  background:
-    radial-gradient(1200px 600px at 50% -10%, #3a352c 0%, transparent 60%),
-    linear-gradient(180deg, #2A2722 0%, #1f1c18 100%);
   overflow: hidden;
 }
 
-/* top brand bar */
-.rolebar {
-  flex-shrink: 0; width: 100%; max-width: 520px;
-  display: flex; align-items: center; justify-content: flex-start;
-  padding: 16px 22px 14px; gap: 12px;
-}
-.rb-brand { display: flex; align-items: center; gap: 9px; color: #fff; font-weight: 800; font-size: 16px; font-family: 'Bricolage Grotesque', sans-serif; letter-spacing: -0.01em; }
 .rb-logo {
   width: 30px; height: 30px; border-radius: 9px;
   background: var(--primary, #F4B63F); color: #1A1813;
   display: flex; align-items: center; justify-content: center;
   font-weight: 800; font-size: 13px; font-family: 'Bricolage Grotesque';
-}
-
-.scaler { transform-origin: top center; flex-shrink: 0; }
-
-@media (max-width: 519px) {
-  .rolebar { padding: 10px 16px; }
 }
