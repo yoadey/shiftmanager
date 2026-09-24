@@ -30,7 +30,7 @@ Vereinsmitglieder, Vorstände, Veranstalter
   3.3.4  Event-Kopieren:   VC-001–VC-004 ✅
   4      E-Mails:          Kiosk ✅  Anmeldung ✅  Abmeldung ✅  Reminder ✅  Absage ✅  Jahresabrechnung ✅  Fehlstunden-Warnung ✅  Stunden-bestätigt ✅  Unterstaffed ✅  Neue-VA ✅
          N-001 ✅  N-002 ✅  N-003 ✅  N-004 ✅
-  5      Technik:          T-001–T-012 ✅  T-013 ❌
+  5      Technik:          T-001–T-012 ✅  T-013 ✅
   5.4    Branding:         B-001–B-007 ✅  B-008 ✅
   6      Datenschutz:      DS-001–DS-008 ✅  DS-009 ✅
 
@@ -855,4 +855,4 @@ Mitgliederverwaltung vereinfacht (nur Vorname, Nachname, E-Mail, Eintritts-/Aust
 1.5
 September 2026
 Vereinsvorstand
-Freie Helferverwaltung pro Schicht ergänzt (SC-010): Veranstaltungsleiter/Vorstand können beliebige Helfer, auch ohne Benutzerkonto, eintragen oder entfernen. S3-kompatibler Object-Storage als Alternative zum lokalen Medienverzeichnis vorgesehen (T-013). Vollständige Spezifikation nach openspec/ migriert (siehe docs/openspec/), offene Punkte als Changes unter docs/openspec/changes/ geführt.
+Freie Helferverwaltung pro Schicht ergänzt (SC-010): Veranstaltungsleiter/Vorstand können beliebige Helfer, auch ohne Benutzerkonto, eintragen oder entfernen. S3-kompatibler Object-Storage als konfigurierbare Alternative zum lokalen Medienverzeichnis umgesetzt (T-013). Vollständige Spezifikation nach openspec/ migriert (siehe docs/openspec/), offene Punkte als Changes unter docs/openspec/changes/ geführt.

@@ -16,6 +16,7 @@ import (
 	httpadapter "github.com/yoadey/shiftmanager/internal/adapter/http"
 	"github.com/yoadey/shiftmanager/internal/adapter/http/handler"
 	oidcadapter "github.com/yoadey/shiftmanager/internal/adapter/oidc"
+	localstorage "github.com/yoadey/shiftmanager/internal/adapter/storage/local"
 	"github.com/yoadey/shiftmanager/internal/port"
 	"github.com/yoadey/shiftmanager/internal/usecase"
 )
@@ -109,15 +110,16 @@ func New(_ context.Context) (*Server, error) {
 	// --- Handlers ---
 	var oidcSvc port.OIDCService
 	_ = oidcadapter.Config{} // ensure import used
+	mediaStorage := localstorage.New(uploadDir, "http://localhost")
 
 	handlers := httpadapter.Handlers{
 		Auth:     handler.BuildAuthHandler(oidcSvc, memberRepo, auditRepo, TestJWTSecret, 24*time.Hour, "/auth/callback", ""),
 		Member:   handler.NewMemberHandler(memberUC),
-		Event:    handler.NewEventHandler(eventUC, uploadDir, "http://localhost"),
+		Event:    handler.NewEventHandler(eventUC, mediaStorage),
 		Shift:    handler.NewShiftHandler(eventUC, regUC),
 		Hour:     handler.NewHourHandler(hourUC),
 		Kiosk:    handler.NewKioskHandler(regUC, eventUC, memberUC, settingsUC),
-		Settings: handler.NewSettingsHandler(settingsUC, templateUC, uploadDir, "http://localhost"),
+		Settings: handler.NewSettingsHandler(settingsUC, templateUC, mediaStorage),
 		Billing:  handler.NewBillingHandler(billingUC),
 		Stats:    handler.NewStatsHandler(statsUC),
 		Privacy:  handler.NewPrivacyHandler(privacyUC),

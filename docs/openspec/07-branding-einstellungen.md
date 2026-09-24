@@ -12,7 +12,7 @@ Primärfarbe, Akzentfarbe und Logo sind vollständig konfigurierbar.
 | B-001 | Admin konfiguriert Primär-/Akzentfarbe fürs gesamte Frontend | `PUT /api/v1/settings/branding`, `RequireRole(RoleVorstand)` |
 | B-002 | Farben als CSS-Custom-Properties, wirken auf Navigation, Buttons, Balken, Badges systemweit | `App.tsx` (`--primary`, `--on-primary`, …) |
 | B-003 | Kontrastverhältnis bleibt WCAG-AA-konform (≥ 4,5:1); Warnung bei Unterschreitung | `pickOn()`-Helfer in `App.tsx`, Kontrast-Check in `AdminSettings.tsx` |
-| B-004 | Logo-Upload (PNG, SVG; empfohlen ≥ 200×200 px) | `POST /api/v1/settings/logo` |
+| B-004 | Logo-Upload (PNG, SVG; empfohlen ≥ 200×200 px) | `POST /api/v1/settings/logo`, gespeichert über `port.MediaStorage` (lokal oder S3-kompatibel, siehe `T-013` in `08-technik.md`) |
 | B-005 | Logo in Seitennavigation (Desktop) und Kiosk-Header | `DesktopShell.tsx`, `MobileShell.tsx`, `KioskPage.tsx` |
 | B-006 | Vereinsname als Text konfigurierbar, Fallback ohne Logo | `Branding.ClubName`, `clubInitials()`-Fallback |
 | B-007 | Kiosk: zusätzlich Hintergrundbild/-farbe konfigurierbar | `Branding.KioskBackground` |

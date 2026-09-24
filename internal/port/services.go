@@ -2,6 +2,7 @@ package port
 
 import (
 	"context"
+	"io"
 	"time"
 
 	"github.com/yoadey/shiftmanager/internal/domain"
@@ -70,4 +71,18 @@ type CacheError struct {
 
 func (e *CacheError) Error() string {
 	return e.Message
+}
+
+// MediaStorage abstracts where uploaded media (event attachments, club logo)
+// is written to and served from — a local directory (default) or an
+// S3-compatible object store (T-013). Both event and settings handlers go
+// through this instead of touching the filesystem directly.
+type MediaStorage interface {
+	// Put stores r's content (size bytes, of the given contentType) under a
+	// storage-chosen object derived from name and returns the URL clients
+	// should use to fetch it.
+	Put(ctx context.Context, name string, r io.Reader, size int64, contentType string) (url string, err error)
+	// Delete removes the object a previous Put returned as url. Deleting a
+	// URL Put did not produce, or one already deleted, is a no-op.
+	Delete(ctx context.Context, url string) error
 }

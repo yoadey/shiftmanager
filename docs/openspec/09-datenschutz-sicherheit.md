@@ -18,6 +18,5 @@ Umgesetzt. Anforderungs-IDs: `DS-001`–`DS-009`.
 
 Logo- und Event-Anhang-Uploads (`B-004`, `V-008`) sind größen- und
 typbegrenzt (siehe `03-veranstaltungen-schichten.md`, `07-branding-einstellungen.md`).
-Der aktuelle Speicherort ist ein lokales Verzeichnis/PVC; eine
-S3-kompatible Alternative ist als offener Punkt erfasst — siehe
-[`changes/T-013-s3-media-storage.md`](changes/T-013-s3-media-storage.md).
+Der Speicherort ist konfigurierbar: lokales Verzeichnis/PVC (Default) oder
+S3-kompatibler Object-Storage — siehe `T-013` in `08-technik.md`.

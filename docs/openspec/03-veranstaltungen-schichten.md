@@ -14,7 +14,7 @@ Umgesetzt. Anforderungs-IDs: `V-001`–`V-008`, `VC-001`–`VC-004`,
 | V-005 | Status: Entwurf, Veröffentlicht, Abgeschlossen, Abgesagt | `domain.EventStatus*` |
 | V-006 | Nur veröffentlichte Events für Mitglieder sichtbar | `GET /api/v1/events` Filter |
 | V-007 | Wiederkehrende Veranstaltungen (wöchentlich/monatlich) | `POST /api/v1/events/{id}/recurrence` — vollständige Kopien inkl. Schichten; monatliches Schrittmaß begrenzt Tag-Überlauf auf den letzten Tag des Zielmonats statt in den Folgemonat zu rutschen; Verknüpfung der Vorkommen über atomares, bedingtes `MarkRecurring`-Update als letzten Schritt (Rollback bei Teilfehler); ein abgesagtes/abgeschlossenes Event kann nicht Kopf einer neuen Serie werden |
-| V-008 | Bilder/Anhänge an Veranstaltungen | `POST/GET/DELETE /api/v1/events/{id}/attachments`; Validierung per Extension+Content-Type-Allowlist (SVG bewusst ausgeschlossen, Stored-XSS-Risiko), 5 MB Limit; `/uploads/*`-Server ohne Directory-Listing, `X-Content-Type-Options: nosniff` |
+| V-008 | Bilder/Anhänge an Veranstaltungen | `POST/GET/DELETE /api/v1/events/{id}/attachments`; Validierung per Extension+Content-Type-Allowlist (SVG bewusst ausgeschlossen, Stored-XSS-Risiko), 5 MB Limit; gespeichert über `port.MediaStorage` (lokal oder S3-kompatibel, siehe `T-013` in `08-technik.md`); bei lokalem Storage `/uploads/*`-Server ohne Directory-Listing, `X-Content-Type-Options: nosniff` |
 
 ### Veranstaltungen kopieren
 

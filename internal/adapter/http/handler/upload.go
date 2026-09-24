@@ -2,13 +2,12 @@ package handler
 
 import (
 	"errors"
-	"io"
 	"net/http"
-	"os"
 	"path/filepath"
 	"strings"
 
 	"github.com/google/uuid"
+	"github.com/yoadey/shiftmanager/internal/port"
 )
 
 // uploadOverhead is added on top of the caller's file-size limit before it's
@@ -22,10 +21,11 @@ import (
 const uploadOverhead = 64 * 1024
 
 // receiveUpload reads a single "file" multipart field, rejects it if its own
-// content exceeds maxSize, validates it via isAllowed, and writes it to
-// uploadDir under a name of namePrefix+<uuid>+ext. Shared by the logo
-// (B-004) and event attachment (V-008) upload endpoints.
-func receiveUpload(w http.ResponseWriter, r *http.Request, uploadDir string, maxSize int64, namePrefix string, isAllowed func(ext, contentType string) bool, rejectMsg string) (storedName, originalName, contentType string, size int64, ok bool) {
+// content exceeds maxSize, validates it via isAllowed, and stores it via
+// storage under a name of namePrefix+<uuid>+ext. Shared by the logo (B-004)
+// and event attachment (V-008) upload endpoints; storage is either the local
+// on-disk adapter or the S3-compatible one (T-013).
+func receiveUpload(w http.ResponseWriter, r *http.Request, storage port.MediaStorage, maxSize int64, namePrefix string, isAllowed func(ext, contentType string) bool, rejectMsg string) (url, originalName, contentType string, size int64, ok bool) {
 	r.Body = http.MaxBytesReader(w, r.Body, maxSize+uploadOverhead)
 	if err := r.ParseMultipartForm(maxSize + uploadOverhead); err != nil {
 		var tooLarge *http.MaxBytesError
@@ -55,23 +55,11 @@ func receiveUpload(w http.ResponseWriter, r *http.Request, uploadDir string, max
 		return "", "", "", 0, false
 	}
 
-	if err := os.MkdirAll(uploadDir, 0o755); err != nil {
-		writeError(w, http.StatusInternalServerError, "cannot create upload dir")
-		return "", "", "", 0, false
-	}
-	storedName = namePrefix + uuid.New().String() + ext
-	dst := filepath.Join(uploadDir, storedName)
-	out, err := os.Create(dst)
+	storedName := namePrefix + uuid.New().String() + ext
+	url, err = storage.Put(r.Context(), storedName, file, hdr.Size, contentType)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "cannot store file")
 		return "", "", "", 0, false
 	}
-	written, err := io.Copy(out, file)
-	_ = out.Close()
-	if err != nil {
-		_ = os.Remove(dst)
-		writeError(w, http.StatusInternalServerError, "cannot write file")
-		return "", "", "", 0, false
-	}
-	return storedName, hdr.Filename, contentType, written, true
+	return url, hdr.Filename, contentType, hdr.Size, true
 }

@@ -150,6 +150,15 @@ Alle Konfigurationsparameter werden ueber Umgebungsvariablen gesteuert. Kopiere 
 | `LOG_LEVEL` | Loglevel: `trace` `debug` `info` `warn` `error` | `info` |
 | `GOMEMLIMIT` | Go Runtime Memory Limit | `200MiB` |
 | `CLUB_NAME` | Vereinsname als Fallback vor DB-Branding | `TSC Schwarz-Gelb Aachen` |
+| `MEDIA_STORAGE` | Speicherort fuer hochgeladene Medien (Logo, Event-Anhaenge): `local` oder `s3` (T-013) | `local` |
+| `UPLOAD_DIR` | Lokales Upload-Verzeichnis, nur bei `MEDIA_STORAGE=local` relevant | `./uploads` |
+| `S3_ENDPOINT` | S3-API-Endpoint fuer nicht-AWS-Anbieter (MinIO, Hetzner, ...); leer = AWS S3 | `""` |
+| `S3_REGION` | S3-Region | `""` |
+| `S3_BUCKET` | S3-Bucket-Name; erforderlich bei `MEDIA_STORAGE=s3` | _(erforderlich bei `s3`)_ |
+| `S3_ACCESS_KEY_ID` | S3 Access Key | `""` |
+| `S3_SECRET_ACCESS_KEY` | S3 Secret Key | `""` |
+| `S3_FORCE_PATH_STYLE` | Path-Style-Adressierung erzwingen (fuer die meisten S3-kompatiblen Anbieter ausserhalb AWS noetig) | `false` |
+| `S3_PUBLIC_BASE_URL` | Ueberschreibt die oeffentliche URL, unter der hochgeladene Dateien ausgeliefert werden (z. B. ein CDN vor dem Bucket) | _(aus Endpoint/Bucket abgeleitet)_ |
 
 ### Erster Login & Mitglieder-Onboarding
 

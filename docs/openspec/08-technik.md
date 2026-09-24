@@ -1,7 +1,6 @@
 # 08 — Technische Anforderungen
 
-Umgesetzt. Anforderungs-IDs: `T-001`–`T-012`, `F-001`–`F-010`. Offen:
-`T-013` (siehe [`changes/T-013-s3-media-storage.md`](changes/T-013-s3-media-storage.md)).
+Umgesetzt. Anforderungs-IDs: `T-001`–`T-013`, `F-001`–`F-010`.
 
 ## Backend (Go)
 
@@ -19,6 +18,7 @@ Umgesetzt. Anforderungs-IDs: `T-001`–`T-012`, `F-001`–`F-010`. Offen:
 | T-010 | Health-Check-Endpunkte | `/health`, `/readyz` |
 | T-011 | Hintergrundtasks als eigene Goroutinen (E-Mail-Versand, Reservierungsablauf, Jahresabrechnung) | `internal/infrastructure/scheduler` |
 | T-012 | Audit-Log aller kritischen Aktionen | siehe `05-dashboard-berichte.md` |
+| T-013 | Speicherort für hochgeladene Medien (Logo, Event-Anhänge) statt lokalem Verzeichnis/PVC auch auf S3-kompatiblen Object-Storage konfigurierbar, ohne Migrationsscript für Bestandsdateien | `port.MediaStorage`-Interface (`Put`/`Delete`), zwei Adapter: `internal/adapter/storage/local` (Default, unverändertes Verhalten) und `internal/adapter/storage/s3` (AWS SDK v2, kompatibel zu jedem S3-API-Objektspeicher über `S3_ENDPOINT`/`S3_FORCE_PATH_STYLE`, z. B. MinIO/Hetzner). Gewählt über `MEDIA_STORAGE=local\|s3`; `upload.go`, `event_handler.go`, `settings_handler.go` gehen ausschließlich über das Interface. `/uploads/*` (router.go) bleibt nur für `local` gemountet. **Betriebshinweis:** wie beim lokalen `/uploads/*`-Pfad sind Logo und Event-Anhänge als öffentlich, unter einer nicht erratbaren URL, ohne Auth-Prüfung gedacht — der `s3`-Adapter setzt bewusst **kein** Objekt-ACL beim Upload (viele Buckets haben ACLs unter "bucket owner enforced" deaktiviert, dort würde ein ACL-Aufruf schlicht fehlschlagen). Stattdessen muss der **Bucket selbst** (per Bucket-Policy oder vorgeschaltetem öffentlichem CDN) für Lesezugriff freigegeben sein, bevor `MEDIA_STORAGE=s3` produktiv genutzt wird — sonst liefern alle Logo-/Anhang-URLs einen 403, obwohl der Upload selbst erfolgreich war. |
 
 ## Frontend (React)
 

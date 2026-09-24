@@ -2,9 +2,6 @@ package handler
 
 import (
 	"net/http"
-	"os"
-	"path/filepath"
-	"strings"
 	"time"
 
 	"github.com/go-chi/chi/v5"
@@ -17,18 +14,15 @@ import (
 
 // EventHandler handles HTTP requests for event operations.
 type EventHandler struct {
-	uc         *usecase.EventUsecase
-	uploadDir  string
-	publicBase string // public base URL used to build served attachment URLs
+	uc      *usecase.EventUsecase
+	storage port.MediaStorage // event attachment upload (V-008)
 }
 
-// NewEventHandler creates a new EventHandler. uploadDir/publicBase configure
-// event attachment upload (V-008), mirroring the logo upload in SettingsHandler.
-func NewEventHandler(uc *usecase.EventUsecase, uploadDir, publicBase string) *EventHandler {
-	if uploadDir == "" {
-		uploadDir = "./uploads"
-	}
-	return &EventHandler{uc: uc, uploadDir: uploadDir, publicBase: publicBase}
+// NewEventHandler creates a new EventHandler. storage configures where event
+// attachment uploads (V-008) are written, mirroring the logo upload in
+// SettingsHandler.
+func NewEventHandler(uc *usecase.EventUsecase, storage port.MediaStorage) *EventHandler {
+	return &EventHandler{uc: uc, storage: storage}
 }
 
 // List returns events filtered by status, date range, etc.
@@ -179,7 +173,7 @@ func (h *EventHandler) Delete(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	for _, a := range deletedAttachments {
-		h.removeUploadedFile(a.URL)
+		_ = h.storage.Delete(r.Context(), a.URL)
 	}
 	w.WriteHeader(http.StatusNoContent)
 }
@@ -296,19 +290,18 @@ func (h *EventHandler) UploadAttachment(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 
-	storedName, originalName, contentType, size, ok := receiveUpload(
-		w, r, h.uploadDir, maxAttachmentSize, "event-attach-",
+	fileURL, originalName, contentType, size, ok := receiveUpload(
+		w, r, h.storage, maxAttachmentSize, "event-attach-",
 		isAllowedEventAttachment, "only PNG, JPEG, GIF, WEBP and PDF files are allowed",
 	)
 	if !ok {
 		return
 	}
 
-	fileURL := strings.TrimRight(h.publicBase, "/") + "/uploads/" + storedName
 	actorID := middleware.GetUserID(r.Context())
 	a, err := h.uc.AddAttachment(r.Context(), actorID, eventID, originalName, fileURL, contentType, size)
 	if err != nil {
-		_ = os.Remove(filepath.Join(h.uploadDir, storedName))
+		_ = h.storage.Delete(r.Context(), fileURL)
 		if err == domain.ErrEventNotFound {
 			writeError(w, http.StatusNotFound, "event not found")
 			return
@@ -383,16 +376,7 @@ func (h *EventHandler) DeleteAttachment(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 
-	h.removeUploadedFile(deleted.URL)
+	_ = h.storage.Delete(r.Context(), deleted.URL)
 
 	w.WriteHeader(http.StatusNoContent)
-}
-
-// removeUploadedFile best-effort removes an attachment's underlying file.
-// Only ever touches files under our own upload dir, never an arbitrary path
-// from the URL (filepath.Base strips any directory components).
-func (h *EventHandler) removeUploadedFile(url string) {
-	if name := filepath.Base(url); name != "" && name != "." && name != string(filepath.Separator) {
-		_ = os.Remove(filepath.Join(h.uploadDir, name))
-	}
 }

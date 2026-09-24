@@ -40,4 +40,3 @@ entsprechende Change gelöscht und der Inhalt in die passende Spec-Datei
 
 Aktuell offen:
 - [`changes/A-005-multi-oidc-provider.md`](changes/A-005-multi-oidc-provider.md)
-- [`changes/T-013-s3-media-storage.md`](changes/T-013-s3-media-storage.md)

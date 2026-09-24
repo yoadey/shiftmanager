@@ -97,6 +97,11 @@ func NewRouter(h Handlers, cfg RouterConfig) http.Handler {
 	// without the JWT the API itself requires). X-Content-Type-Options:
 	// nosniff stops browsers from content-sniffing an uploaded file (e.g. a
 	// PNG/PDF polyglot) into HTML/script and executing it in our origin.
+	//
+	// UploadDir is left empty by main.go when MEDIA_STORAGE=s3 (T-013):
+	// nothing is ever written under it in that mode, and uploaded files are
+	// served directly from the object store instead, so this route is
+	// simply not mounted.
 	if cfg.UploadDir != "" {
 		fileServer := http.StripPrefix("/uploads/", http.FileServer(noListingFS{http.Dir(cfg.UploadDir)}))
 		r.Handle("/uploads/*", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
