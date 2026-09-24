@@ -10,6 +10,7 @@ import { client } from "./client.gen";
 import type {
   AuthCallbackData,
   AuthLoginData,
+  AuthLoginErrors,
   ConfirmKioskRegistrationData,
   ConfirmKioskRegistrationErrors,
   ConfirmKioskRegistrationResponses,
@@ -141,6 +142,8 @@ import type {
   ListMembersData,
   ListMembersErrors,
   ListMembersResponses,
+  ListOidcProvidersData,
+  ListOidcProvidersResponses,
   LogoutData,
   LogoutErrors,
   LogoutResponses,
@@ -216,12 +219,24 @@ export type Options<
 };
 
 /**
+ * List the configured OIDC providers (A-005)
+ */
+export const listOidcProviders = <ThrowOnError extends boolean = false>(
+  options?: Options<ListOidcProvidersData, ThrowOnError>,
+) =>
+  (options?.client ?? client).get<
+    ListOidcProvidersResponses,
+    unknown,
+    ThrowOnError
+  >({ url: "/auth/providers", ...options });
+
+/**
  * Begin OIDC login flow
  */
 export const authLogin = <ThrowOnError extends boolean = false>(
   options?: Options<AuthLoginData, ThrowOnError>,
 ) =>
-  (options?.client ?? client).get<unknown, unknown, ThrowOnError>({
+  (options?.client ?? client).get<unknown, AuthLoginErrors, ThrowOnError>({
     url: "/auth/login",
     ...options,
   });

@@ -61,6 +61,13 @@ components:
         notifyNewEvents: { type: boolean, description: 'Opt-in: receive an e-mail when a new event is published' }
 
     # ── Auth ──────────────────────────────────────────────────────────────────
+    OIDCProvider:
+      type: object
+      required: [name, label]
+      properties:
+        name:  { type: string, description: 'Short key passed as ?provider= to /auth/login' }
+        label: { type: string, description: 'Display label for the login button, e.g. "Google"' }
+
     MeResponse:
       type: object
       required: [id, role, email]
@@ -456,14 +463,38 @@ security:
 
 paths:
   # ── Auth ────────────────────────────────────────────────────────────────────
+  /auth/providers:
+    get:
+      operationId: listOIDCProviders
+      tags: [auth]
+      summary: List the configured OIDC providers (A-005)
+      security: []
+      responses:
+        "200":
+          description: Configured providers, in login-button display order
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: '#/components/schemas/OIDCProvider' }
+
   /auth/login:
     get:
       operationId: authLogin
       tags: [auth]
       summary: Begin OIDC login flow
       security: []
+      parameters:
+        - name: provider
+          in: query
+          required: false
+          description: >-
+            Provider name from GET /auth/providers (A-005). Optional when
+            only one provider is configured.
+          schema: { type: string }
       responses:
         "302": { description: Redirect to OIDC provider }
+        "400": { description: Unknown or missing provider }
 
   /auth/callback:
     get:

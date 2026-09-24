@@ -466,6 +466,15 @@ type MessageResponse struct {
 	Message string `json:"message"`
 }
 
+// OIDCProvider defines model for OIDCProvider.
+type OIDCProvider struct {
+	// Label Display label for the login button, e.g. "Google"
+	Label string `json:"label"`
+
+	// Name Short key passed as ?provider= to /auth/login
+	Name string `json:"name"`
+}
+
 // RecurrenceFrequency defines model for RecurrenceFrequency.
 type RecurrenceFrequency string
 
@@ -575,6 +584,12 @@ type bearerAuthContextKey string
 type AuthCallbackParams struct {
 	Code  *string `form:"code,omitempty" json:"code,omitempty"`
 	State *string `form:"state,omitempty" json:"state,omitempty"`
+}
+
+// AuthLoginParams defines parameters for AuthLogin.
+type AuthLoginParams struct {
+	// Provider Provider name from GET /auth/providers (A-005). Optional when only one provider is configured.
+	Provider *string `form:"provider,omitempty" json:"provider,omitempty"`
 }
 
 // ListEventsParams defines parameters for ListEvents.
@@ -744,13 +759,16 @@ type ServerInterface interface {
 	AuthCallback(w http.ResponseWriter, r *http.Request, params AuthCallbackParams)
 	// Begin OIDC login flow
 	// (GET /auth/login)
-	AuthLogin(w http.ResponseWriter, r *http.Request)
+	AuthLogin(w http.ResponseWriter, r *http.Request, params AuthLoginParams)
 	// Invalidate the session
 	// (POST /auth/logout)
 	Logout(w http.ResponseWriter, r *http.Request)
 	// Return the currently authenticated user
 	// (GET /auth/me)
 	GetMe(w http.ResponseWriter, r *http.Request)
+	// List the configured OIDC providers (A-005)
+	// (GET /auth/providers)
+	ListOIDCProviders(w http.ResponseWriter, r *http.Request)
 	// Re-issue a JWT with a fresh expiry for the current session (A-004)
 	// (POST /auth/refresh)
 	RefreshToken(w http.ResponseWriter, r *http.Request)
@@ -945,7 +963,7 @@ func (_ Unimplemented) AuthCallback(w http.ResponseWriter, r *http.Request, para
 
 // Begin OIDC login flow
 // (GET /auth/login)
-func (_ Unimplemented) AuthLogin(w http.ResponseWriter, r *http.Request) {
+func (_ Unimplemented) AuthLogin(w http.ResponseWriter, r *http.Request, params AuthLoginParams) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
@@ -958,6 +976,12 @@ func (_ Unimplemented) Logout(w http.ResponseWriter, r *http.Request) {
 // Return the currently authenticated user
 // (GET /auth/me)
 func (_ Unimplemented) GetMe(w http.ResponseWriter, r *http.Request) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// List the configured OIDC providers (A-005)
+// (GET /auth/providers)
+func (_ Unimplemented) ListOIDCProviders(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
@@ -1379,8 +1403,27 @@ func (siw *ServerInterfaceWrapper) AuthCallback(w http.ResponseWriter, r *http.R
 // AuthLogin operation middleware
 func (siw *ServerInterfaceWrapper) AuthLogin(w http.ResponseWriter, r *http.Request) {
 
+	var err error
+	_ = err
+
+	// Parameter object where we will unmarshal all parameters from the context
+	var params AuthLoginParams
+
+	// ------------- Optional query parameter "provider" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "provider", r.URL.Query(), &params.Provider, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "provider"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "provider", Err: err})
+		}
+		return
+	}
+
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		siw.Handler.AuthLogin(w, r)
+		siw.Handler.AuthLogin(w, r, params)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -1421,6 +1464,20 @@ func (siw *ServerInterfaceWrapper) GetMe(w http.ResponseWriter, r *http.Request)
 
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		siw.Handler.GetMe(w, r)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// ListOIDCProviders operation middleware
+func (siw *ServerInterfaceWrapper) ListOIDCProviders(w http.ResponseWriter, r *http.Request) {
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.ListOIDCProviders(w, r)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -3446,6 +3503,9 @@ func HandlerWithOptions(si ServerInterface, options ChiServerOptions) http.Handl
 	})
 	r.Group(func(r chi.Router) {
 		r.Get(options.BaseURL+"/auth/me", wrapper.GetMe)
+	})
+	r.Group(func(r chi.Router) {
+		r.Get(options.BaseURL+"/auth/providers", wrapper.ListOIDCProviders)
 	})
 	r.Group(func(r chi.Router) {
 		r.Post(options.BaseURL+"/auth/refresh", wrapper.RefreshToken)

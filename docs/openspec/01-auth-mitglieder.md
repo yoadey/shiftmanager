@@ -1,7 +1,7 @@
 # 01 — Authentifizierung, Mitgliederverwaltung, Namensanzeige
 
-Umgesetzt. Anforderungs-IDs: `A-001`–`A-004`, `ML-001`–`ML-009`,
-`NM-001`–`NM-007`. Offen: `A-005` (siehe [`changes/A-005-multi-oidc-provider.md`](changes/A-005-multi-oidc-provider.md)).
+Umgesetzt. Anforderungs-IDs: `A-001`–`A-005`, `ML-001`–`ML-009`,
+`NM-001`–`NM-007`.
 
 ---
 
@@ -16,12 +16,20 @@ Passwörter im System gespeichert.
 | A-002 | Client-ID/-Secret/Discovery-URL über Umgebungsvariablen | `OIDC_ISSUER`, `OIDC_CLIENT_ID`, `OIDC_CLIENT_SECRET`, `OIDC_REDIRECT_URL` |
 | A-003 | Internes JWT-Session-Token nach OIDC-Login | `internal/adapter/http/handler/auth_handler.go`, `JWT_SECRET` |
 | A-004 | Automatischer Token-Refresh während aktiver Session | `frontend/src/hooks/useTokenRefresh.ts` (Soft-Refresh vor Ablauf) + `POST /api/v1/auth/refresh` |
+| A-005 | Mehrere gleichzeitige OIDC-Provider (z. B. Vereins-SSO + Google) | `Config.Providers()` (`internal/config/config.go`) liefert einen `map[string]port.OIDCService` in `cmd/server/main.go`; `AuthHandler` hält eine Service-Instanz pro Provider-Name. `GET /api/v1/auth/providers` listet die konfigurierten Provider (Name/Label, keine Secrets); `GET /api/v1/auth/login?provider=<name>` wählt den Provider und trägt ihn im `oidc_state`-Cookie (zusammen mit dem CSRF-State-Token, `state:provider`) bis zum Callback weiter — nie über einen client-kontrollierten Query-Parameter auf `/auth/callback` selbst. Konfiguration über `OIDC_PROVIDERS` (kommagetrennte Kurznamen) + `OIDC_<NAME>_ISSUER`/`_CLIENT_ID`/`_CLIENT_SECRET`/`_LABEL`/`_REDIRECT_URL`; ohne `OIDC_PROVIDERS` bleibt exakt der bisherige Einzel-Provider (`OIDC_ISSUER` usw., Name `default`) erhalten. Frontend: `useOIDCProviders()` (`frontend/src/api/auth.ts`), `LoginPage.tsx` rendert einen Button je Provider |
 
-**Ablauf:** Frontend → `GET /api/v1/auth/login` → OIDC-Provider →
+**Ablauf:** Frontend → `GET /api/v1/auth/providers` (Buttons rendern) →
+`GET /api/v1/auth/login?provider=<name>` → OIDC-Provider →
 `GET /api/v1/auth/callback` (Code-Exchange, JWT-Ausstellung) →
 Weiterleitung an `LOGIN_REDIRECT_URL` mit Token im URL-Fragment →
 `CallbackPage` speichert das JWT; alle folgenden Requests senden
 `Authorization: Bearer <token>`.
+
+Die Mitgliederzuordnung (`ML-004`) bleibt provider-übergreifend über die
+E-Mail-Adresse funktionsfähig; `domain.OIDCLink` speichert den Issuer als
+`Provider`-Wert, sodass dieselbe E-Mail bei zwei verschiedenen Providern
+nicht kollidiert (`GetByOIDCSubject(provider, subject)` ist bereits
+provider-scoped, unabhängig von A-005).
 
 `BOOTSTRAP_ADMIN_EMAIL` befördert beim ersten Login automatisch den
 angegebenen Nutzer zu Admin (einmaliger Bootstrap).

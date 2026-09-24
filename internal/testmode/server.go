@@ -108,12 +108,14 @@ func New(_ context.Context) (*Server, error) {
 	regUC.SetUnderstaffedNotifier(notifUC)
 
 	// --- Handlers ---
-	var oidcSvc port.OIDCService
+	// No real OIDC provider in integration tests — /api/v1/dev/token issues
+	// test JWTs directly instead.
+	oidcSvcs := map[string]port.OIDCService{}
 	_ = oidcadapter.Config{} // ensure import used
 	mediaStorage := localstorage.New(uploadDir, "http://localhost")
 
 	handlers := httpadapter.Handlers{
-		Auth:     handler.BuildAuthHandler(oidcSvc, memberRepo, auditRepo, TestJWTSecret, 24*time.Hour, "/auth/callback", ""),
+		Auth:     handler.BuildAuthHandler(oidcSvcs, nil, memberRepo, auditRepo, TestJWTSecret, 24*time.Hour, "/auth/callback", ""),
 		Member:   handler.NewMemberHandler(memberUC),
 		Event:    handler.NewEventHandler(eventUC, mediaStorage),
 		Shift:    handler.NewShiftHandler(eventUC, regUC),

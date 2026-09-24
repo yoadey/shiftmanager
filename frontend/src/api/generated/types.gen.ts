@@ -44,6 +44,17 @@ export type MemberPreferences = {
   notifyNewEvents?: boolean;
 };
 
+export type OidcProvider = {
+  /**
+   * Short key passed as ?provider= to /auth/login
+   */
+  name: string;
+  /**
+   * Display label for the login button, e.g. "Google"
+   */
+  label: string;
+};
+
 export type MeResponse = {
   id: Uuid;
   role: MemberRole;
@@ -333,11 +344,40 @@ export type ErrorResponse = {
   error: string;
 };
 
-export type AuthLoginData = {
+export type ListOidcProvidersData = {
   body?: never;
   path?: never;
   query?: never;
+  url: "/auth/providers";
+};
+
+export type ListOidcProvidersResponses = {
+  /**
+   * Configured providers, in login-button display order
+   */
+  200: Array<OidcProvider>;
+};
+
+export type ListOidcProvidersResponse =
+  ListOidcProvidersResponses[keyof ListOidcProvidersResponses];
+
+export type AuthLoginData = {
+  body?: never;
+  path?: never;
+  query?: {
+    /**
+     * Provider name from GET /auth/providers (A-005). Optional when only one provider is configured.
+     */
+    provider?: string;
+  };
   url: "/auth/login";
+};
+
+export type AuthLoginErrors = {
+  /**
+   * Unknown or missing provider
+   */
+  400: unknown;
 };
 
 export type AuthCallbackData = {

@@ -34,9 +34,8 @@ wird hier beschrieben, nicht als offener Punkt geführt.
 
 Noch nicht umgesetzte oder neu vorgeschlagene Arbeit wird **nicht** in die
 obigen Dateien gemischt, sondern als eigener Change-Vorschlag unter
-[`changes/`](changes/) geführt, bis sie umgesetzt ist. Danach wird der
-entsprechende Change gelöscht und der Inhalt in die passende Spec-Datei
-übernommen.
+`changes/` geführt, bis sie umgesetzt ist. Danach wird der entsprechende
+Change gelöscht und der Inhalt in die passende Spec-Datei übernommen.
 
-Aktuell offen:
-- [`changes/A-005-multi-oidc-provider.md`](changes/A-005-multi-oidc-provider.md)
+Aktuell offen: keine. `changes/` existiert entsprechend gerade nicht — die
+erste neue Change-Datei legt das Verzeichnis wieder an.

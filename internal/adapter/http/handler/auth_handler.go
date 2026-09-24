@@ -17,7 +17,11 @@ import (
 
 // AuthHandler handles OIDC-based authentication flows.
 type AuthHandler struct {
-	oidc      port.OIDCService
+	// oidc holds one service per configured provider, keyed by provider name
+	// (A-005). The common single-provider case still has exactly one entry,
+	// named "default".
+	oidc      map[string]port.OIDCService
+	providers []OIDCProviderInfo // display order for GET /auth/providers
 	members   memberStore
 	audit     auditWriter
 	jwtSecret string
@@ -31,6 +35,20 @@ type AuthHandler struct {
 	// problem without manual database access.
 	bootstrapAdminEmail string
 }
+
+// OIDCProviderInfo is the public (no secrets) shape of a configured OIDC
+// provider, as returned by GET /auth/providers (A-005) — matches the
+// OIDCProvider schema in api/openapi.yaml.
+type OIDCProviderInfo struct {
+	Name  string `json:"name"`
+	Label string `json:"label"`
+}
+
+// oidcStateSeparator joins the CSRF state token and the chosen provider name
+// in the oidc_state cookie. A colon never appears in either (state is a
+// uuid.New() string; provider names come from OIDC_PROVIDERS, a trusted,
+// operator-controlled config value, not user input).
+const oidcStateSeparator = ":"
 
 // memberStore is the subset of member persistence the auth flow needs: looking
 // up members and auto-registering / linking OIDC identities on first login.
@@ -47,21 +65,57 @@ type auditWriter interface {
 	WriteAudit(r *http.Request, actorID *uuid.UUID, action, entity, entityID string, before, after interface{}) error
 }
 
-// Login initiates the OIDC authorization code flow.
+// Login initiates the OIDC authorization code flow. With more than one
+// provider configured (A-005), ?provider=<name> (from GET /auth/providers)
+// selects which one; it's optional when exactly one is configured.
 // GET /api/v1/auth/login
 func (h *AuthHandler) Login(w http.ResponseWriter, r *http.Request) {
+	providerName := r.URL.Query().Get("provider")
+	if providerName == "" {
+		if len(h.oidc) != 1 {
+			writeError(w, http.StatusBadRequest, "provider is required")
+			return
+		}
+		for name := range h.oidc {
+			providerName = name
+		}
+	}
+	svc, ok := h.oidc[providerName]
+	if !ok {
+		writeError(w, http.StatusBadRequest, "unknown provider")
+		return
+	}
+
 	state := uuid.New().String()
-	// In production, store state in a session cookie to prevent CSRF.
+	// The chosen provider travels in the same HttpOnly cookie as the CSRF
+	// state token, so Callback resolves it from a value it (not the client)
+	// controls — a ?provider= on the callback URL itself would be attacker
+	//-controlled and could be used to route the exchange through the wrong
+	// provider's client credentials.
 	http.SetCookie(w, &http.Cookie{
 		Name:     "oidc_state",
-		Value:    state,
+		Value:    state + oidcStateSeparator + providerName,
 		MaxAge:   600,
 		HttpOnly: true,
 		SameSite: http.SameSiteLaxMode,
 		Path:     "/",
 	})
-	url := h.oidc.GetAuthURL(state)
+	url := svc.GetAuthURL(state)
 	http.Redirect(w, r, url, http.StatusFound)
+}
+
+// Providers lists the configured OIDC providers so the frontend can render
+// one login button per provider (A-005).
+// GET /api/v1/auth/providers
+func (h *AuthHandler) Providers(w http.ResponseWriter, r *http.Request) {
+	// api/openapi.yaml documents this as always an array; a nil h.providers
+	// (no provider configured, or a test-mode server that passes nil) would
+	// otherwise serialize as JSON null instead of [].
+	providers := h.providers
+	if providers == nil {
+		providers = []OIDCProviderInfo{}
+	}
+	writeJSON(w, http.StatusOK, providers)
 }
 
 // Callback handles the OIDC provider redirect with an authorization code.
@@ -77,7 +131,17 @@ func (h *AuthHandler) Callback(w http.ResponseWriter, r *http.Request) {
 	})
 
 	stateCookie, err := r.Cookie("oidc_state")
-	if err != nil || stateCookie.Value != r.URL.Query().Get("state") {
+	if err != nil {
+		h.redirectError(w, r, "invalid_state")
+		return
+	}
+	cookieState, providerName, found := strings.Cut(stateCookie.Value, oidcStateSeparator)
+	if !found || cookieState != r.URL.Query().Get("state") {
+		h.redirectError(w, r, "invalid_state")
+		return
+	}
+	svc, ok := h.oidc[providerName]
+	if !ok {
 		h.redirectError(w, r, "invalid_state")
 		return
 	}
@@ -88,13 +152,13 @@ func (h *AuthHandler) Callback(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	tokens, err := h.oidc.Exchange(r.Context(), code)
+	tokens, err := svc.Exchange(r.Context(), code)
 	if err != nil {
 		h.redirectError(w, r, "exchange_failed")
 		return
 	}
 
-	claims, err := h.oidc.VerifyIDToken(r.Context(), tokens.IDToken)
+	claims, err := svc.VerifyIDToken(r.Context(), tokens.IDToken)
 	if err != nil {
 		h.redirectError(w, r, "token_invalid")
 		return

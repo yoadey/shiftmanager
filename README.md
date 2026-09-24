@@ -138,6 +138,8 @@ Alle Konfigurationsparameter werden ueber Umgebungsvariablen gesteuert. Kopiere 
 | `OIDC_CLIENT_ID` | OIDC Client ID | _(erforderlich)_ |
 | `OIDC_CLIENT_SECRET` | OIDC Client Secret | _(erforderlich)_ |
 | `OIDC_REDIRECT_URL` | Backend-Callback-URL; muss beim IdP **verbatim** als Redirect-URI registriert sein (inkl. `/api/v1`-Prefix), z. B. `http://localhost:8080/api/v1/auth/callback` | _(erforderlich)_ |
+| `OIDC_LABEL` | Beschriftung des Login-Buttons, solange `OIDC_PROVIDERS` nicht gesetzt ist | `Vereinskonto` |
+| `OIDC_PROVIDERS` | Mehrere gleichzeitige OIDC-Provider (A-005): kommagetrennte Liste von Kurznamen, z. B. `verein,google`. Für jeden Namen `N` werden `OIDC_<N>_ISSUER`/`_CLIENT_ID`/`_CLIENT_SECRET`/`_LABEL`/`_REDIRECT_URL` gelesen (siehe `.env.example`); ist leer, gilt einfach der obige einzelne `OIDC_*`-Satz | `""` |
 | `LOGIN_REDIRECT_URL` | SPA-Route, auf die der Callback nach erfolgreichem Login weiterleitet (Token im URL-Fragment) | `/auth/callback` |
 | `BOOTSTRAP_ADMIN_EMAIL` | Mitglied mit dieser E-Mail wird beim Login automatisch angelegt/verknuepft und als aktiver Administrator freigeschaltet (Erst-Admin-Bootstrap) | `""` |
 | `JWT_SECRET` | Signierungsgeheimnis fuer interne JWTs (min. 32 Zeichen) | _(erforderlich)_ |

@@ -3,7 +3,7 @@ Vereins-Helferschichten-
 Management
 ShiftManager
 Software-Anforderungsdokument
-Version 1.5   •   September 2026
+Version 1.6   •   September 2026
 
 Erstellt:
 Vereinsvorstand
@@ -17,7 +17,7 @@ Vereinsmitglieder, Vorstände, Veranstalter
   Implementierungsstatus (Stand: 2026-09-24)
   Legende: ✅ Implementiert  ⚠️ Teilweise  ❌ Fehlt/Out-of-scope
 
-  3.1.1  OIDC:             A-001 ✅  A-002 ✅  A-003 ✅  A-004 ✅  A-005 ❌
+  3.1.1  OIDC:             A-001 ✅  A-002 ✅  A-003 ✅  A-004 ✅  A-005 ✅
   3.1.2  Mitglieder:       ML-001–ML-006 ✅  ML-007 ✅  ML-008 ✅  ML-009 ✅
   3.1.3  Kiosk:            K-001–K-013 ✅
   3.1.4  Namensanzeige:    NM-001–NM-007 ✅
@@ -856,3 +856,7 @@ Mitgliederverwaltung vereinfacht (nur Vorname, Nachname, E-Mail, Eintritts-/Aust
 September 2026
 Vereinsvorstand
 Freie Helferverwaltung pro Schicht ergänzt (SC-010): Veranstaltungsleiter/Vorstand können beliebige Helfer, auch ohne Benutzerkonto, eintragen oder entfernen. S3-kompatibler Object-Storage als konfigurierbare Alternative zum lokalen Medienverzeichnis umgesetzt (T-013). Vollständige Spezifikation nach openspec/ migriert (siehe docs/openspec/), offene Punkte als Changes unter docs/openspec/changes/ geführt.
+1.6
+September 2026
+Vereinsvorstand
+Mehrere gleichzeitige OIDC-Provider umgesetzt (A-005): konfigurierbar über OIDC_PROVIDERS, Login-Seite zeigt einen Button je Provider. Damit sind alle zuvor offenen Anforderungen und Changes umgesetzt; docs/openspec/changes/ ist aktuell leer.

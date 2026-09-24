@@ -128,19 +128,26 @@ func run() error {
 		return fmt.Errorf("init email service: %w", err)
 	}
 
-	var oidcSvc port.OIDCService
-	if cfg.OIDCIssuer != "" {
+	// One OIDCService per configured provider (A-005). The common
+	// single-provider case still yields exactly one entry, named "default".
+	oidcSvcs := map[string]port.OIDCService{}
+	var oidcProviders []handler.OIDCProviderInfo
+	for _, p := range cfg.Providers() {
+		if p.Issuer == "" {
+			continue
+		}
 		svc, err := oidcadapter.New(rootCtx, oidcadapter.Config{
-			Issuer:       cfg.OIDCIssuer,
-			ClientID:     cfg.OIDCClientID,
-			ClientSecret: cfg.OIDCClientSecret,
-			RedirectURL:  cfg.OIDCRedirectURL,
+			Issuer:       p.Issuer,
+			ClientID:     p.ClientID,
+			ClientSecret: p.ClientSecret,
+			RedirectURL:  p.RedirectURL,
 		})
 		if err != nil {
-			log.Warn().Err(err).Msg("OIDC provider init failed; auth login will be unavailable")
-		} else {
-			oidcSvc = svc
+			log.Warn().Err(err).Str("provider", p.Name).Msg("OIDC provider init failed; login via this provider will be unavailable")
+			continue
 		}
+		oidcSvcs[p.Name] = svc
+		oidcProviders = append(oidcProviders, handler.OIDCProviderInfo{Name: p.Name, Label: p.Label})
 	}
 
 	var mediaStorage port.MediaStorage
@@ -179,7 +186,7 @@ func run() error {
 
 	// --- Handlers ---
 	handlers := httpadapter.Handlers{
-		Auth:     handler.BuildAuthHandler(oidcSvc, memberRepo, auditRepo, cfg.JWTSecret, cfg.JWTExpiration, cfg.LoginRedirectURL, cfg.BootstrapAdminEmail),
+		Auth:     handler.BuildAuthHandler(oidcSvcs, oidcProviders, memberRepo, auditRepo, cfg.JWTSecret, cfg.JWTExpiration, cfg.LoginRedirectURL, cfg.BootstrapAdminEmail),
 		Member:   handler.NewMemberHandler(memberUC),
 		Event:    handler.NewEventHandler(eventUC, mediaStorage),
 		Shift:    handler.NewShiftHandler(eventUC, regUC),

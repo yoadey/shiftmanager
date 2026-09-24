@@ -128,6 +128,7 @@ func NewRouter(h Handlers, cfg RouterConfig) http.Handler {
 			if !cfg.TestMode {
 				pub.Use(middleware.RateLimit(cfg.RateLimitRPM))
 			}
+			pub.Get("/auth/providers", h.Auth.Providers)
 			pub.Get("/auth/login", h.Auth.Login)
 			pub.Get("/auth/callback", h.Auth.Callback)
 		})
