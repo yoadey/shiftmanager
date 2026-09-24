@@ -1,4 +1,5 @@
 import { useRef, useState } from 'react';
+import { useNavigate, useParams } from 'react-router-dom';
 import { Icon } from '@/components/ui/Icon';
 import { Avatar } from '@/components/ui/Avatar';
 import { OccBadge } from '@/components/ui/Badge';
@@ -8,6 +9,8 @@ import { Sheet } from '@/components/ui/Sheet';
 import { Field, Input, Textarea, Select } from '@/components/forms/Field';
 import { useAppStore } from '@/store/app.store';
 import { useAuthStore } from '@/store/auth.store';
+import { routes, homePathForRole } from '@/routes';
+import { useSmartBack } from '@/hooks/useSmartBack';
 import {
   useRegisterShift,
   useDeregisterShift,
@@ -126,12 +129,16 @@ function RegistrationRow({
   const { showToast } = useAppStore();
   const patch = usePatchRegistration();
   const forceDelete = useForceDeleteRegistration();
+  const navigate = useNavigate();
+  const params = useParams();
+  const closeModal = useSmartBack(routes.event(eventId));
 
   const dur = durH(shift.start, shift.end);
   const [[hh, mm], setHhMm] = useState<[number, number]>(() =>
     decimalToHhMm(s.hours != null ? s.hours : dur)
   );
-  const [timeOpen, setTimeOpen] = useState(false);
+  const registrationId = s.id ?? '';
+  const timeOpen = registrationId !== '' && (params['*'] ?? '') === `zeit/${registrationId}`;
   const [deleteConfirm, setDeleteConfirm] = useState(false);
 
   const isConfirmed = s.status === 'bestätigt';
@@ -145,7 +152,7 @@ function RegistrationRow({
   const onTimeSave = (h: number, m: number) => {
     setHhMm([h, m]);
     doSaveHours(h, m);
-    setTimeOpen(false);
+    closeModal();
   };
 
   const onConfirm = () => {
@@ -185,7 +192,7 @@ function RegistrationRow({
           {displayName}
         </span>
         {!isNoShow && (
-          <button onClick={() => setTimeOpen(true)} title="Zeit bearbeiten" className="pressable"
+          <button onClick={() => navigate(routes.eventZeit(eventId, registrationId))} title="Zeit bearbeiten" className="pressable"
             style={{ padding: '3px 9px', borderRadius: 8, border: '1px solid var(--line)', background: 'var(--surface)', fontSize: 12.5, fontWeight: 800, fontFamily: 'inherit', cursor: 'pointer', flexShrink: 0, whiteSpace: 'nowrap' }}>
             {hh}:{String(mm).padStart(2, '0')}
           </button>
@@ -204,7 +211,7 @@ function RegistrationRow({
         </button>
       </div>
       {timeOpen && (
-        <TimePickerSheet hh={hh} mm={mm} dur={dur} onSave={onTimeSave} onClose={() => setTimeOpen(false)} />
+        <TimePickerSheet hh={hh} mm={mm} dur={dur} onSave={onTimeSave} onClose={closeModal} />
       )}
       {deleteConfirm && (
         <Sheet variant="dialog" onClose={() => setDeleteConfirm(false)}>
@@ -326,7 +333,7 @@ function AddMemberSheet({
   );
 }
 
-function ShiftRow({ sh, eventId, onRegister, onDeregister, memberMap }: { sh: Shift; eventId: string; onRegister: () => void; onDeregister: () => void; memberMap: Record<string, Member> }) {
+function ShiftRow({ sh, eventId, ev, onDeregister, memberMap }: { sh: Shift; eventId: string; ev: Event; onDeregister: () => void; memberMap: Record<string, Member> }) {
   const { user } = useAuthStore();
   // Organizer controls here (registrant list, add/remove helper) map to the
   // backend's shift-management endpoints, which are veranstaltungsleiter+.
@@ -335,7 +342,14 @@ function ShiftRow({ sh, eventId, onRegister, onDeregister, memberMap }: { sh: Sh
   const o = calcOccupancy(sh);
   const mine = sh.signups.find((s) => s.memberId === uid && (s.status === 'angemeldet' || s.status === 'reserviert'));
   const [open, setOpen] = useState(false);
-  const [addingMember, setAddingMember] = useState(false);
+  const navigate = useNavigate();
+  const params = useParams();
+  const rest = params['*'] ?? '';
+  const registering = rest === `anmelden/${sh.id}`;
+  const addingMember = rest === `helfer/${sh.id}`;
+  const closeModal = useSmartBack(routes.event(eventId));
+  const { data: settings } = useSettings();
+  const reservationHours = settings?.reservationHours ?? 48;
 
   return (
     <>
@@ -393,7 +407,7 @@ function ShiftRow({ sh, eventId, onRegister, onDeregister, memberMap }: { sh: Sh
                     memberMap={memberMap}
                   />
                 ))}
-                <Button variant="soft" size="sm" icon="plus" onClick={() => setAddingMember(true)}>Helfer hinzufügen</Button>
+                <Button variant="soft" size="sm" icon="plus" onClick={() => navigate(routes.eventHelfer(eventId, sh.id))}>Helfer hinzufügen</Button>
               </div>
             )}
           </div>
@@ -404,19 +418,20 @@ function ShiftRow({ sh, eventId, onRegister, onDeregister, memberMap }: { sh: Sh
             {mine
               ? <Button variant="soft" size="sm" icon="x" onClick={onDeregister}>Abmelden</Button>
               : o.free > 0
-                ? <Button variant="primary" size="sm" icon="plus" onClick={onRegister}>Eintragen</Button>
+                ? <Button variant="primary" size="sm" icon="plus" onClick={() => navigate(routes.eventAnmelden(eventId, sh.id))}>Eintragen</Button>
                 : <Button variant="soft" size="sm" disabled>Ausgebucht</Button>}
           </div>
         )}
       </div>
     </div>
 
+    {registering && <RegisterSheet sh={sh} ev={ev} onClose={closeModal} reservationHours={reservationHours} />}
     {addingMember && (
       <AddMemberSheet
         shift={sh}
         eventId={eventId}
         members={Object.values(memberMap)}
-        onClose={() => setAddingMember(false)}
+        onClose={closeModal}
       />
     )}
     </>
@@ -967,17 +982,21 @@ function AttachmentsSection({ eventId, isBoard }: { eventId: string; isBoard: bo
   );
 }
 
-export function EventDetail({ id }: { id: string }) {
-  const { back } = useAppStore();
+export function EventDetail() {
+  const params = useParams();
+  const id = params.id ?? '';
+  const navigate = useNavigate();
+  const authUser = useAuthStore((s) => s.user);
   // Edit/delete/complete and attachment management map to the backend's
   // event-management endpoints, which are veranstaltungsleiter+.
   const isBoard = useIsEventManager();
   const isOrganizer = isBoard;
-  const [sheet, setSheet] = useState<Shift | null>(null);
+  const editOpen = (params['*'] ?? '') === 'bearbeiten';
   const [confirmOff, setConfirmOff] = useState<Shift | null>(null);
-  const [editOpen, setEditOpen] = useState(false);
   const [deleteOpen, setDeleteOpen] = useState(false);
   const [completeOpen, setCompleteOpen] = useState(false);
+  const closeModal = useSmartBack(routes.event(id));
+  const goBack = useSmartBack(isBoard ? routes.events : homePathForRole(authUser?.role));
 
   const eventQ = useEvent(id);
   const timelineQ = useEventTimeline(id);
@@ -989,7 +1008,6 @@ export function EventDetail({ id }: { id: string }) {
     {} as Record<string, Member>,
   );
 
-  const reservationHours = settings?.reservationHours ?? 48;
   const deregisterDeadlineH = settings?.deregisterDeadlineH ?? 24;
 
   if (eventQ.isLoading || timelineQ.isLoading) return <LoadingState />;
@@ -1009,7 +1027,7 @@ export function EventDetail({ id }: { id: string }) {
         <div style={{ padding: '0 18px' }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 18 }}>
             <button
-              onClick={back}
+              onClick={goBack}
               className="pressable"
               style={{ width: 40, height: 40, borderRadius: '50%', border: 'none', background: 'rgba(255,255,255,0.92)', display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer' }}
             >
@@ -1030,7 +1048,7 @@ export function EventDetail({ id }: { id: string }) {
                 {isBoard && (
                   <>
                     <button
-                      onClick={() => setEditOpen(true)}
+                      onClick={() => navigate(routes.eventBearbeiten(id))}
                       className="pressable"
                       title="Veranstaltung bearbeiten"
                       style={{ width: 40, height: 40, borderRadius: '50%', border: 'none', background: 'rgba(255,255,255,0.92)', display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer' }}
@@ -1094,8 +1112,8 @@ export function EventDetail({ id }: { id: string }) {
                   key={sh.id}
                   sh={sh}
                   eventId={id}
+                  ev={ev}
                   memberMap={memberMap}
-                  onRegister={() => setSheet(sh)}
                   onDeregister={() => setConfirmOff(sh)}
                 />
               ))}
@@ -1104,10 +1122,9 @@ export function EventDetail({ id }: { id: string }) {
         ))}
       </div>
 
-      {sheet && <RegisterSheet sh={sheet} ev={ev} onClose={() => setSheet(null)} reservationHours={reservationHours} />}
       {confirmOff && <DeregisterDialog sh={confirmOff} onClose={() => setConfirmOff(null)} deregisterDeadlineH={deregisterDeadlineH} />}
-      {editOpen && <EditEventSheet ev={ev} onClose={() => setEditOpen(false)} />}
-      {deleteOpen && <DeleteEventDialog ev={ev} onClose={() => setDeleteOpen(false)} onDeleted={back} />}
+      {editOpen && <EditEventSheet ev={ev} onClose={closeModal} />}
+      {deleteOpen && <DeleteEventDialog ev={ev} onClose={() => setDeleteOpen(false)} onDeleted={() => navigate(routes.events, { replace: true })} />}
       {completeOpen && <CompleteEventDialog ev={ev} onClose={() => setCompleteOpen(false)} />}
     </div>
   );

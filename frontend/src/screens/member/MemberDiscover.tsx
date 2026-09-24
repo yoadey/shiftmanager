@@ -1,12 +1,13 @@
 import { useState } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { Icon } from '@/components/ui/Icon';
 import { Badge } from '@/components/ui/Badge';
-import { useAppStore } from '@/store/app.store';
 import { useEvents } from '@/api/events';
 import { calcOccupancy } from '@/hooks/useOccupancy';
 import { LoadingState, ErrorState } from '@/components/ui/States';
 import { fmtDate, catGradient } from '@/screens/_demo';
 import { EmptyState } from '@/screens/member/MemberDashboard';
+import { routes } from '@/routes';
 import type { Event } from '@/types';
 
 function EventCard({ ev, onClick }: { ev: Event; onClick: () => void }) {
@@ -59,7 +60,7 @@ interface FilterDef {
 }
 
 export function MemberDiscover() {
-  const { push } = useAppStore();
+  const navigate = useNavigate();
   const [filter, setFilter] = useState('alle');
   const [dateFrom, setDateFrom] = useState('');
   const [dateTo, setDateTo] = useState('');
@@ -147,7 +148,7 @@ export function MemberDiscover() {
           <EmptyState icon="compass" title="Keine Treffer" text="Für diesen Filter gibt es gerade keine Veranstaltungen." />
         ) : (
           shown.map((ev) => (
-            <EventCard key={ev.id} ev={ev} onClick={() => push('event', { id: ev.id })} />
+            <EventCard key={ev.id} ev={ev} onClick={() => navigate(routes.event(ev.id))} />
           ))
         )}
       </div>

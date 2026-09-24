@@ -1,8 +1,7 @@
-import { useState } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { Icon } from '@/components/ui/Icon';
 import { Badge } from '@/components/ui/Badge';
 import { Button } from '@/components/ui/Button';
-import { useAppStore } from '@/store/app.store';
 import { useIsVorstand } from '@/hooks/useIsVorstand';
 import { useEvents } from '@/api/events';
 import { useMembers } from '@/api/members';
@@ -12,7 +11,7 @@ import { calcOccupancy } from '@/hooks/useOccupancy';
 import { LoadingState, ErrorState } from '@/components/ui/States';
 import { fmtDate, hrs } from '@/screens/_demo';
 import { Section, EmptyState } from '@/screens/member/MemberDashboard';
-import { CreateEventFlow } from '@/screens/admin/CreateEventFlow';
+import { routes } from '@/routes';
 import type { Event, Shift, ShiftDay, ShiftOccupancy } from '@/types';
 
 function StatCard({ icon, label, val, sub, accent }: { icon: string; label: string; val: string | number; sub: string; accent?: boolean }) {
@@ -34,9 +33,8 @@ interface Understaffed {
 }
 
 export function AdminDashboard() {
-  const { push, go } = useAppStore();
+  const navigate = useNavigate();
   const isVorstand = useIsVorstand();
-  const [createOpen, setCreateOpen] = useState(false);
   const today = new Date().toISOString().slice(0, 10);
 
   const eventsQ = useEvents();
@@ -87,7 +85,7 @@ export function AdminDashboard() {
         </div>
         <button
           className="pressable"
-          onClick={() => go('profil')}
+          onClick={() => navigate(routes.profil)}
           title="Mein Profil"
           style={{ width: 42, height: 42, borderRadius: '50%', border: '1px solid var(--line)', background: 'var(--surface)', display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', boxShadow: 'var(--shadow)' }}
         >
@@ -102,12 +100,12 @@ export function AdminDashboard() {
           <StatCard icon="layers" label="Unterbesetzte Schichten" val={openShifts} sub="unter Mindesthelfern" accent />
         </div>
 
-        <Button icon="plus" onClick={() => setCreateOpen(true)} style={{ marginTop: 14 }}>Neue Veranstaltung</Button>
+        <Button icon="plus" onClick={() => navigate(routes.eventNeu)} style={{ marginTop: 14 }}>Neue Veranstaltung</Button>
         {isVorstand && (
           <>
             <div style={{ height: 14 }} />
             {/* POST /hours/manual is vorstand-only on the backend (router.go) */}
-            <Button variant="soft" icon="plus" onClick={() => push('manual')}>Stunden manuell buchen</Button>
+            <Button variant="soft" icon="plus" onClick={() => navigate(routes.stundenBuchen())}>Stunden manuell buchen</Button>
           </>
         )}
 
@@ -119,7 +117,7 @@ export function AdminDashboard() {
               key={sh.id}
               className="sm-card pressable"
               style={{ padding: 13, marginBottom: 10, display: 'flex', gap: 12, alignItems: 'center', borderLeft: '3px solid var(--crit)' }}
-              onClick={() => push('event', { id: ev.id })}
+              onClick={() => navigate(routes.event(ev.id))}
             >
               <div style={{ flex: 1, minWidth: 0 }}>
                 <div style={{ fontWeight: 700, fontSize: 15 }}>{sh.name}</div>
@@ -130,7 +128,6 @@ export function AdminDashboard() {
           ))}
       </div>
 
-      {createOpen && <CreateEventFlow onClose={() => setCreateOpen(false)} />}
     </div>
   );
 }

@@ -1,4 +1,5 @@
 import React, { useState } from 'react';
+import { useNavigate, useParams } from 'react-router-dom';
 import { Icon } from '@/components/ui/Icon';
 import { Avatar } from '@/components/ui/Avatar';
 import { Badge } from '@/components/ui/Badge';
@@ -6,6 +7,8 @@ import { Button } from '@/components/ui/Button';
 import { Sheet } from '@/components/ui/Sheet';
 import { Stepper } from '@/components/ui/Stepper';
 import { useAppStore } from '@/store/app.store';
+import { routes } from '@/routes';
+import { useSmartBack } from '@/hooks/useSmartBack';
 import { useMember, useUpdateMember, useDeactivateMember } from '@/api/members';
 import { useMemberHours } from '@/api/hours';
 import { useSettings, useMemberFeeTiers, useUpdateMemberFeeTiers } from '@/api/settings';
@@ -213,11 +216,17 @@ function EditSheet({ member, onClose }: { member: Member; onClose: () => void })
   );
 }
 
-export function MemberDetail({ id }: { id: string }) {
-  const { back, push, showToast } = useAppStore();
-  const [goalOpen, setGoalOpen] = useState(false);
-  const [feeOpen, setFeeOpen] = useState(false);
-  const [editOpen, setEditOpen] = useState(false);
+export function MemberDetail() {
+  const { showToast } = useAppStore();
+  const navigate = useNavigate();
+  const params = useParams();
+  const id = params.id ?? '';
+  const rest = params['*'] ?? '';
+  const goalOpen = rest === 'ziel';
+  const feeOpen = rest === 'abgeltung';
+  const editOpen = rest === 'bearbeiten';
+  const back = useSmartBack(routes.mitglieder);
+  const closeModal = useSmartBack(routes.mitglied(id));
   const { data: stats } = useStats();
   const clubYearId = stats?.clubYearId ?? '';
   const activate = useUpdateMember();
@@ -269,7 +278,7 @@ export function MemberDetail({ id }: { id: string }) {
           {m.active === false && <Badge kind="warn">Nicht freigeschaltet</Badge>}
           <button
             className="pressable"
-            onClick={() => setEditOpen(true)}
+            onClick={() => navigate(routes.mitgliedBearbeiten(id))}
             title="Mitglied bearbeiten"
             style={{ width: 34, height: 34, borderRadius: '50%', border: '1px solid var(--line)', background: 'var(--surface-2)', display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer' }}
           >
@@ -312,9 +321,9 @@ export function MemberDetail({ id }: { id: string }) {
             </div>
           </div>
           <div style={{ display: 'flex', gap: 9, marginTop: 13, flexWrap: 'wrap' }}>
-            <Button variant="soft" size="sm" icon="plus" onClick={() => push('manual', { id })}>Stunden buchen</Button>
-            <Button variant="soft" size="sm" icon="edit" onClick={() => setGoalOpen(true)}>Ziel anpassen</Button>
-            <Button variant="soft" size="sm" icon="edit" disabled={!clubYearId} onClick={() => setFeeOpen(true)}>Abgeltung</Button>
+            <Button variant="soft" size="sm" icon="plus" onClick={() => navigate(routes.stundenBuchen(id))}>Stunden buchen</Button>
+            <Button variant="soft" size="sm" icon="edit" onClick={() => navigate(routes.mitgliedZiel(id))}>Ziel anpassen</Button>
+            <Button variant="soft" size="sm" icon="edit" disabled={!clubYearId} onClick={() => navigate(routes.mitgliedAbgeltung(id))}>Abgeltung</Button>
           </div>
         </div>
         <Section title="Gebuchte Stunden" />
@@ -336,9 +345,9 @@ export function MemberDetail({ id }: { id: string }) {
         </div>
       </div>
 
-      {goalOpen && <GoalSheet memberId={id} value={goal} onClose={() => setGoalOpen(false)} />}
-      {feeOpen && clubYearId && <FeeTierSheet memberId={id} clubYearId={clubYearId} onClose={() => setFeeOpen(false)} />}
-      {editOpen && <EditSheet member={m} onClose={() => setEditOpen(false)} />}
+      {goalOpen && <GoalSheet memberId={id} value={goal} onClose={closeModal} />}
+      {feeOpen && clubYearId && <FeeTierSheet memberId={id} clubYearId={clubYearId} onClose={closeModal} />}
+      {editOpen && <EditSheet member={m} onClose={closeModal} />}
     </div>
   );
 }

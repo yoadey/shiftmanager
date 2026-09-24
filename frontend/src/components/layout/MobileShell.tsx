@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
+import { useNavigate, useLocation } from 'react-router-dom';
 import { Icon } from '@/components/ui/Icon';
 import { Sheet } from '@/components/ui/Sheet';
-import { useAppStore } from '@/store/app.store';
 import { isSectionStart, type NavTab } from '@/utils/navTabs';
 
 // The bottom bar evenly spreads up to this many items; once the
@@ -16,31 +16,36 @@ interface MobileShellProps {
 }
 
 export function MobileShell({ tabs, children }: MobileShellProps) {
-  const { tab, go, navStack } = useAppStore();
+  const navigate = useNavigate();
+  const location = useLocation();
   const [moreOpen, setMoreOpen] = useState(false);
 
   const overflow = tabs.length > MAX_VISIBLE_TABS;
   const visibleTabs = overflow ? tabs.slice(0, MAX_VISIBLE_TABS - 1) : tabs;
   const overflowTabs = overflow ? tabs.slice(MAX_VISIBLE_TABS - 1) : [];
-  const overflowActive = overflowTabs.some((t) => t.key === tab);
+  const isActive = (key: string) => location.pathname === '/' + key;
+  const overflowActive = overflowTabs.some((t) => isActive(t.key));
+  // The bottom nav only makes sense at a tab's own root — on a detail screen
+  // (e.g. an event or member) it would just be in the way.
+  const isTopLevel = tabs.some((t) => isActive(t.key));
 
   return (
     <div className="sm-app">
-      <div className="sm-main" key={tab + navStack.length}>
+      <div className="sm-main" key={location.pathname}>
         {children}
       </div>
 
-      {navStack.length === 0 && (
+      {isTopLevel && (
         <nav className="sm-nav">
           {visibleTabs.map(({ key, label, icon }, i) => (
             <React.Fragment key={key}>
               {isSectionStart(visibleTabs, i) && <span className="nav-sep" />}
               <button
-                className={'sm-navitem' + (tab === key ? ' active' : '')}
-                onClick={() => go(key)}
+                className={'sm-navitem' + (isActive(key) ? ' active' : '')}
+                onClick={() => navigate('/' + key)}
               >
                 <span className="ni-ico">
-                  <Icon name={icon} size={21} stroke={tab === key ? 2.4 : 2} />
+                  <Icon name={icon} size={21} stroke={isActive(key) ? 2.4 : 2} />
                 </span>
                 {label}
               </button>
@@ -67,14 +72,14 @@ export function MobileShell({ tabs, children }: MobileShellProps) {
               <React.Fragment key={key}>
                 {isSectionStart(overflowTabs, i) && <div className="sm-more-sep" />}
                 <button
-                  className={'sm-more-item' + (tab === key ? ' active' : '')}
+                  className={'sm-more-item' + (isActive(key) ? ' active' : '')}
                   onClick={() => {
-                    go(key);
+                    navigate('/' + key);
                     setMoreOpen(false);
                   }}
                 >
                   <span className="ni-ico">
-                    <Icon name={icon} size={20} stroke={tab === key ? 2.4 : 2} />
+                    <Icon name={icon} size={20} stroke={isActive(key) ? 2.4 : 2} />
                   </span>
                   {label}
                 </button>

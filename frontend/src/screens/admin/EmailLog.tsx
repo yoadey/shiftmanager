@@ -4,6 +4,8 @@ import { Button } from '@/components/ui/Button';
 import { useAppStore } from '@/store/app.store';
 import { useEmailLog, useResendEmail } from '@/api/settings';
 import { LoadingState, MessageState, ErrorState } from '@/components/ui/States';
+import { routes } from '@/routes';
+import { useSmartBack } from '@/hooks/useSmartBack';
 
 function fmtTs(iso: string): string {
   const d = new Date(iso);
@@ -14,7 +16,8 @@ function fmtTs(iso: string): string {
 }
 
 export function EmailLog() {
-  const { back, showToast } = useAppStore();
+  const { showToast } = useAppStore();
+  const back = useSmartBack(routes.settings);
   const { data, isLoading, isError } = useEmailLog();
   const resend = useResendEmail();
   const entries = data ?? [];

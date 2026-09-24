@@ -1,4 +1,5 @@
 import React, { useState, useRef } from 'react';
+import { useNavigate, useLocation } from 'react-router-dom';
 import { Icon } from '@/components/ui/Icon';
 import { Avatar } from '@/components/ui/Avatar';
 import { Field, Input } from '@/components/forms/Field';
@@ -11,12 +12,17 @@ import { useSettings } from '@/api/settings';
 import { LoadingState, ErrorState } from '@/components/ui/States';
 import { EmptyState } from '@/screens/member/MemberDashboard';
 import { hrs } from '@/screens/_demo';
+import { routes } from '@/routes';
+import { useSmartBack } from '@/hooks/useSmartBack';
 
 export function AdminMembers() {
-  const { push, showToast } = useAppStore();
+  const { showToast } = useAppStore();
   const { user } = useAuthStore();
   const uid = user?.id ?? '';
   const [q, setQ] = useState('');
+  const navigate = useNavigate();
+  const location = useLocation();
+  const closeModal = useSmartBack(routes.mitglieder);
 
   const membersQ = useMembers();
   const eventsQ = useEvents();
@@ -25,14 +31,16 @@ export function AdminMembers() {
   const importCsv = useImportMembersCSV();
   const importPreview = useImportMembersPreview();
 
-  // CSV import dialog state
-  const [importOpen, setImportOpen] = useState(false);
+  // CSV import dialog state — routed at /mitglieder/import. `preview`/
+  // `pendingFile` hold a File object, so they can't survive a reload; a
+  // direct link there just lands back on step 1 (the file picker).
+  const importOpen = location.pathname === routes.mitgliederImport;
   const [preview, setPreview] = useState<ImportPreviewResult | null>(null);
   const [pendingFile, setPendingFile] = useState<File | null>(null);
   const fileRef = useRef<HTMLInputElement>(null);
 
-  // Manual create dialog state
-  const [createOpen, setCreateOpen] = useState(false);
+  // Manual create dialog state — routed at /mitglieder/neu.
+  const createOpen = location.pathname === routes.mitgliederNeu;
   const [newFirst, setNewFirst] = useState('');
   const [newLast, setNewLast] = useState('');
   const [newEmail, setNewEmail] = useState('');
@@ -85,7 +93,7 @@ export function AdminMembers() {
   const onOpenImport = () => {
     setPreview(null);
     setPendingFile(null);
-    setImportOpen(true);
+    navigate(routes.mitgliederImport);
   };
 
   const onConfirmImport = () => {
@@ -93,18 +101,18 @@ export function AdminMembers() {
     importCsv.mutate(pendingFile, {
       onSuccess: (result) => {
         showToast(`${result.imported ?? 0} Mitglieder importiert.`);
-        setImportOpen(false);
         setPreview(null);
         setPendingFile(null);
+        closeModal();
       },
       onError: () => showToast('Import fehlgeschlagen.', 'crit'),
     });
   };
 
   const onCloseImport = () => {
-    setImportOpen(false);
     setPreview(null);
     setPendingFile(null);
+    closeModal();
   };
 
   const onOpenCreate = () => {
@@ -112,7 +120,7 @@ export function AdminMembers() {
     setNewLast('');
     setNewEmail('');
     setNewSince(new Date().toISOString().slice(0, 10));
-    setCreateOpen(true);
+    navigate(routes.mitgliederNeu);
   };
 
   const onConfirmCreate = () => {
@@ -122,7 +130,7 @@ export function AdminMembers() {
       {
         onSuccess: () => {
           showToast(`${newFirst} ${newLast} wurde angelegt.`);
-          setCreateOpen(false);
+          closeModal();
         },
         onError: () => showToast('Mitglied konnte nicht angelegt werden.', 'crit'),
       },
@@ -185,7 +193,7 @@ export function AdminMembers() {
                 {i > 0 && <hr className="sm-divider" style={{ marginLeft: 64 }} />}
                 <div
                   className="pressable"
-                  onClick={() => push('member', { id: m.id })}
+                  onClick={() => navigate(routes.mitglied(m.id))}
                   style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '12px 14px', cursor: 'pointer' }}
                 >
                   <Avatar memberId={m.id} members={memberMap} size={40} />
@@ -211,7 +219,7 @@ export function AdminMembers() {
 
       {/* Manual create dialog */}
       {createOpen && (
-        <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.45)', zIndex: 200, display: 'flex', alignItems: 'flex-end', justifyContent: 'center' }} onClick={() => setCreateOpen(false)}>
+        <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.45)', zIndex: 200, display: 'flex', alignItems: 'flex-end', justifyContent: 'center' }} onClick={closeModal}>
           <div style={{ background: 'var(--surface)', borderRadius: '20px 20px 0 0', width: '100%', maxWidth: 520, padding: 24, paddingBottom: 32 }} onClick={(e) => e.stopPropagation()}>
             <div style={{ fontFamily: 'Bricolage Grotesque', fontWeight: 700, fontSize: 19, marginBottom: 16 }}>Mitglied anlegen</div>
             <div style={{ display: 'flex', flexDirection: 'column', gap: 10, marginBottom: 18 }}>
@@ -238,7 +246,7 @@ export function AdminMembers() {
             >
               {createMember.isPending ? 'Wird angelegt…' : 'Mitglied anlegen'}
             </button>
-            <button className="sm-btn ghost" onClick={() => setCreateOpen(false)} style={{ width: '100%' }}>
+            <button className="sm-btn ghost" onClick={closeModal} style={{ width: '100%' }}>
               Abbrechen
             </button>
           </div>

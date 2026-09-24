@@ -30,7 +30,7 @@ export default function AppRouter() {
     <ErrorBoundary>
       <Suspense fallback={<RouteFallback />}>
         <Routes>
-          <Route path="/" element={<RequireAuth><App /></RequireAuth>} />
+          <Route path="/*" element={<RequireAuth><App /></RequireAuth>} />
           <Route path="/kiosk" element={<ErrorBoundary label="dem Kiosk"><KioskPage /></ErrorBoundary>} />
           <Route path="/auth/login" element={<ErrorBoundary><LoginPage /></ErrorBoundary>} />
           <Route path="/auth/callback" element={<ErrorBoundary><CallbackPage /></ErrorBoundary>} />

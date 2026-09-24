@@ -3,8 +3,6 @@ import { useAppStore } from './app.store';
 
 function reset() {
   useAppStore.setState({
-    tab: 'start',
-    navStack: [],
     toast: null,
     _toastTimer: null,
     tweaks: { primaryColor: '#F4B63F', radius: 'standard', warmth: 'warm' },
@@ -13,39 +11,6 @@ function reset() {
 
 describe('app.store', () => {
   beforeEach(reset);
-
-  describe('navigation stack', () => {
-    it('push appends frames with params', () => {
-      const { push } = useAppStore.getState();
-      push('event', { id: 'e1' });
-      push('shift', { id: 's2' });
-      expect(useAppStore.getState().navStack).toEqual([
-        { name: 'event', params: { id: 'e1' } },
-        { name: 'shift', params: { id: 's2' } },
-      ]);
-    });
-
-    it('push defaults params to empty object', () => {
-      useAppStore.getState().push('audit');
-      expect(useAppStore.getState().navStack).toEqual([{ name: 'audit', params: {} }]);
-    });
-
-    it('back pops the last frame', () => {
-      const { push, back } = useAppStore.getState();
-      push('a');
-      push('b');
-      back();
-      expect(useAppStore.getState().navStack).toEqual([{ name: 'a', params: {} }]);
-    });
-
-    it('go switches tab and clears the nav stack', () => {
-      const { push, go } = useAppStore.getState();
-      push('detail', { id: 'x' });
-      go('profil');
-      expect(useAppStore.getState().tab).toBe('profil');
-      expect(useAppStore.getState().navStack).toEqual([]);
-    });
-  });
 
   describe('showToast', () => {
     beforeEach(() => vi.useFakeTimers());

@@ -1,15 +1,16 @@
 import React from 'react';
+import { useNavigate } from 'react-router-dom';
 import { Icon } from '@/components/ui/Icon';
 import { Avatar } from '@/components/ui/Avatar';
 import { Badge } from '@/components/ui/Badge';
 import { Button } from '@/components/ui/Button';
 import { HourBar } from '@/components/ui/HourBar';
-import { useAppStore } from '@/store/app.store';
 import { useAuthStore } from '@/store/auth.store';
 import { useEvents } from '@/api/events';
 import { useMyHours } from '@/api/hours';
 import { useSettings, useBranding } from '@/api/settings';
 import { LoadingState, ErrorState } from '@/components/ui/States';
+import { routes } from '@/routes';
 import type { Event, Shift, ShiftDay, Signup } from '@/types';
 
 // ── Date helpers ──────────────────────────────────────────────────────────────
@@ -163,7 +164,7 @@ function Section({ title, action }: { title: string; action?: React.ReactNode })
 // ── Main component ─────────────────────────────────────────────────────────────
 
 export function MemberDashboard() {
-  const { go, push } = useAppStore();
+  const navigate = useNavigate();
   const { user } = useAuthStore();
 
   const eventsQ = useEvents();
@@ -199,7 +200,7 @@ export function MemberDashboard() {
         </div>
         <div style={{ display: 'flex', gap: 9 }}>
           <button
-            onClick={() => go('profil')}
+            onClick={() => navigate(routes.profil)}
             className="pressable"
             style={{ position: 'relative', width: 42, height: 42, borderRadius: '50%', border: '1px solid var(--line)', background: 'var(--surface)', display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', boxShadow: 'var(--shadow)' }}
           >
@@ -238,17 +239,17 @@ export function MemberDashboard() {
         </div>
 
         <div style={{ marginTop: 14 }}>
-          <Button icon="search" onClick={() => go('entdecken')}>Freie Schichten finden</Button>
+          <Button icon="search" onClick={() => navigate(routes.entdecken)}>Freie Schichten finden</Button>
         </div>
 
         <Section
           title="Deine nächsten Schichten"
-          action={up.length > 0 ? <TextLink onClick={() => go('schichten')}>Alle</TextLink> : undefined}
+          action={up.length > 0 ? <TextLink onClick={() => navigate(routes.schichten)}>Alle</TextLink> : undefined}
         />
         {up.length === 0
           ? <EmptyState icon="calendar" title="Noch nichts geplant" text="Melde dich für eine Schicht an – sie erscheint dann hier." />
           : up.slice(0, 3).map((r) => (
-            <MyShiftCard key={r.sh.id} r={r} onClick={() => push('event', { id: r.ev.id })} />
+            <MyShiftCard key={r.sh.id} r={r} onClick={() => navigate(routes.event(r.ev.id))} />
           ))}
       </div>
     </div>
