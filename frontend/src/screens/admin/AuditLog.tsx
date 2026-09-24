@@ -1,11 +1,12 @@
 import { Icon } from '@/components/ui/Icon';
 import { Badge } from '@/components/ui/Badge';
-import { useAppStore } from '@/store/app.store';
 import { useAuditLog } from '@/api/settings';
 import { LoadingState, MessageState, ErrorState } from '@/components/ui/States';
+import { routes } from '@/routes';
+import { useSmartBack } from '@/hooks/useSmartBack';
 
 export function AuditLog() {
-  const { back } = useAppStore();
+  const back = useSmartBack(routes.settings);
   const { data, isLoading, isError } = useAuditLog();
   const entries = data ?? [];
 

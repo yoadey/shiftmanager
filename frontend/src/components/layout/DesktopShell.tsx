@@ -1,7 +1,7 @@
 import React from 'react';
+import { useNavigate, useLocation } from 'react-router-dom';
 import { Icon } from '@/components/ui/Icon';
 import { Avatar } from '@/components/ui/Avatar';
-import { useAppStore } from '@/store/app.store';
 import { useAuthStore } from '@/store/auth.store';
 import { useBranding } from '@/api/settings';
 import { isSectionStart, type NavTab } from '@/utils/navTabs';
@@ -26,7 +26,6 @@ function clubInitials(name: string): string {
 interface DesktopShellProps {
   tabs: NavTab[];
   children: React.ReactNode;
-  onOpenCreate?: () => void;
 }
 
 // Fallback user for demo/dev when no auth token exists
@@ -39,8 +38,9 @@ const DEMO_USER = {
   role: 'mitglied' as const,
 };
 
-export function DesktopShell({ tabs, children, onOpenCreate: _onOpenCreate }: DesktopShellProps) {
-  const { tab, go, navStack } = useAppStore();
+export function DesktopShell({ tabs, children }: DesktopShellProps) {
+  const navigate = useNavigate();
+  const location = useLocation();
   const { user } = useAuthStore();
   const { data: branding } = useBranding();
   const me = user ?? DEMO_USER;
@@ -75,8 +75,8 @@ export function DesktopShell({ tabs, children, onOpenCreate: _onOpenCreate }: De
                 <div className="dt-role-label" style={{ marginTop: i > 0 ? 14 : 0 }}>{section}</div>
               )}
               <button
-                className={'dt-navitem' + (tab === key && !navStack.length ? ' active' : '')}
-                onClick={() => go(key)}
+                className={'dt-navitem' + (location.pathname === '/' + key ? ' active' : '')}
+                onClick={() => navigate('/' + key)}
               >
                 <Icon name={icon} size={20} stroke={2} />
                 {label}

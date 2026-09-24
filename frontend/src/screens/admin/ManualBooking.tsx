@@ -5,9 +5,12 @@ import { Field, Input, Textarea, Select } from '@/components/forms/Field';
 import { useAppStore } from '@/store/app.store';
 import { useManualBooking } from '@/api/hours';
 import { useMembers } from '@/api/members';
+import { routes } from '@/routes';
+import { useSmartBack } from '@/hooks/useSmartBack';
 
 export function ManualBooking({ id }: { id?: string }) {
-  const { back, showToast } = useAppStore();
+  const { showToast } = useAppStore();
+  const back = useSmartBack(id ? routes.mitglied(id) : routes.uebersicht);
   const book = useManualBooking();
   const { data: members } = useMembers();
   const [mid, setMid] = useState(id ?? '');

@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { useNavigate, useSearchParams } from 'react-router-dom';
 import { Icon } from '@/components/ui/Icon';
 import { Badge } from '@/components/ui/Badge';
 import { Button } from '@/components/ui/Button';
@@ -10,7 +11,8 @@ import { calcOccupancy } from '@/hooks/useOccupancy';
 import { LoadingState, ErrorState } from '@/components/ui/States';
 import { EmptyState } from '@/screens/member/MemberDashboard';
 import { fmtDate } from '@/screens/_demo';
-import { CreateEventFlow } from '@/screens/admin/CreateEventFlow';
+import { routes } from '@/routes';
+import { useSmartBack } from '@/hooks/useSmartBack';
 import type { Event, EventStatus } from '@/types';
 
 const order: Record<string, number> = {
@@ -85,11 +87,14 @@ function RecurrenceDialog({ ev, onClose }: { ev: Event; onClose: () => void }) {
 }
 
 export function AdminEvents() {
-  const { push, showToast } = useAppStore();
-  const [createOpen, setCreateOpen] = useState(false);
-  const [recurrenceFor, setRecurrenceFor] = useState<Event | null>(null);
+  const { showToast } = useAppStore();
+  const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
+  const serieId = searchParams.get('serie');
   const eventsQ = useEvents();
   const copyEvent = useCopyEvent();
+  const recurrenceFor = serieId ? (eventsQ.data ?? []).find((e) => e.id === serieId) ?? null : null;
+  const closeRecurrence = useSmartBack(routes.events);
 
   const evs = [...(eventsQ.data ?? [])].sort(
     (a, b) => (order[a.status] - order[b.status]) || (a.days?.[0]?.date ?? '').localeCompare(b.days?.[0]?.date ?? ''),
@@ -104,7 +109,7 @@ export function AdminEvents() {
         </div>
         <button
           className="pressable"
-          onClick={() => setCreateOpen(true)}
+          onClick={() => navigate(routes.eventNeu)}
           style={{ width: 42, height: 42, borderRadius: '50%', border: '1px solid var(--line)', background: 'var(--surface)', display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', boxShadow: 'var(--shadow)' }}
         >
           <Icon name="plus" size={20} color="var(--ink)" />
@@ -122,7 +127,7 @@ export function AdminEvents() {
           const filled = shifts.reduce((a, s) => a + calcOccupancy(s).count, 0);
           const cap = shifts.reduce((a, s) => a + s.max, 0);
           return (
-            <div key={ev.id} className="sm-card pressable" style={{ padding: 15, marginBottom: 11 }} onClick={() => push('event', { id: ev.id })}>
+            <div key={ev.id} className="sm-card pressable" style={{ padding: 15, marginBottom: 11 }} onClick={() => navigate(routes.event(ev.id))}>
               <div style={{ display: 'flex', justifyContent: 'space-between', gap: 10, alignItems: 'flex-start' }}>
                 <div style={{ flex: 1, minWidth: 0 }}>
                   <div style={{ fontFamily: 'Bricolage Grotesque', fontWeight: 700, fontSize: 16.5, lineHeight: 1.15 }}>{ev.name}</div>
@@ -136,7 +141,7 @@ export function AdminEvents() {
                       className="pressable"
                       onClick={(e) => {
                         e.stopPropagation();
-                        setRecurrenceFor(ev);
+                        navigate(routes.eventSerie(ev.id));
                       }}
                       style={{ width: 32, height: 32, borderRadius: '50%', border: '1px solid var(--line)', background: 'var(--surface)', display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer' }}
                       title="Als Serie anlegen"
@@ -181,8 +186,7 @@ export function AdminEvents() {
         })}
       </div>
 
-      {createOpen && <CreateEventFlow onClose={() => setCreateOpen(false)} />}
-      {recurrenceFor && <RecurrenceDialog ev={recurrenceFor} onClose={() => setRecurrenceFor(null)} />}
+      {recurrenceFor && <RecurrenceDialog ev={recurrenceFor} onClose={closeRecurrence} />}
     </div>
   );
 }

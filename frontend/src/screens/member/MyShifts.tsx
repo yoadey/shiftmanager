@@ -1,10 +1,11 @@
 import { useState } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { Badge } from '@/components/ui/Badge';
-import { useAppStore } from '@/store/app.store';
 import { useAuthStore } from '@/store/auth.store';
 import { useEvents } from '@/api/events';
 import { LoadingState, ErrorState } from '@/components/ui/States';
 import { hrs } from '@/screens/_demo';
+import { routes } from '@/routes';
 import {
   collectMy,
   MyShiftCard,
@@ -35,7 +36,7 @@ function PastShiftCard({ r }: { r: ShiftRec }) {
 }
 
 export function MyShifts() {
-  const { push } = useAppStore();
+  const navigate = useNavigate();
   const { user } = useAuthStore();
   const uid = user?.id ?? '';
   const [tab, setTab] = useState<'up' | 'past'>('up');
@@ -81,7 +82,7 @@ export function MyShifts() {
         )}
         {!eventsQ.isLoading && !eventsQ.isError && list.map((r) =>
           tab === 'up'
-            ? <MyShiftCard key={r.sh.id} r={r} onClick={() => push('event', { id: r.ev.id })} />
+            ? <MyShiftCard key={r.sh.id} r={r} onClick={() => navigate(routes.event(r.ev.id))} />
             : <PastShiftCard key={r.sh.id} r={r} />,
         )}
       </div>

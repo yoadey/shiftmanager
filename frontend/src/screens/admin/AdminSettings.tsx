@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
+import { useNavigate, useLocation } from 'react-router-dom';
 import { Icon } from '@/components/ui/Icon';
 import { Badge } from '@/components/ui/Badge';
 import { Input } from '@/components/forms/Field';
@@ -6,6 +7,8 @@ import { Stepper } from '@/components/ui/Stepper';
 import { Toggle } from '@/components/ui/Toggle';
 import { useAppStore } from '@/store/app.store';
 import { useAuthStore } from '@/store/auth.store';
+import { routes } from '@/routes';
+import { useSmartBack } from '@/hooks/useSmartBack';
 import { useIsVorstand } from '@/hooks/useIsVorstand';
 import { useSettings, useUpdateSettings, useBranding, useUploadLogo, useUpdateBranding, useBrandingHistory, useRollbackBranding } from '@/api/settings';
 import { LoadingState, ErrorState } from '@/components/ui/States';
@@ -43,11 +46,14 @@ function SegRadio<T extends string>({ value, onChange, options }: { value: T; on
 }
 
 export function AdminSettings() {
-  const { push, setNameMode, showToast } = useAppStore();
+  const { setNameMode, showToast } = useAppStore();
   const { logout } = useAuthStore();
   const isAdmin = useIsVorstand();
   const settingsQ = useSettings();
   const { data: branding } = useBranding();
+  const navigate = useNavigate();
+  const location = useLocation();
+  const closeModal = useSmartBack(routes.settings);
 
   const updateSettings = useUpdateSettings();
   const uploadLogo = useUploadLogo();
@@ -57,8 +63,8 @@ export function AdminSettings() {
   const fileRef = useRef<HTMLInputElement>(null);
   const remote = settingsQ.data;
 
-  // Branding history modal
-  const [historyOpen, setHistoryOpen] = useState(false);
+  // Branding history modal — routed at /settings/branding-verlauf.
+  const historyOpen = location.pathname === routes.settingsBrandingVerlauf;
 
   // Branding contrast warnings (B-003) surfaced after the last colour save.
   const [warnings, setWarnings] = useState<string[]>([]);
@@ -268,7 +274,7 @@ export function AdminSettings() {
             </button>
             <button
               className="sm-btn soft sm"
-              onClick={() => setHistoryOpen(true)}
+              onClick={() => navigate(routes.settingsBrandingVerlauf)}
               style={{ flexShrink: 0 }}
             >
               Verlauf
@@ -278,7 +284,7 @@ export function AdminSettings() {
 
         {/* Branding History Modal */}
         {historyOpen && (
-          <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.45)', zIndex: 200, display: 'flex', alignItems: 'flex-end', justifyContent: 'center' }} onClick={() => setHistoryOpen(false)}>
+          <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.45)', zIndex: 200, display: 'flex', alignItems: 'flex-end', justifyContent: 'center' }} onClick={closeModal}>
             <div style={{ background: 'var(--surface)', borderRadius: '20px 20px 0 0', width: '100%', maxWidth: 520, padding: 24, paddingBottom: 32, maxHeight: '70vh', overflowY: 'auto' }} onClick={(e) => e.stopPropagation()}>
               <div style={{ fontFamily: 'Bricolage Grotesque', fontWeight: 700, fontSize: 19, marginBottom: 16 }}>Branding-Verlauf</div>
               {(!brandingHistory || brandingHistory.length === 0) ? (
@@ -300,7 +306,7 @@ export function AdminSettings() {
                         onClick={() => rollbackBranding.mutate(snap.id, {
                           onSuccess: () => {
                             showToast('Branding wiederhergestellt.');
-                            setHistoryOpen(false);
+                            closeModal();
                           },
                           onError: () => showToast('Wiederherstellung fehlgeschlagen.', 'crit'),
                         })}
@@ -311,7 +317,7 @@ export function AdminSettings() {
                   ))}
                 </div>
               )}
-              <button className="sm-btn ghost" onClick={() => setHistoryOpen(false)} style={{ width: '100%', marginTop: 16 }}>
+              <button className="sm-btn ghost" onClick={closeModal} style={{ width: '100%', marginTop: 16 }}>
                 Schließen
               </button>
             </div>
@@ -329,16 +335,16 @@ export function AdminSettings() {
           <>
             <Section title="E-Mail" />
             <div className="sm-card">
-              <LinkRow icon="mail" label="E-Mail-Vorlagen" sub="Betreff & Text bearbeiten" onClick={() => push('email-templates')} />
+              <LinkRow icon="mail" label="E-Mail-Vorlagen" sub="Betreff & Text bearbeiten" onClick={() => navigate(routes.settingsEmailVorlagen)} />
               <hr className="sm-divider" />
-              <LinkRow icon="mail" label="E-Mail-Protokoll" sub="Versand prüfen & erneut senden" onClick={() => push('email-log')} />
+              <LinkRow icon="mail" label="E-Mail-Protokoll" sub="Versand prüfen & erneut senden" onClick={() => navigate(routes.settingsEmailLog)} />
             </div>
           </>
         )}
 
         <Section title="System" />
         <div className="sm-card">
-          <LinkRow icon="shield" label="Audit-Log" sub="Protokoll aller Änderungen" onClick={() => push('audit')} />
+          <LinkRow icon="shield" label="Audit-Log" sub="Protokoll aller Änderungen" onClick={() => navigate(routes.settingsAudit)} />
           <hr className="sm-divider" />
           <LinkRow icon="download" label="Datenbank-Export" sub="CSV / Backup" />
         </div>

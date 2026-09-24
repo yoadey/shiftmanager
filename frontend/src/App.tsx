@@ -1,14 +1,18 @@
-import { useEffect, useState, useRef, lazy, Suspense } from 'react';
+import { useEffect, useState, useRef, lazy, Suspense, type ReactNode } from 'react';
+import { Routes, Route, Navigate, useLocation, useParams } from 'react-router-dom';
 import { DesktopShell } from '@/components/layout/DesktopShell';
 import { MobileShell } from '@/components/layout/MobileShell';
 import { Toast } from '@/components/ui/Toast';
 import { ErrorBoundary } from '@/components/ui/ErrorBoundary';
 import { TweaksPanel } from '@/components/tweaks/TweaksPanel';
 import { useAppStore } from '@/store/app.store';
+import { useAuthStore } from '@/store/auth.store';
 import { useBranding, useSettings } from '@/api/settings';
 import { useTokenRefresh } from '@/hooks/useTokenRefresh';
 import { useIsVorstand } from '@/hooks/useIsVorstand';
 import { useIsEventManager } from '@/hooks/useIsEventManager';
+import { useSmartBack } from '@/hooks/useSmartBack';
+import { routes, homePathForRole } from '@/routes';
 
 // Screens — lazy loaded
 const MemberDashboard = lazy(() => import('@/screens/member/MemberDashboard').then(m => ({ default: m.MemberDashboard })));
@@ -70,54 +74,87 @@ function LoadingFallback() {
   );
 }
 
-function ScreenRouter() {
-  const { tab, navStack } = useAppStore();
+// Guards a route on a role check, redirecting to that role's own home screen
+// instead of rendering a screen the current role no longer has access to
+// (e.g. a stale bookmark from before a role downgrade).
+function RequireRole({ allowed, children }: { allowed: boolean; children: ReactNode }) {
+  const role = useAuthStore((s) => s.user?.role);
+  if (!allowed) return <Navigate to={homePathForRole(role)} replace />;
+  return <>{children}</>;
+}
+
+// CreateEventFlow is a full-screen Sheet (variant="full"), so it needs no
+// backdrop screen behind it — routed on its own at /events/neu regardless of
+// which screen (AdminEvents or AdminDashboard) opened it.
+function CreateEventFlowRoute() {
+  const closeModal = useSmartBack(routes.events);
+  return <CreateEventFlow onClose={closeModal} />;
+}
+
+// /stunden-buchen has no member preselected; /mitglieder/:id/stunden-buchen
+// preselects the member whose detail page opened it.
+function ManualBookingRoute() {
+  const { id } = useParams();
+  return <ManualBooking id={id} />;
+}
+
+// Exported for testing the route/role matrix in isolation (App.routes.test.tsx).
+export function ScreenRoutes() {
   const isVorstand = useIsVorstand();
   const isEventManager = useIsEventManager();
+  const role = useAuthStore((s) => s.user?.role);
+  const homePath = homePathForRole(role);
 
-  if (navStack.length > 0) {
-    const top = navStack[navStack.length - 1];
-    if (top.name === 'event') return <EventDetail id={top.params.id ?? ''} />;
-    if (top.name === 'member') return <MemberDetail id={top.params.id ?? ''} />;
-    if (top.name === 'manual') return <ManualBooking id={top.params.id} />;
-    if (top.name === 'audit') return <AuditLog />;
-    if (top.name === 'email-templates') return <EmailTemplates />;
-    if (top.name === 'email-log') return <EmailLog />;
-  }
+  return (
+    <Routes>
+      <Route path="/" element={<Navigate to={homePath} replace />} />
 
-  if (tab === 'start') return <MemberDashboard />;
-  if (tab === 'entdecken') return <MemberDiscover />;
-  if (tab === 'schichten') return <MyShifts />;
-  if (tab === 'profil') return <MemberProfile />;
+      <Route path="start" element={<MemberDashboard />} />
+      <Route path="entdecken" element={<MemberDiscover />} />
+      <Route path="schichten" element={<MyShifts />} />
+      <Route path="profil" element={<MemberProfile />} />
 
-  // Guarded on the real role, not just on which tabs are shown: a stray
-  // `tab` value left over from a role downgrade must not render a screen
-  // the current role no longer has access to.
-  if (isEventManager) {
-    if (tab === 'uebersicht') return <AdminDashboard />;
-    if (tab === 'events') return <AdminEvents />;
-  }
-  if (isVorstand) {
-    if (tab === 'mitglieder') return <AdminMembers />;
-    if (tab === 'abrechnungen') return <AdminBilling />;
-    if (tab === 'settings') return <AdminSettings />;
-  }
+      <Route path="uebersicht" element={<RequireRole allowed={isEventManager}><AdminDashboard /></RequireRole>} />
+      <Route path="events" element={<RequireRole allowed={isEventManager}><AdminEvents /></RequireRole>} />
+      <Route path="events/neu" element={<RequireRole allowed={isEventManager}><CreateEventFlowRoute /></RequireRole>} />
+      {/* Unlike the management routes above, event detail is not role-gated:
+          members reach it from Start/Entdecken/Schichten to view and sign
+          up for shifts, exactly like the old ungated 'event' nav frame did.
+          Board-only actions within the page (edit/delete/complete, adding a
+          helper, …) are still gated on isBoard inside EventDetail itself. */}
+      <Route path="events/:id/*" element={<EventDetail />} />
 
-  // `tab` holds a key the current role no longer has (e.g. an admin-only tab
-  // left over from before a role downgrade) — fall back to that role's home
-  // screen instead of leaving the content area blank.
-  return isEventManager ? <AdminDashboard /> : <MemberDashboard />;
+      <Route path="stunden-buchen" element={<RequireRole allowed={isEventManager}><ManualBookingRoute /></RequireRole>} />
+
+      <Route path="mitglieder" element={<RequireRole allowed={isVorstand}><AdminMembers /></RequireRole>} />
+      <Route path="mitglieder/neu" element={<RequireRole allowed={isVorstand}><AdminMembers /></RequireRole>} />
+      <Route path="mitglieder/import" element={<RequireRole allowed={isVorstand}><AdminMembers /></RequireRole>} />
+      <Route path="mitglieder/:id/stunden-buchen" element={<RequireRole allowed={isVorstand}><ManualBookingRoute /></RequireRole>} />
+      <Route path="mitglieder/:id/*" element={<RequireRole allowed={isVorstand}><MemberDetail /></RequireRole>} />
+
+      <Route path="abrechnungen/*" element={<RequireRole allowed={isVorstand}><AdminBilling /></RequireRole>} />
+
+      <Route path="settings" element={<RequireRole allowed={isVorstand}><AdminSettings /></RequireRole>} />
+      <Route path="settings/branding-verlauf" element={<RequireRole allowed={isVorstand}><AdminSettings /></RequireRole>} />
+      <Route path="settings/email-vorlagen" element={<RequireRole allowed={isVorstand}><EmailTemplates /></RequireRole>} />
+      <Route path="settings/email-vorlagen/:name" element={<RequireRole allowed={isVorstand}><EmailTemplates /></RequireRole>} />
+      <Route path="settings/email-log" element={<RequireRole allowed={isVorstand}><EmailLog /></RequireRole>} />
+      <Route path="settings/audit" element={<RequireRole allowed={isVorstand}><AuditLog /></RequireRole>} />
+
+      <Route path="*" element={<Navigate to={homePath} replace />} />
+    </Routes>
+  );
 }
 
 export default function App() {
-  const { tab, navStack, tweaks, setTweak, setNameMode } = useAppStore();
+  const { tweaks, setTweak, setNameMode } = useAppStore();
+  const location = useLocation();
   const isVorstand = useIsVorstand();
   const isEventManager = useIsEventManager();
   // Reset the screen error boundary whenever the user navigates, so a crash on
   // one screen never sticks after switching tabs or drilling into a detail.
-  const navKey = `${tab}:${navStack.map((n) => `${n.name}/${n.params?.id ?? ''}`).join('>')}`;
+  const navKey = location.pathname;
   const [isDesktop, setIsDesktop] = useState(() => window.innerWidth >= 900);
-  const [createOpen, setCreateOpen] = useState(false);
 
   // A-004: keep the session alive in the background while the app is open.
   useTokenRefresh();
@@ -188,13 +225,8 @@ export default function App() {
   const screenContent = (
     <Suspense fallback={<LoadingFallback />}>
       <ErrorBoundary key={navKey} label="diesem Bereich">
-        <ScreenRouter />
+        <ScreenRoutes />
       </ErrorBoundary>
-      {createOpen && (
-        <ErrorBoundary label="der Termin-Erstellung">
-          <CreateEventFlow onClose={() => setCreateOpen(false)} />
-        </ErrorBoundary>
-      )}
       <ErrorBoundary>
         <Toast />
       </ErrorBoundary>
@@ -204,7 +236,7 @@ export default function App() {
   if (isDesktop) {
     return (
       <>
-        <DesktopShell tabs={tabs} onOpenCreate={() => setCreateOpen(true)}>
+        <DesktopShell tabs={tabs}>
           <div className="sm-main">
             {screenContent}
           </div>

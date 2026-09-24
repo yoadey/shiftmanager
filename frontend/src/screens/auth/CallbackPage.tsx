@@ -3,8 +3,8 @@ import { useNavigate } from 'react-router-dom';
 import { Icon } from '@/components/ui/Icon';
 import { Button } from '@/components/ui/Button';
 import { useAuthStore } from '@/store/auth.store';
-import { useAppStore } from '@/store/app.store';
 import { getMe } from '@/api/auth';
+import { homePathForRole } from '@/routes';
 import type { AuthUser } from '@/types';
 
 // Friendly German messages for the error codes the backend passes in the
@@ -30,7 +30,6 @@ type Status =
 export function CallbackPage() {
   const navigate = useNavigate();
   const login = useAuthStore((s) => s.login);
-  const go = useAppStore((s) => s.go);
   const [status, setStatus] = useState<Status>({ kind: 'loading' });
   const ran = useRef(false);
 
@@ -78,14 +77,13 @@ export function CallbackPage() {
         // Land veranstaltungsleiter and above on their admin overview (see
         // useIsEventManager), plain members on the member start screen —
         // matching the tabs App.tsx actually shows them.
-        go(me.role === 'mitglied' ? 'start' : 'uebersicht');
-        navigate('/', { replace: true });
+        navigate(homePathForRole(me.role), { replace: true });
       })
       .catch(() => {
         localStorage.removeItem('sm_token');
         setStatus({ kind: 'error', message: 'Dein Profil konnte nicht geladen werden. Bitte erneut anmelden.' });
       });
-  }, [login, navigate, go]);
+  }, [login, navigate]);
 
   return (
     <div style={{ minHeight: '100vh', background: 'var(--bg)', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 24 }}>

@@ -1,7 +1,10 @@
 import { useState } from 'react';
+import { useNavigate, useParams } from 'react-router-dom';
 import { Icon } from '@/components/ui/Icon';
 import { Badge } from '@/components/ui/Badge';
 import { useAppStore } from '@/store/app.store';
+import { routes } from '@/routes';
+import { useSmartBack } from '@/hooks/useSmartBack';
 import {
   useClubYears,
   useCreateClubYear,
@@ -357,6 +360,10 @@ function FeeTierModal({ yearLabel, initialTiers, isGlobalFallback, onClose, onSa
 export function AdminBilling() {
   const { showToast } = useAppStore();
   const { data: settings } = useSettings();
+  const navigate = useNavigate();
+  const params = useParams();
+  const rest = params['*'] ?? '';
+  const closeModal = useSmartBack(routes.abrechnungen);
 
   const yearsQ = useClubYears();
   const years = yearsQ.data ?? [];
@@ -366,8 +373,20 @@ export function AdminBilling() {
   const effectiveYearId = selectedYearId || activeYear?.id || '';
   const selectedYear = years.find((y) => y.id === effectiveYearId);
 
+  const [deleteTarget, setDeleteTarget] = useState<ClubYear | null>(null);
+  const createOpen = rest === 'neu';
+  const editMatch = /^([^/]+)\/bearbeiten$/.exec(rest);
+  const feeMatch = /^([^/]+)\/staffeln$/.exec(rest);
+  const editYear = editMatch ? years.find((y) => y.id === editMatch[1]) : undefined;
+  const feeYear = feeMatch ? years.find((y) => y.id === feeMatch[1]) : undefined;
+  // The fee-tier modal's own year (from the URL) takes precedence over
+  // whichever year happens to be selected in the list — otherwise a direct
+  // link or a reload on /abrechnungen/:yearId/staffeln would fetch (and, on
+  // save, overwrite) the *selected* year's tiers instead of the URL year's.
+  const feeTierYearId = feeYear?.id ?? effectiveYearId;
+
   const billingQ = useBilling(effectiveYearId || undefined);
-  const feeTiersQ = useClubYearFeeTiers(effectiveYearId || undefined);
+  const feeTiersQ = useClubYearFeeTiers(feeTierYearId || undefined);
   const exportCSV = useExportBillingCSV();
   const exportPDF = useExportBillingPDF();
   const createYear = useCreateClubYear();
@@ -379,9 +398,6 @@ export function AdminBilling() {
   const feeTiers = feeTiersQ.data ?? [];
   const isGlobalFallback = !feeTiersQ.isLoading && feeTiers.length === 0;
   const globalFeeSchedule: number[] = (settings?.feeSchedule ?? []).map(Number);
-
-  type Modal = 'create' | { type: 'edit'; year: ClubYear } | { type: 'delete'; year: ClubYear } | { type: 'fee'; year: ClubYear };
-  const [modal, setModal] = useState<Modal | null>(null);
 
   const onSaveCreate = (label: string, startDate: string, endDate: string, targetHours: number, tiers: { position: number; amountCents: number }[]) => {
     createYear.mutate(
@@ -400,8 +416,8 @@ export function AdminBilling() {
             });
           }
           showToast(`Abrechnungsjahr ${label} angelegt.`, 'ok');
-          setModal(null);
           setSelectedYearId(y.id);
+          closeModal();
         },
         onError: (e: unknown) => showToast(e instanceof Error ? e.message : 'Fehler beim Anlegen.', 'crit'),
       },
@@ -409,10 +425,10 @@ export function AdminBilling() {
   };
 
   const onSaveEdit = (label: string, startDate: string, endDate: string, targetHours: number, isActive: boolean) => {
-    if (modal === null || modal === 'create' || modal.type !== 'edit') return;
+    if (!editYear) return;
     updateYear.mutate(
       {
-        id: modal.year.id,
+        id: editYear.id,
         data: {
           label,
           startDate: new Date(startDate + 'T00:00:00Z').toISOString(),
@@ -422,19 +438,19 @@ export function AdminBilling() {
         },
       },
       {
-        onSuccess: () => { showToast('Abrechnungsjahr aktualisiert.', 'ok'); setModal(null); },
+        onSuccess: () => { showToast('Abrechnungsjahr aktualisiert.', 'ok'); closeModal(); },
         onError: (e: unknown) => showToast(e instanceof Error ? e.message : 'Fehler beim Speichern.', 'crit'),
       },
     );
   };
 
   const onConfirmDelete = () => {
-    if (modal === null || modal === 'create' || modal.type !== 'delete') return;
-    const yearId = modal.year.id;
+    if (!deleteTarget) return;
+    const yearId = deleteTarget.id;
     deleteYear.mutate(yearId, {
       onSuccess: () => {
         showToast('Abrechnungsjahr gelöscht.', 'ok');
-        setModal(null);
+        setDeleteTarget(null);
         if (selectedYearId === yearId) setSelectedYearId('');
       },
       onError: (e: unknown) => showToast(e instanceof Error ? e.message : 'Fehler beim Löschen.', 'crit'),
@@ -442,11 +458,11 @@ export function AdminBilling() {
   };
 
   const onSaveFeeTiers = (tiers: { position: number; amountCents: number }[]) => {
-    if (!effectiveYearId) return;
+    if (!feeTierYearId) return;
     updateFeeTiers.mutate(
-      { clubYearId: effectiveYearId, tiers },
+      { clubYearId: feeTierYearId, tiers },
       {
-        onSuccess: () => { showToast('Abgeltungsbeträge gespeichert.', 'ok'); setModal(null); },
+        onSuccess: () => { showToast('Abgeltungsbeträge gespeichert.', 'ok'); closeModal(); },
         onError: (e: unknown) => showToast(e instanceof Error ? e.message : 'Fehler beim Speichern.', 'crit'),
       },
     );
@@ -516,7 +532,7 @@ export function AdminBilling() {
                       </div>
                       <button
                         className="pressable"
-                        onClick={(e) => { e.stopPropagation(); setModal({ type: 'edit', year: y }); }}
+                        onClick={(e) => { e.stopPropagation(); navigate(routes.abrechnungBearbeiten(y.id)); }}
                         title="Bearbeiten"
                         style={{ width: 32, height: 32, borderRadius: 8, border: '1.5px solid var(--line)', background: 'var(--surface)', display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', flexShrink: 0 }}
                       >
@@ -524,7 +540,7 @@ export function AdminBilling() {
                       </button>
                       <button
                         className="pressable"
-                        onClick={(e) => { e.stopPropagation(); setModal({ type: 'delete', year: y }); }}
+                        onClick={(e) => { e.stopPropagation(); setDeleteTarget(y); }}
                         title="Löschen"
                         style={{ width: 32, height: 32, borderRadius: 8, border: '1.5px solid var(--line)', background: 'var(--surface)', display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', flexShrink: 0 }}
                       >
@@ -536,7 +552,7 @@ export function AdminBilling() {
               </div>
             )}
 
-            <button className="sm-btn soft" style={{ width: '100%', marginBottom: 22 }} onClick={() => setModal('create')}>
+            <button className="sm-btn soft" style={{ width: '100%', marginBottom: 22 }} onClick={() => navigate(routes.abrechnungenNeu)}>
               <Icon name="plus" size={17} stroke={2.2} /> Neues Abrechnungsjahr anlegen
             </button>
           </>
@@ -553,7 +569,7 @@ export function AdminBilling() {
               <div
                 className="sm-card pressable"
                 style={{ padding: '11px 14px', marginBottom: 14, display: 'flex', alignItems: 'center', gap: 12, cursor: 'pointer' }}
-                onClick={() => setModal({ type: 'fee', year: selectedYear })}
+                onClick={() => navigate(routes.abrechnungStaffeln(selectedYear.id))}
               >
                 <div style={{ flex: 1 }}>
                   <div style={{ fontWeight: 700, fontSize: 13.5 }}>Abgeltungsbeträge</div>
@@ -646,27 +662,27 @@ export function AdminBilling() {
       </div>
 
       {/* ── Modals ── */}
-      {modal === 'create' && (
+      {createOpen && (
         <CreateYearModal
           defaultTargetHours={settings?.yearGoal ?? 20}
           globalFeeSchedule={globalFeeSchedule}
-          onClose={() => setModal(null)}
+          onClose={closeModal}
           onSave={onSaveCreate}
           isSaving={createYear.isPending}
         />
       )}
-      {modal !== null && modal !== 'create' && modal.type === 'edit' && (
-        <EditYearModal year={modal.year} onClose={() => setModal(null)} onSave={(l, s, e, h, a) => onSaveEdit(l, s, e, h, a)} isSaving={updateYear.isPending} />
+      {editYear && (
+        <EditYearModal year={editYear} onClose={closeModal} onSave={(l, s, e, h, a) => onSaveEdit(l, s, e, h, a)} isSaving={updateYear.isPending} />
       )}
-      {modal !== null && modal !== 'create' && modal.type === 'delete' && (
-        <DeleteYearModal year={modal.year} onClose={() => setModal(null)} onConfirm={onConfirmDelete} isDeleting={deleteYear.isPending} />
+      {deleteTarget && (
+        <DeleteYearModal year={deleteTarget} onClose={() => setDeleteTarget(null)} onConfirm={onConfirmDelete} isDeleting={deleteYear.isPending} />
       )}
-      {modal !== null && modal !== 'create' && modal.type === 'fee' && (
+      {feeYear && (
         <FeeTierModal
-          yearLabel={selectedYear?.label ?? ''}
+          yearLabel={feeYear.label}
           initialTiers={feeTiers}
           isGlobalFallback={isGlobalFallback}
-          onClose={() => setModal(null)}
+          onClose={closeModal}
           onSave={onSaveFeeTiers}
           isSaving={updateFeeTiers.isPending}
         />

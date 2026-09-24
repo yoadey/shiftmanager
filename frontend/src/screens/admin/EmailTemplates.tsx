@@ -1,11 +1,13 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
+import { useNavigate, useParams } from 'react-router-dom';
 import { Icon } from '@/components/ui/Icon';
 import { Button } from '@/components/ui/Button';
 import { Input, Textarea, Field } from '@/components/forms/Field';
 import { useAppStore } from '@/store/app.store';
 import { useEmailTemplates, useUpdateEmailTemplate } from '@/api/settings';
 import { LoadingState, MessageState, ErrorState } from '@/components/ui/States';
-import type { EmailTemplate } from '@/types';
+import { routes } from '@/routes';
+import { useSmartBack } from '@/hooks/useSmartBack';
 
 // Human-readable labels for the seeded template names (domain/email.go).
 const TEMPLATE_LABELS: Record<string, string> = {
@@ -28,27 +30,32 @@ function templateLabel(name: string): string {
 }
 
 export function EmailTemplates() {
-  const { back, showToast } = useAppStore();
+  const { showToast } = useAppStore();
+  const navigate = useNavigate();
+  const { name } = useParams();
   const { data, isLoading, isError } = useEmailTemplates();
   const update = useUpdateEmailTemplate();
+  const backToList = useSmartBack(routes.settingsEmailVorlagen);
+  const backToSettings = useSmartBack(routes.settings);
 
   const templates = data ?? [];
-  const [selected, setSelected] = useState<EmailTemplate | null>(null);
+  const selected = name ? templates.find((t) => t.name === name) ?? null : null;
   const [subject, setSubject] = useState('');
   const [body, setBody] = useState('');
 
-  const open = (t: EmailTemplate) => {
-    setSelected(t);
-    setSubject(t.subject);
-    setBody(t.body);
-  };
+  useEffect(() => {
+    if (selected) {
+      setSubject(selected.subject);
+      setBody(selected.body);
+    }
+  }, [name]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const save = () => {
     if (!selected) return;
     update.mutate(
       { name: selected.name, subject, body },
       {
-        onSuccess: () => { showToast('Vorlage gespeichert.'); setSelected(null); },
+        onSuccess: () => { showToast('Vorlage gespeichert.'); backToList(); },
         onError: () => showToast('Vorlage konnte nicht gespeichert werden.', 'crit'),
       },
     );
@@ -58,7 +65,7 @@ export function EmailTemplates() {
     <div className="fade-in">
       <div className="sm-header detail" style={{ alignItems: 'center', gap: 12 }}>
         <button
-          onClick={() => (selected ? setSelected(null) : back())}
+          onClick={() => (selected ? backToList() : backToSettings())}
           className="pressable"
           style={{ width: 40, height: 40, borderRadius: '50%', border: '1px solid var(--line)', background: 'var(--surface)', display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer' }}
         >
@@ -80,7 +87,7 @@ export function EmailTemplates() {
                 {i > 0 && <hr className="sm-divider" />}
                 <div
                   className="pressable"
-                  onClick={() => open(t)}
+                  onClick={() => navigate(routes.settingsEmailVorlage(t.name))}
                   style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '13px 15px', cursor: 'pointer' }}
                 >
                   <div style={{ width: 36, height: 36, borderRadius: 10, background: 'var(--surface-2)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
