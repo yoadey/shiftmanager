@@ -3,7 +3,7 @@ Vereins-Helferschichten-
 Management
 ShiftManager
 Software-Anforderungsdokument
-Version 1.4   •   Mai 2026
+Version 1.5   •   September 2026
 
 Erstellt:
 Vereinsvorstand
@@ -14,23 +14,23 @@ Entwurf
 Zielgruppe:
 Vereinsmitglieder, Vorstände, Veranstalter
 
-  Implementierungsstatus (Stand: 2026-09-22)
+  Implementierungsstatus (Stand: 2026-09-24)
   Legende: ✅ Implementiert  ⚠️ Teilweise  ❌ Fehlt/Out-of-scope
 
   3.1.1  OIDC:             A-001 ✅  A-002 ✅  A-003 ✅  A-004 ✅  A-005 ❌
   3.1.2  Mitglieder:       ML-001–ML-006 ✅  ML-007 ✅  ML-008 ✅  ML-009 ✅
   3.1.3  Kiosk:            K-001–K-013 ✅
   3.1.4  Namensanzeige:    NM-001–NM-007 ✅
-  3.2.1  Stundenziel:      S-001–S-005 ✅  S-006 ❌
+  3.2.1  Stundenziel:      S-001–S-005 ✅  S-006 ✅
   3.2.2  Stundenerfassung: SA-001–SA-009 ✅
   3.2.3  Abgeltung:        G-001–G-009 ✅
-  3.3.1  Veranstaltungen:  V-001–V-006 ✅  V-007 ❌  V-008 ❌
-  3.3.2  Schichten:        SC-001–SC-009 ✅
+  3.3.1  Veranstaltungen:  V-001–V-006 ✅  V-007 ✅  V-008 ✅
+  3.3.2  Schichten:        SC-001–SC-009 ✅  SC-010 ✅
   3.3.3  Dashboard:        D-001–D-006 ✅
   3.3.4  Event-Kopieren:   VC-001–VC-004 ✅
   4      E-Mails:          Kiosk ✅  Anmeldung ✅  Abmeldung ✅  Reminder ✅  Absage ✅  Jahresabrechnung ✅  Fehlstunden-Warnung ✅  Stunden-bestätigt ✅  Unterstaffed ✅  Neue-VA ✅
          N-001 ✅  N-002 ✅  N-003 ✅  N-004 ✅
-  5      Technik:          T-001–T-012 ✅
+  5      Technik:          T-001–T-012 ✅  T-013 ❌
   5.4    Branding:         B-001–B-007 ✅  B-008 ✅
   6      Datenschutz:      DS-001–DS-008 ✅  DS-009 ✅
 
@@ -463,6 +463,10 @@ SC-009
 Schichten können Anforderungen/Qualifikationen haben (z. B. Führerschein, Staplerschein).
 KANN
 Schichten
+SC-010
+Veranstaltungsleiter und Vorstand können für jede Schicht beliebige Helfer eintragen — auch Personen ohne Benutzerkonto (nur Name, optional E-Mail) — sowie jede Eintragung (eigene oder fremde) wieder entfernen. Die Übersicht zeigt dabei stets den vollständigen Namen.
+MUSS
+Schichten
 
 3.3.3  Dashboard und Übersicht
 ID
@@ -641,6 +645,10 @@ T-012
 Alle kritischen Aktionen werden in einem Audit-Log protokolliert (Wer hat was wann geändert).
 MUSS
 Compliance
+T-013
+Der Speicherort für hochgeladene Medien (Logo, Event-Anhänge) muss statt eines lokalen Verzeichnisses/PVC auch auf einen S3-kompatiblen Object-Storage konfigurierbar sein. Ein Migrationsscript für bestehende lokale Dateien ist nicht erforderlich.
+KANN
+Infrastruktur
 
 5.3  Frontend (React)
 ID
@@ -844,3 +852,7 @@ Mitgliederverwaltung unabhängig vom OIDC-System. Stunden-Bestätigung individue
 Mai 2026
 Vereinsvorstand
 Mitgliederverwaltung vereinfacht (nur Vorname, Nachname, E-Mail, Eintritts-/Austrittsdatum; ML-001–ML-009). CSV-Import/-Export ergänzt. Kommentarfeld an Schicht-Eintragungen (SA-008, SA-009).
+1.5
+September 2026
+Vereinsvorstand
+Freie Helferverwaltung pro Schicht ergänzt (SC-010): Veranstaltungsleiter/Vorstand können beliebige Helfer, auch ohne Benutzerkonto, eintragen oder entfernen. S3-kompatibler Object-Storage als Alternative zum lokalen Medienverzeichnis vorgesehen (T-013). Vollständige Spezifikation nach openspec/ migriert (siehe docs/openspec/), offene Punkte als Changes unter docs/openspec/changes/ geführt.
