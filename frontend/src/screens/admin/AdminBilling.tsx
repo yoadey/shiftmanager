@@ -373,8 +373,20 @@ export function AdminBilling() {
   const effectiveYearId = selectedYearId || activeYear?.id || '';
   const selectedYear = years.find((y) => y.id === effectiveYearId);
 
+  const [deleteTarget, setDeleteTarget] = useState<ClubYear | null>(null);
+  const createOpen = rest === 'neu';
+  const editMatch = /^([^/]+)\/bearbeiten$/.exec(rest);
+  const feeMatch = /^([^/]+)\/staffeln$/.exec(rest);
+  const editYear = editMatch ? years.find((y) => y.id === editMatch[1]) : undefined;
+  const feeYear = feeMatch ? years.find((y) => y.id === feeMatch[1]) : undefined;
+  // The fee-tier modal's own year (from the URL) takes precedence over
+  // whichever year happens to be selected in the list — otherwise a direct
+  // link or a reload on /abrechnungen/:yearId/staffeln would fetch (and, on
+  // save, overwrite) the *selected* year's tiers instead of the URL year's.
+  const feeTierYearId = feeYear?.id ?? effectiveYearId;
+
   const billingQ = useBilling(effectiveYearId || undefined);
-  const feeTiersQ = useClubYearFeeTiers(effectiveYearId || undefined);
+  const feeTiersQ = useClubYearFeeTiers(feeTierYearId || undefined);
   const exportCSV = useExportBillingCSV();
   const exportPDF = useExportBillingPDF();
   const createYear = useCreateClubYear();
@@ -386,13 +398,6 @@ export function AdminBilling() {
   const feeTiers = feeTiersQ.data ?? [];
   const isGlobalFallback = !feeTiersQ.isLoading && feeTiers.length === 0;
   const globalFeeSchedule: number[] = (settings?.feeSchedule ?? []).map(Number);
-
-  const [deleteTarget, setDeleteTarget] = useState<ClubYear | null>(null);
-  const createOpen = rest === 'neu';
-  const editMatch = /^([^/]+)\/bearbeiten$/.exec(rest);
-  const feeMatch = /^([^/]+)\/staffeln$/.exec(rest);
-  const editYear = editMatch ? years.find((y) => y.id === editMatch[1]) : undefined;
-  const feeYear = feeMatch ? years.find((y) => y.id === feeMatch[1]) : undefined;
 
   const onSaveCreate = (label: string, startDate: string, endDate: string, targetHours: number, tiers: { position: number; amountCents: number }[]) => {
     createYear.mutate(
@@ -453,10 +458,9 @@ export function AdminBilling() {
   };
 
   const onSaveFeeTiers = (tiers: { position: number; amountCents: number }[]) => {
-    const yearId = feeYear?.id ?? effectiveYearId;
-    if (!yearId) return;
+    if (!feeTierYearId) return;
     updateFeeTiers.mutate(
-      { clubYearId: yearId, tiers },
+      { clubYearId: feeTierYearId, tiers },
       {
         onSuccess: () => { showToast('Abgeltungsbeträge gespeichert.', 'ok'); closeModal(); },
         onError: (e: unknown) => showToast(e instanceof Error ? e.message : 'Fehler beim Speichern.', 'crit'),

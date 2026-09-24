@@ -346,7 +346,9 @@ function ShiftRow({ sh, eventId, ev, onDeregister, memberMap }: { sh: Shift; eve
   const params = useParams();
   const rest = params['*'] ?? '';
   const registering = rest === `anmelden/${sh.id}`;
-  const addingMember = rest === `helfer/${sh.id}`;
+  // Board-only action — the route alone doesn't imply authorization, so a
+  // non-board member navigating straight to this URL must not see the sheet.
+  const addingMember = isBoard && rest === `helfer/${sh.id}`;
   const closeModal = useSmartBack(routes.event(eventId));
   const { data: settings } = useSettings();
   const reservationHours = settings?.reservationHours ?? 48;
@@ -991,7 +993,9 @@ export function EventDetail() {
   // event-management endpoints, which are veranstaltungsleiter+.
   const isBoard = useIsEventManager();
   const isOrganizer = isBoard;
-  const editOpen = (params['*'] ?? '') === 'bearbeiten';
+  // Board-only action — the route alone doesn't imply authorization, so a
+  // non-board member navigating straight to this URL must not see the sheet.
+  const editOpen = isBoard && (params['*'] ?? '') === 'bearbeiten';
   const [confirmOff, setConfirmOff] = useState<Shift | null>(null);
   const [deleteOpen, setDeleteOpen] = useState(false);
   const [completeOpen, setCompleteOpen] = useState(false);
