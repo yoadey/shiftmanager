@@ -1,6 +1,6 @@
 import { describe, it, expect, vi } from 'vitest';
-import { render, screen } from '@testing-library/react';
-import { MemoryRouter, Routes, Route } from 'react-router-dom';
+import { render, screen, fireEvent } from '@testing-library/react';
+import { MemoryRouter, Routes, Route, useLocation } from 'react-router-dom';
 import { useAuthStore } from '@/store/auth.store';
 import type { Event, AuthUser } from '@/types';
 
@@ -21,7 +21,10 @@ const fixtureEvent: Event = {
     {
       date: '2026-07-04',
       shifts: [
-        { id: 's1', name: 'Aufbau', start: '14:00', end: '18:00', min: 2, max: 5, signups: [] },
+        {
+          id: 's1', name: 'Aufbau', start: '14:00', end: '18:00', min: 2, max: 5,
+          signups: [{ id: 'reg1', memberId: 'm1', status: 'angemeldet' }],
+        },
       ],
     },
   ],
@@ -100,6 +103,71 @@ describe('EventDetail board-only sheets via direct URL', () => {
   it('opens the add-helper sheet for an event manager at the same URL', async () => {
     setRole('veranstaltungsleiter');
     renderAt('/events/e1/helfer/s1');
-    expect(await screen.findByText('Helfer hinzufügen')).toBeInTheDocument();
+    // Two matches: the registrant list's own trigger button (now expanded,
+    // since this deep link needs it open — see ShiftRow's `open` state) and
+    // the sheet's title.
+    expect((await screen.findAllByText('Helfer hinzufügen')).length).toBe(2);
+  });
+});
+
+// Regression coverage for a second bug: App.tsx keys the screen's
+// ErrorBoundary on the URL so it resets when navigating to a genuinely
+// different screen, but it used to key on the *full* pathname — including a
+// modal's own sub-route. That forced a full remount of EventDetail on every
+// click that opens a route-backed sheet, wiping local UI state the sheet
+// depends on. "Zeit bearbeiten" was the visible casualty: it lives inside
+// the registrant list's expand toggle (local state, not URL-derived), so
+// clicking it navigated to /events/:id/zeit/:signupId, which remounted the
+// list collapsed again — and the popup that navigation was supposed to open
+// never appeared. Reproduced here by wrapping EventDetail the same way
+// App.tsx does: a key derived from the first two path segments only.
+function AppShellLike() {
+  const location = useLocation();
+  const navKey = location.pathname.split('/').filter(Boolean).slice(0, 2).join('/') || 'home';
+  return (
+    <div key={navKey}>
+      <EventDetail />
+    </div>
+  );
+}
+
+describe('EventDetail click-through under the app-level remount key', () => {
+  it('opens the time-edit sheet after expanding the list and clicking "Zeit bearbeiten"', async () => {
+    setRole('veranstaltungsleiter');
+    render(
+      <MemoryRouter initialEntries={['/events/e1']}>
+        <Routes>
+          <Route path="/events/:id/*" element={<AppShellLike />} />
+        </Routes>
+      </MemoryRouter>,
+    );
+
+    fireEvent.click(await screen.findByText(/eingetragen/));
+    fireEvent.click(await screen.findByTitle('Zeit bearbeiten'));
+
+    // The time picker's "Übernehmen" save button only exists once it's open.
+    expect(await screen.findByText('Übernehmen')).toBeInTheDocument();
+  });
+
+  it('keeps the registrant list expanded after closing the time-edit sheet', async () => {
+    setRole('veranstaltungsleiter');
+    render(
+      <MemoryRouter initialEntries={['/events/e1']}>
+        <Routes>
+          <Route path="/events/:id/*" element={<AppShellLike />} />
+        </Routes>
+      </MemoryRouter>,
+    );
+
+    fireEvent.click(await screen.findByText(/eingetragen/));
+    fireEvent.click(await screen.findByTitle('Zeit bearbeiten'));
+    fireEvent.click(await screen.findByText('Abbrechen'));
+
+    // Closing the sheet navigates back to /events/e1. If that remounts the
+    // shift row (the old, full-pathname remount key), the registrant list's
+    // local expand state is lost and collapses — even though the user never
+    // asked for that.
+    expect(screen.queryByText('Übernehmen')).not.toBeInTheDocument();
+    expect(await screen.findByTitle('Zeit bearbeiten')).toBeInTheDocument();
   });
 });

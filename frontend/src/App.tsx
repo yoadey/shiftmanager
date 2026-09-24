@@ -151,9 +151,16 @@ export default function App() {
   const location = useLocation();
   const isVorstand = useIsVorstand();
   const isEventManager = useIsEventManager();
-  // Reset the screen error boundary whenever the user navigates, so a crash on
-  // one screen never sticks after switching tabs or drilling into a detail.
-  const navKey = location.pathname;
+  // Reset the screen error boundary when switching tabs or drilling into a
+  // different resource (a different event/member/year id), so a crash never
+  // sticks around after navigating elsewhere. Deliberately NOT the full
+  // pathname: a screen's own modal sub-routes (edit sheet, add-helper,
+  // edit-time, …) must not remount it — that would wipe local UI state the
+  // screen depends on (e.g. an expanded registrant list), and the popup
+  // opened by that same navigation would never appear. The boundary also has
+  // its own manual "Erneut versuchen" reset, so this key is a convenience,
+  // not the only way to recover.
+  const navKey = location.pathname.split('/').filter(Boolean).slice(0, 2).join('/') || 'home';
   const [isDesktop, setIsDesktop] = useState(() => window.innerWidth >= 900);
 
   // A-004: keep the session alive in the background while the app is open.

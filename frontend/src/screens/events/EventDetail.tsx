@@ -341,10 +341,16 @@ function ShiftRow({ sh, eventId, ev, onDeregister, memberMap }: { sh: Shift; eve
   const uid = user?.id ?? '';
   const o = calcOccupancy(sh);
   const mine = sh.signups.find((s) => s.memberId === uid && (s.status === 'angemeldet' || s.status === 'reserviert'));
-  const [open, setOpen] = useState(false);
   const navigate = useNavigate();
   const params = useParams();
   const rest = params['*'] ?? '';
+  // A direct link or reload straight into "Helfer hinzufügen" or "Zeit
+  // bearbeiten" needs the registrant list expanded already — those sheets
+  // are only reachable through it — so the initial value checks the URL
+  // instead of always starting collapsed.
+  const [open, setOpen] = useState(
+    () => rest === `helfer/${sh.id}` || sh.signups.some((s) => rest === `zeit/${s.id ?? ''}`),
+  );
   const registering = rest === `anmelden/${sh.id}`;
   // Board-only action — the route alone doesn't imply authorization, so a
   // non-board member navigating straight to this URL must not see the sheet.
