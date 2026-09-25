@@ -330,6 +330,92 @@ func isAllowedEventAttachment(ext, contentType string) bool {
 	}
 }
 
+// maxHeaderImageSize is the upload limit for an event's header image (V-010),
+// matching the general attachment limit (V-008).
+const maxHeaderImageSize = 5 << 20 // 5MB
+
+// UploadHeaderImage sets an event's header image (V-010), a single image
+// shown at the top of the event detail page, kept separate from the general
+// attachments list (V-008) — replacing it (if one is already set) just
+// overwrites the field, no cleanup of an old attachment entry needed.
+//
+// Image types only, no PDF: unlike UploadAttachment, this is specifically a
+// picture slot, not a generic document upload. SVG stays excluded for the
+// same stored-XSS reason as V-008.
+// POST /api/v1/events/{id}/header-image  (multipart/form-data, field "file")
+func (h *EventHandler) UploadHeaderImage(w http.ResponseWriter, r *http.Request) {
+	eventID, err := parseUUIDParam(r, "id")
+	if err != nil {
+		writeError(w, http.StatusBadRequest, "invalid event id")
+		return
+	}
+
+	fileURL, _, _, _, ok := receiveUpload(
+		w, r, h.storage, maxHeaderImageSize, "event-header-",
+		isAllowedHeaderImage, "only PNG, JPEG, GIF and WEBP images are allowed",
+	)
+	if !ok {
+		return
+	}
+
+	actorID := middleware.GetUserID(r.Context())
+	ev, err := h.uc.SetHeaderImage(r.Context(), actorID, eventID, fileURL)
+	if err != nil {
+		_ = h.storage.Delete(r.Context(), fileURL)
+		if err == domain.ErrEventNotFound {
+			writeError(w, http.StatusNotFound, "event not found")
+			return
+		}
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, ev)
+}
+
+// isAllowedHeaderImage validates the extension and (when present) content
+// type — the same allow-list as isAllowedEventAttachment minus PDF.
+func isAllowedHeaderImage(ext, contentType string) bool {
+	switch ext {
+	case ".png":
+		return contentType == "" || contentType == "image/png"
+	case ".jpg", ".jpeg":
+		return contentType == "" || contentType == "image/jpeg"
+	case ".gif":
+		return contentType == "" || contentType == "image/gif"
+	case ".webp":
+		return contentType == "" || contentType == "image/webp"
+	default:
+		return false
+	}
+}
+
+// DeleteHeaderImage clears an event's header image and, best-effort, removes
+// the underlying file (V-010).
+// DELETE /api/v1/events/{id}/header-image
+func (h *EventHandler) DeleteHeaderImage(w http.ResponseWriter, r *http.Request) {
+	eventID, err := parseUUIDParam(r, "id")
+	if err != nil {
+		writeError(w, http.StatusBadRequest, "invalid event id")
+		return
+	}
+
+	actorID := middleware.GetUserID(r.Context())
+	prevURL, err := h.uc.ClearHeaderImage(r.Context(), actorID, eventID)
+	if err != nil {
+		if err == domain.ErrEventNotFound {
+			writeError(w, http.StatusNotFound, "event not found")
+			return
+		}
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	if prevURL != "" {
+		_ = h.storage.Delete(r.Context(), prevURL)
+	}
+
+	w.WriteHeader(http.StatusNoContent)
+}
+
 // ListAttachments returns the files attached to an event (V-008).
 // GET /api/v1/events/{id}/attachments
 func (h *EventHandler) ListAttachments(w http.ResponseWriter, r *http.Request) {

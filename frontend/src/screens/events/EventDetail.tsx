@@ -1,4 +1,4 @@
-import { useRef, useState } from 'react';
+import { useRef, useState, lazy, Suspense } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { Icon } from '@/components/ui/Icon';
 import { Avatar } from '@/components/ui/Avatar';
@@ -6,7 +6,12 @@ import { OccBadge } from '@/components/ui/Badge';
 import { Button } from '@/components/ui/Button';
 import { OccFill } from '@/components/ui/OccFill';
 import { Sheet } from '@/components/ui/Sheet';
+import { MarkdownContent } from '@/components/ui/MarkdownContent';
 import { Field, Input, Textarea, Select } from '@/components/forms/Field';
+
+// F-009: MDXEditor (Lexical-based) is a comparatively heavy dependency —
+// its own chunk, only fetched once the edit page actually renders.
+const MarkdownEditor = lazy(() => import('@/components/forms/MarkdownEditor'));
 import { useAppStore } from '@/store/app.store';
 import { useAuthStore } from '@/store/auth.store';
 import { routes, homePathForRole } from '@/routes';
@@ -31,6 +36,8 @@ import {
   useEventAttachments,
   useUploadEventAttachment,
   useDeleteEventAttachment,
+  useUploadEventHeaderImage,
+  useDeleteEventHeaderImage,
 } from '@/api/events';
 import { useMembers } from '@/api/members';
 import { useSettings } from '@/api/settings';
@@ -625,7 +632,7 @@ function ShiftForm({
   );
 }
 
-function EditEventSheet({ ev, onClose }: { ev: Event; onClose: () => void }) {
+function EditEventPage({ ev, onClose }: { ev: Event; onClose: () => void }) {
   const { showToast } = useAppStore();
   const updateEvent = useUpdateEvent();
   const createShift = useCreateShift();
@@ -660,6 +667,18 @@ function EditEventSheet({ ev, onClose }: { ev: Event; onClose: () => void }) {
   const [shifts, setShifts] = useState<ShiftDraft[]>(initShifts);
   const [editingKey, setEditingKey] = useState<string | null>(null);
   const [addingNew, setAddingNew] = useState(false);
+
+  const uploadHeaderImage = useUploadEventHeaderImage(ev.id);
+  const deleteHeaderImage = useDeleteEventHeaderImage(ev.id);
+  const headerFileInputRef = useRef<HTMLInputElement>(null);
+  const onHeaderFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    e.target.value = '';
+    if (!file) return;
+    uploadHeaderImage.mutate(file, {
+      onError: () => showToast('Headerbild konnte nicht hochgeladen werden.', 'crit'),
+    });
+  };
 
   const isPending = updateEvent.isPending || createShift.isPending || updateShift.isPending || deleteShift.isPending;
 
@@ -696,14 +715,70 @@ function EditEventSheet({ ev, onClose }: { ev: Event; onClose: () => void }) {
   const visibleShifts = shifts.filter((s) => !s.deleted);
 
   return (
-    <Sheet variant="full" onClose={onClose} title="Veranstaltung bearbeiten" foot={<Button icon="check" onClick={submit} disabled={!name.trim() || isPending}>Speichern</Button>}>
+    <div className="fade-in">
+      <div className="sm-header detail" style={{ alignItems: 'center', gap: 12 }}>
+        <button
+          onClick={onClose}
+          className="pressable"
+          style={{ width: 40, height: 40, borderRadius: '50%', border: '1px solid var(--line)', background: 'var(--surface)', display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer' }}
+        >
+          <Icon name="chevL" size={20} stroke={2.4} />
+        </button>
+        <div className="sm-title" style={{ fontSize: 22 }}>Veranstaltung bearbeiten</div>
+      </div>
+
+      <div className="sm-pad" style={{ paddingTop: 0 }}>
+      {/* Headerbild (V-010) */}
+      <div style={{ fontWeight: 800, fontSize: 13, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '.06em', marginBottom: 10 }}>Headerbild</div>
+      <div style={{ marginBottom: 20 }}>
+        {ev.headerImageUrl ? (
+          <div style={{ position: 'relative' }}>
+            <img
+              src={ev.headerImageUrl}
+              alt=""
+              style={{ width: '100%', height: 140, objectFit: 'cover', borderRadius: 14, display: 'block' }}
+            />
+            <button
+              className="pressable"
+              onClick={() => deleteHeaderImage.mutate(undefined, { onError: () => showToast('Headerbild konnte nicht entfernt werden.', 'crit') })}
+              disabled={deleteHeaderImage.isPending}
+              title="Headerbild entfernen"
+              style={{ position: 'absolute', top: 10, right: 10, width: 32, height: 32, borderRadius: '50%', border: 'none', background: 'rgba(20,18,13,0.65)', display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer' }}
+            >
+              <Icon name="trash" size={15} color="#fff" />
+            </button>
+          </div>
+        ) : (
+          <button
+            className="sm-card pad pressable"
+            onClick={() => headerFileInputRef.current?.click()}
+            disabled={uploadHeaderImage.isPending}
+            style={{ width: '100%', border: '1.5px dashed var(--line-2)', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 8, padding: '22px 14px', cursor: 'pointer', background: 'var(--surface)', fontFamily: 'inherit' }}
+          >
+            <Icon name="paperclip" size={20} color="var(--muted)" />
+            <span style={{ fontWeight: 700, fontSize: 13.5, color: 'var(--ink-2)' }}>
+              {uploadHeaderImage.isPending ? 'Wird hochgeladen…' : 'Headerbild hochladen'}
+            </span>
+          </button>
+        )}
+        <input
+          ref={headerFileInputRef}
+          type="file"
+          accept="image/png,image/jpeg,image/gif,image/webp"
+          style={{ display: 'none' }}
+          onChange={onHeaderFileChange}
+        />
+      </div>
+
       {/* Eckdaten */}
       <div style={{ fontWeight: 800, fontSize: 13, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '.06em', marginBottom: 10 }}>Eckdaten</div>
       <Field label="Name">
         <Input value={name} onChange={(e) => setName(e.target.value)} placeholder="z. B. Sommerturnier 2026" />
       </Field>
       <Field label="Beschreibung">
-        <Textarea value={description} onChange={(e) => setDescription(e.target.value)} placeholder="Beschreibung für Helfer…" />
+        <Suspense fallback={<Textarea value={description} onChange={(e) => setDescription(e.target.value)} placeholder="Beschreibung für Helfer…" />}>
+          <MarkdownEditor markdown={description} onChange={setDescription} placeholder="Beschreibung für Helfer…" />
+        </Suspense>
       </Field>
       <Field label="Ort">
         <Input value={location} onChange={(e) => setLocation(e.target.value)} placeholder="z. B. Sporthalle Aachen-Brand" />
@@ -793,7 +868,12 @@ function EditEventSheet({ ev, onClose }: { ev: Event; onClose: () => void }) {
       ) : (
         <Button variant="soft" icon="plus" onClick={() => { setEditingKey(null); setAddingNew(true); }}>Schicht hinzufügen</Button>
       )}
-    </Sheet>
+
+      <div style={{ marginTop: 18 }}>
+        <Button icon="check" onClick={submit} disabled={!name.trim() || isPending}>Speichern</Button>
+      </div>
+      </div>
+    </div>
   );
 }
 
@@ -1026,6 +1106,10 @@ export function EventDetail() {
   const ev = eventQ.data;
   if (!ev) return <ErrorState text="Diese Veranstaltung wurde nicht gefunden." />;
 
+  // UX-001: editing has more than 5 fields (plus the shift list), so it's a
+  // real page — replacing this screen's content, not an overlay on top of it.
+  if (editOpen) return <EditEventPage ev={ev} onClose={closeModal} />;
+
   // Prefer the dedicated timeline (multi-day grouped, occupancy ready); fall back to the event days.
   const days = timelineQ.data?.days ?? ev.days ?? [];
   const allShifts = days.flatMap((d) => d.shifts);
@@ -1033,8 +1117,14 @@ export function EventDetail() {
 
   return (
     <div className="fade-in">
-      <div className="ev-hero" style={{ background: catGradient(ev.category), paddingTop: 54, paddingBottom: 18, position: 'relative' }}>
-        <div style={{ padding: '0 18px' }}>
+      <div className="ev-hero" style={{ background: ev.headerImageUrl ? undefined : catGradient(ev.category), paddingTop: 54, paddingBottom: 18, position: 'relative', overflow: 'hidden' }}>
+        {ev.headerImageUrl && (
+          <>
+            <img src={ev.headerImageUrl} alt="" style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', objectFit: 'cover' }} />
+            <div style={{ position: 'absolute', inset: 0, background: 'linear-gradient(180deg, rgba(0,0,0,0.15), rgba(0,0,0,0.55))' }} />
+          </>
+        )}
+        <div style={{ padding: '0 18px', position: 'relative' }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 18 }}>
             <button
               onClick={goBack}
@@ -1100,7 +1190,11 @@ export function EventDetail() {
           </span>
           <span style={{ display: 'flex', alignItems: 'center', gap: 9 }}><Icon name="pin" size={17} color="var(--muted)" />{ev.location}</span>
         </div>
-        <p style={{ color: 'var(--ink-2)', fontSize: 14, lineHeight: 1.5, margin: '14px 0 0' }}>{ev.description}</p>
+        {ev.description && (
+          <div style={{ marginTop: 14 }}>
+            <MarkdownContent text={ev.description} />
+          </div>
+        )}
 
         <AttachmentsSection eventId={id} isBoard={isBoard} />
 
@@ -1133,7 +1227,6 @@ export function EventDetail() {
       </div>
 
       {confirmOff && <DeregisterDialog sh={confirmOff} onClose={() => setConfirmOff(null)} deregisterDeadlineH={deregisterDeadlineH} />}
-      {editOpen && <EditEventSheet ev={ev} onClose={closeModal} />}
       {deleteOpen && <DeleteEventDialog ev={ev} onClose={() => setDeleteOpen(false)} onDeleted={() => navigate(routes.events, { replace: true })} />}
       {completeOpen && <CompleteEventDialog ev={ev} onClose={() => setCompleteOpen(false)} />}
     </div>

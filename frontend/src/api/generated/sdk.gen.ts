@@ -40,6 +40,9 @@ import type {
   DeleteEventAttachmentResponses,
   DeleteEventData,
   DeleteEventErrors,
+  DeleteEventHeaderImageData,
+  DeleteEventHeaderImageErrors,
+  DeleteEventHeaderImageResponses,
   DeleteEventResponses,
   DeleteHourEntryData,
   DeleteHourEntryErrors,
@@ -195,6 +198,9 @@ import type {
   UploadEventAttachmentData,
   UploadEventAttachmentErrors,
   UploadEventAttachmentResponses,
+  UploadEventHeaderImageData,
+  UploadEventHeaderImageErrors,
+  UploadEventHeaderImageResponses,
   UploadLogoData,
   UploadLogoErrors,
   UploadLogoResponses,
@@ -621,6 +627,45 @@ export const uploadEventAttachment = <ThrowOnError extends boolean = false>(
     ...formDataBodySerializer,
     security: [{ scheme: "bearer", type: "http" }],
     url: "/events/{id}/attachments",
+    ...options,
+    headers: {
+      "Content-Type": null,
+      ...options.headers,
+    },
+  });
+
+/**
+ * Remove an event's header image (Veranstaltungsleiter+, V-010)
+ */
+export const deleteEventHeaderImage = <ThrowOnError extends boolean = false>(
+  options: Options<DeleteEventHeaderImageData, ThrowOnError>,
+) =>
+  (options.client ?? client).delete<
+    DeleteEventHeaderImageResponses,
+    DeleteEventHeaderImageErrors,
+    ThrowOnError
+  >({
+    security: [{ scheme: "bearer", type: "http" }],
+    url: "/events/{id}/header-image",
+    ...options,
+  });
+
+/**
+ * Set an event's header image (Veranstaltungsleiter+, V-010)
+ *
+ * A single image shown at the top of the event detail page, separate from the general attachments list (V-008). Replaces any previously set header image. Image types only (no PDF), same allow-list as attachments minus PDF.
+ */
+export const uploadEventHeaderImage = <ThrowOnError extends boolean = false>(
+  options: Options<UploadEventHeaderImageData, ThrowOnError>,
+) =>
+  (options.client ?? client).post<
+    UploadEventHeaderImageResponses,
+    UploadEventHeaderImageErrors,
+    ThrowOnError
+  >({
+    ...formDataBodySerializer,
+    security: [{ scheme: "bearer", type: "http" }],
+    url: "/events/{id}/header-image",
     ...options,
     headers: {
       "Content-Type": null,

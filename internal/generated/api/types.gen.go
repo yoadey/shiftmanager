@@ -293,9 +293,12 @@ type ErrorResponse struct {
 
 // Event defines model for Event.
 type Event struct {
-	Category            *string              `json:"category,omitempty"`
-	CreatedAt           *time.Time           `json:"createdAt,omitempty"`
+	Category  *string    `json:"category,omitempty"`
+	CreatedAt *time.Time `json:"createdAt,omitempty"`
+
+	// Description Markdown-formatted (V-009).
 	Description         *string              `json:"description,omitempty"`
+	HeaderImageUrl      *string              `json:"headerImageUrl,omitempty"`
 	Id                  UUID                 `json:"id"`
 	Location            *string              `json:"location,omitempty"`
 	Name                string               `json:"name"`
@@ -338,7 +341,9 @@ type EventVisibility string
 
 // EventWrite defines model for EventWrite.
 type EventWrite struct {
-	Category    *string         `json:"category,omitempty"`
+	Category *string `json:"category,omitempty"`
+
+	// Description Markdown-formatted (V-009).
 	Description *string         `json:"description,omitempty"`
 	Location    *string         `json:"location,omitempty"`
 	Name        string          `json:"name"`
@@ -607,6 +612,11 @@ type UploadEventAttachmentMultipartBody struct {
 	File openapi_types.File `json:"file"`
 }
 
+// UploadEventHeaderImageMultipartBody defines parameters for UploadEventHeaderImage.
+type UploadEventHeaderImageMultipartBody struct {
+	File openapi_types.File `json:"file"`
+}
+
 // GetMemberAccountParams defines parameters for GetMemberAccount.
 type GetMemberAccountParams struct {
 	MemberId   UUID `form:"memberId" json:"memberId"`
@@ -697,6 +707,9 @@ type UpdateEventJSONRequestBody = EventWrite
 
 // UploadEventAttachmentMultipartRequestBody defines body for UploadEventAttachment for multipart/form-data ContentType.
 type UploadEventAttachmentMultipartRequestBody UploadEventAttachmentMultipartBody
+
+// UploadEventHeaderImageMultipartRequestBody defines body for UploadEventHeaderImage for multipart/form-data ContentType.
+type UploadEventHeaderImageMultipartRequestBody UploadEventHeaderImageMultipartBody
 
 // GenerateEventRecurrenceJSONRequestBody defines body for GenerateEventRecurrence for application/json ContentType.
 type GenerateEventRecurrenceJSONRequestBody = EventRecurrenceRequest
@@ -808,6 +821,12 @@ type ServerInterface interface {
 	// Delete an event attachment (Veranstaltungsleiter+, V-008)
 	// (DELETE /events/{id}/attachments/{attachmentId})
 	DeleteEventAttachment(w http.ResponseWriter, r *http.Request, id UUID, attachmentId UUID)
+	// Remove an event's header image (Veranstaltungsleiter+, V-010)
+	// (DELETE /events/{id}/header-image)
+	DeleteEventHeaderImage(w http.ResponseWriter, r *http.Request, id UUID)
+	// Set an event's header image (Veranstaltungsleiter+, V-010)
+	// (POST /events/{id}/header-image)
+	UploadEventHeaderImage(w http.ResponseWriter, r *http.Request, id UUID)
 	// Publish a draft event (Veranstaltungsleiter+)
 	// (POST /events/{id}/publish)
 	PublishEvent(w http.ResponseWriter, r *http.Request, id UUID)
@@ -1060,6 +1079,18 @@ func (_ Unimplemented) UploadEventAttachment(w http.ResponseWriter, r *http.Requ
 // Delete an event attachment (Veranstaltungsleiter+, V-008)
 // (DELETE /events/{id}/attachments/{attachmentId})
 func (_ Unimplemented) DeleteEventAttachment(w http.ResponseWriter, r *http.Request, id UUID, attachmentId UUID) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// Remove an event's header image (Veranstaltungsleiter+, V-010)
+// (DELETE /events/{id}/header-image)
+func (_ Unimplemented) DeleteEventHeaderImage(w http.ResponseWriter, r *http.Request, id UUID) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// Set an event's header image (Veranstaltungsleiter+, V-010)
+// (POST /events/{id}/header-image)
+func (_ Unimplemented) UploadEventHeaderImage(w http.ResponseWriter, r *http.Request, id UUID) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
@@ -1951,6 +1982,70 @@ func (siw *ServerInterfaceWrapper) DeleteEventAttachment(w http.ResponseWriter, 
 
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		siw.Handler.DeleteEventAttachment(w, r, id, attachmentId)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// DeleteEventHeaderImage operation middleware
+func (siw *ServerInterfaceWrapper) DeleteEventHeaderImage(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "id" -------------
+	var id UUID
+
+	err = runtime.BindStyledParameterWithOptions("simple", "id", chi.URLParam(r, "id"), &id, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "uuid"})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "id", Err: err})
+		return
+	}
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, BearerAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.DeleteEventHeaderImage(w, r, id)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// UploadEventHeaderImage operation middleware
+func (siw *ServerInterfaceWrapper) UploadEventHeaderImage(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "id" -------------
+	var id UUID
+
+	err = runtime.BindStyledParameterWithOptions("simple", "id", chi.URLParam(r, "id"), &id, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "uuid"})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "id", Err: err})
+		return
+	}
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, BearerAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.UploadEventHeaderImage(w, r, id)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -3545,6 +3640,12 @@ func HandlerWithOptions(si ServerInterface, options ChiServerOptions) http.Handl
 	})
 	r.Group(func(r chi.Router) {
 		r.Delete(options.BaseURL+"/events/{id}/attachments/{attachmentId}", wrapper.DeleteEventAttachment)
+	})
+	r.Group(func(r chi.Router) {
+		r.Delete(options.BaseURL+"/events/{id}/header-image", wrapper.DeleteEventHeaderImage)
+	})
+	r.Group(func(r chi.Router) {
+		r.Post(options.BaseURL+"/events/{id}/header-image", wrapper.UploadEventHeaderImage)
 	})
 	r.Group(func(r chi.Router) {
 		r.Post(options.BaseURL+"/events/{id}/publish", wrapper.PublishEvent)
