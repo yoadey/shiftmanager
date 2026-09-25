@@ -37,5 +37,10 @@ obigen Dateien gemischt, sondern als eigener Change-Vorschlag unter
 `changes/` geführt, bis sie umgesetzt ist. Danach wird der entsprechende
 Change gelöscht und der Inhalt in die passende Spec-Datei übernommen.
 
-Aktuell offen: keine. `changes/` existiert entsprechend gerade nicht — die
-erste neue Change-Datei legt das Verzeichnis wieder an.
+Aktuell offen:
+
+| Change | Betrifft |
+|---|---|
+| [`changes/2026-09-25-veranstaltung-markdown-headerbild.md`](changes/2026-09-25-veranstaltung-markdown-headerbild.md) | Veranstaltungsbeschreibung als Markdown/WYSIWYG (`V-009`), Headerbild (`V-010`) |
+| [`changes/2026-09-25-konfiguration-eigene-seite-statt-popup.md`](changes/2026-09-25-konfiguration-eigene-seite-statt-popup.md) | Neuer Grundsatz `UX-001`: Formulare mit >5 Feldern als eigene Seite statt Popup; Umbau Event-Erstellen/-Bearbeiten |
+| [`changes/2026-09-25-profilkarte-navigation-glocke-entfernen.md`](changes/2026-09-25-profilkarte-navigation-glocke-entfernen.md) | Profil über Profilkarte unten links erreichbar (`NAV-001`), Glocken-Icon entfernen (`NAV-002`) |
