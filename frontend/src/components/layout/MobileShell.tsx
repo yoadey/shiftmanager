@@ -28,10 +28,16 @@ export function MobileShell({ tabs, children }: MobileShellProps) {
   // The bottom nav only makes sense at a tab's own root — on a detail screen
   // (e.g. an event or member) it would just be in the way.
   const isTopLevel = tabs.some((t) => isActive(t.key));
+  // Remount only when the tab or the drilled-into resource (event/member/
+  // year id) changes — not on every modal sub-route. The full pathname would
+  // also remount on e.g. /events/:id/zeit/:signupId, wiping local UI state
+  // the screen depends on (like an expanded registrant list) right as that
+  // modal is opened, so the popup it navigated to would never appear.
+  const contentKey = location.pathname.split('/').filter(Boolean).slice(0, 2).join('/') || 'home';
 
   return (
     <div className="sm-app">
-      <div className="sm-main" key={location.pathname}>
+      <div className="sm-main" key={contentKey}>
         {children}
       </div>
 
