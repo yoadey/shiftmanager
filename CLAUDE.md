@@ -143,6 +143,16 @@ All config is via environment variables (see README for the full table). Key var
 
 `TEST_MODE=true` (or `testmode.New()` in Go) disables rate limiting and exposes `/api/v1/dev/token` for issuing test JWTs with any role — never enabled in production.
 
+## Specification (OpenSpec)
+
+ShiftManager's functional specification lives under `openspec/`, managed with the [OpenSpec](https://github.com/Fission-AI/OpenSpec) CLI (`@fission-ai/openspec`) — not as free-form Markdown.
+
+- `openspec/specs/<capability>/spec.md` — the current, already-implemented behavior, one file per capability (`auth`, `veranstaltungen`, `schichten`, `kiosk`, `branding`, `bedienkonzept`, …), each requirement tagged with its legacy ID from `project/requirements_extracted.txt` (e.g. `V-003`, `SC-010`) where one exists.
+- `openspec/changes/<change-name>/` — proposed, not-yet-implemented work (`proposal.md`, `design.md`, `tasks.md`, `specs/<capability>/spec.md` deltas using `## ADDED/MODIFIED/REMOVED Requirements`). Archived automatically into `openspec/specs/` once implemented (`openspec archive <name>`).
+- `openspec/config.yaml` — project context handed to the AI when drafting artifacts (tech stack, German-language convention, ID-prefix rules).
+
+Useful commands: `openspec list --specs`, `openspec show <capability> --type spec`, `openspec validate --all`. In Claude Code, use the `/opsx:propose`, `/opsx:apply`, `/opsx:sync`, and `/opsx:archive` skills (installed under `.claude/skills/openspec-*` and `.claude/commands/opsx/`) to work through the propose → specs → design → tasks → apply → archive workflow instead of hand-writing change proposals.
+
 ## Devcontainer
 
 A `.devcontainer/` setup provides PostgreSQL and a Dex OIDC provider. E2E tests (Playwright) require the backend running (`make dev-backend`) and PostgreSQL available via the devcontainer compose service.

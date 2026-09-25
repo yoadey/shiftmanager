@@ -1,0 +1,54 @@
+schema: spec-driven
+
+context: |
+  Language: German (Deutsch). Write proposal/design/spec prose in German.
+  Keep OpenSpec structural headings (Why, What Changes, Capabilities, Impact,
+  Requirements, Scenario, WHEN/THEN, ADDED/MODIFIED/REMOVED/RENAMED
+  Requirements) and the RFC 2119 keywords SHALL/MUST/SHOULD literally in
+  English inside German sentences, e.g. "Das System MUST ...". This matches
+  the project's existing requirements convention (MUSS/SOLL/KANN in
+  project/requirements_extracted.txt) while keeping openspec validate's
+  SHALL/MUST check passing without --strict warnings.
+
+  ShiftManager is a volunteer-shift management platform for a German sports
+  club (TSC Schwarz-Gelb Aachen). Modular monolith: a Go backend (hexagonal/
+  clean architecture: domain -> port -> usecase -> adapter) embeds the
+  compiled React+TypeScript SPA at build time via embed.FS; no separate
+  static server. REST API under /api/v1, OpenAPI 3.0 spec (api/openapi.yaml)
+  is the single source of truth for generated Go types and the frontend SDK
+  (`make generate`). GORM ORM (PostgreSQL in production, SQLite in tests).
+  Auth via OIDC -> internal JWT. Five roles with increasing privilege:
+  kiosk < mitglied < veranstaltungsleiter < vorstand < admin, enforced
+  server-side via middleware.RequireRole. Frontend uses Zustand (UI state)
+  + TanStack Query (server state), with separate MobileShell/DesktopShell
+  layouts (breakpoint >= 900px). Full conventions: see CLAUDE.md at the repo
+  root.
+
+  Requirement IDs: existing capabilities carry short prefixed IDs inherited
+  from project/requirements_extracted.txt (e.g. V-001, SC-003, B-004,
+  DS-009) shown at the end of each Requirement's name in parentheses, e.g.
+  "### Requirement: Mehrtägige Veranstaltungen (V-003)". Reuse an existing
+  prefix's next free number for a requirement squarely in that area; only
+  introduce a new prefix for a genuinely new area no existing prefix covers.
+
+# Per-artifact rules (optional)
+# Add custom rules for specific artifacts.
+# Example:
+#   rules:
+#     proposal:
+#       - Keep proposals under 500 words
+#       - Always include a "Non-goals" section
+#     tasks:
+#       - Break tasks into chunks of max 2 hours
+
+# Per-operation guidance (optional)
+# Add advisory guidance for how apply and archive work should be conducted.
+# This is separate from artifact rules above.
+# Example:
+#   operations:
+#     apply:
+#       guidance:
+#         - Keep test summaries concise
+#     archive:
+#       guidance:
+#         - Summarize the archive outcome before finishing
