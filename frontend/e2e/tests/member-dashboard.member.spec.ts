@@ -1,5 +1,5 @@
 import { test, expect } from '@playwright/test';
-import { gotoApp, clickTab, expectNoError } from '../helpers/app';
+import { gotoApp, clickTab, openProfileCard, expectNoError } from '../helpers/app';
 
 // Runs with member storageState (chromium-member project).
 // Verifies that a regular member sees the member UI, not the admin UI.
@@ -20,12 +20,19 @@ test.describe('Member Dashboard — initial view', () => {
     await expect(nav.getByRole('button', { name: 'Start',      exact: true })).toBeVisible();
     await expect(nav.getByRole('button', { name: 'Entdecken',  exact: true })).toBeVisible();
     await expect(nav.getByRole('button', { name: 'Schichten',  exact: true })).toBeVisible();
-    await expect(nav.getByRole('button', { name: 'Profil',     exact: true })).toBeVisible();
 
-    // Admin tabs must NOT be visible
+    // Profil is reached via the sidebar profile card (below), not a nav tab
+    // — see next test — and admin tabs must NOT be visible either way.
+    await expect(nav.getByRole('button', { name: 'Profil',       exact: true })).not.toBeVisible();
     await expect(nav.getByRole('button', { name: 'Übersicht',    exact: true })).not.toBeVisible();
     await expect(nav.getByRole('button', { name: 'Mitglieder',   exact: true })).not.toBeVisible();
     await expect(nav.getByRole('button', { name: 'Einstellungen',exact: true })).not.toBeVisible();
+  });
+
+  test('profile is reachable via the sidebar profile card, not a nav tab', async ({ page }) => {
+    await expect(page.locator('.dt-user')).toBeVisible();
+    await openProfileCard(page);
+    await expect(page).toHaveURL(/\/profil$/);
   });
 
   test('Start tab renders without error boundary', async ({ page }) => {
@@ -67,7 +74,7 @@ test.describe('Member — Schichten tab', () => {
 test.describe('Member — Profil tab', () => {
   test.beforeEach(async ({ page }) => {
     await gotoApp(page);
-    await clickTab(page, 'Profil');
+    await openProfileCard(page);
   });
 
   test('Profil loads without crash', async ({ page }) => {
