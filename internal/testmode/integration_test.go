@@ -598,12 +598,19 @@ func TestEventHeaderImage_UploadAndClear(t *testing.T) {
 	assert.Equal(t, http.StatusOK, fileResp.StatusCode)
 	assert.Equal(t, "fake-header-bytes", string(fileBody))
 
-	// Uploading again replaces it, not adds a second one.
+	// Uploading again replaces it, not adds a second one, and deletes the
+	// old file from storage instead of leaving it orphaned but still
+	// publicly downloadable at its old URL.
 	uploadResp2 := uploadFile(t, s, "/api/v1/events/"+db.EventID.String()+"/header-image", tok, "header2.png", "image/png", []byte("second-header"))
 	require.Equal(t, http.StatusOK, uploadResp2.StatusCode)
 	var ev2 map[string]any
 	decode(t, uploadResp2, &ev2)
 	assert.NotEqual(t, fileURL, ev2["headerImageUrl"])
+
+	oldFileResp, err := http.Get(s.URL + urlPath) //nolint:noctx
+	require.NoError(t, err)
+	oldFileResp.Body.Close()
+	assert.Equal(t, http.StatusNotFound, oldFileResp.StatusCode)
 
 	delResp := del(t, s, "/api/v1/events/"+db.EventID.String()+"/header-image", tok)
 	assert.Equal(t, http.StatusNoContent, delResp.StatusCode)

@@ -775,22 +775,25 @@ func (uc *EventUsecase) AddAttachment(ctx context.Context, actorID uuid.UUID, ev
 
 // SetHeaderImage stores a dedicated header image for an event, separate from
 // the general attachments list (V-010). The handler owns writing the file to
-// storage; this only persists the resulting URL.
-func (uc *EventUsecase) SetHeaderImage(ctx context.Context, actorID uuid.UUID, eventID uuid.UUID, url string) (*domain.Event, error) {
+// storage; this only persists the resulting URL. Returns the previous URL
+// (possibly empty, if none was set) so the handler can best-effort delete the
+// file it replaces, the same way ClearHeaderImage already does for removal.
+func (uc *EventUsecase) SetHeaderImage(ctx context.Context, actorID uuid.UUID, eventID uuid.UUID, url string) (ev *domain.Event, prevURL string, err error) {
 	e, err := uc.events.GetByID(ctx, eventID)
 	if err != nil {
-		return nil, err
+		return nil, "", err
 	}
+	prevURL = e.HeaderImageURL
 	e.HeaderImageURL = url
 	e.UpdatedAt = time.Now().UTC()
 	if err := uc.events.Update(ctx, e); err != nil {
-		return nil, fmt.Errorf("update event: %w", err)
+		return nil, "", fmt.Errorf("update event: %w", err)
 	}
 
 	aid := actorID
-	_ = uc.writeAudit(ctx, &aid, domain.AuditActionUpdate, domain.AuditEntityEvent, eventID.String(), nil, map[string]string{"headerImageSet": url})
+	_ = uc.writeAudit(ctx, &aid, domain.AuditActionUpdate, domain.AuditEntityEvent, eventID.String(), map[string]string{"headerImageUrl": prevURL}, map[string]string{"headerImageUrl": url})
 
-	return e, nil
+	return e, prevURL, nil
 }
 
 // ClearHeaderImage removes an event's header image (V-010). Returns the

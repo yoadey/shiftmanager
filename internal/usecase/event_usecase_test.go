@@ -198,9 +198,10 @@ func TestSetHeaderImage(t *testing.T) {
 	eventID := uuid.New()
 	events.add(&domain.Event{ID: eventID, Status: domain.EventStatusDraft})
 
-	e, err := uc.SetHeaderImage(context.Background(), uuid.New(), eventID, "/uploads/event-header-abc.png")
+	e, prevURL, err := uc.SetHeaderImage(context.Background(), uuid.New(), eventID, "/uploads/event-header-abc.png")
 	require.NoError(t, err)
 	assert.Equal(t, "/uploads/event-header-abc.png", e.HeaderImageURL)
+	assert.Empty(t, prevURL)
 	assert.True(t, audit.has(domain.AuditActionUpdate, domain.AuditEntityEvent))
 
 	stored, err := events.GetByID(context.Background(), eventID)
@@ -213,14 +214,17 @@ func TestSetHeaderImage_ReplacesExisting(t *testing.T) {
 	eventID := uuid.New()
 	events.add(&domain.Event{ID: eventID, Status: domain.EventStatusDraft, HeaderImageURL: "/uploads/event-header-old.png"})
 
-	e, err := uc.SetHeaderImage(context.Background(), uuid.New(), eventID, "/uploads/event-header-new.png")
+	e, prevURL, err := uc.SetHeaderImage(context.Background(), uuid.New(), eventID, "/uploads/event-header-new.png")
 	require.NoError(t, err)
 	assert.Equal(t, "/uploads/event-header-new.png", e.HeaderImageURL)
+	// The caller (handler) needs the old URL back to delete that now-orphaned
+	// file from storage — the same contract ClearHeaderImage already has.
+	assert.Equal(t, "/uploads/event-header-old.png", prevURL)
 }
 
 func TestSetHeaderImage_UnknownEvent(t *testing.T) {
 	uc, _, _, _, _, _, _ := newEventUC()
-	_, err := uc.SetHeaderImage(context.Background(), uuid.New(), uuid.New(), "/uploads/x.png")
+	_, _, err := uc.SetHeaderImage(context.Background(), uuid.New(), uuid.New(), "/uploads/x.png")
 	assert.ErrorIs(t, err, domain.ErrEventNotFound)
 }
 

@@ -359,7 +359,7 @@ func (h *EventHandler) UploadHeaderImage(w http.ResponseWriter, r *http.Request)
 	}
 
 	actorID := middleware.GetUserID(r.Context())
-	ev, err := h.uc.SetHeaderImage(r.Context(), actorID, eventID, fileURL)
+	ev, prevURL, err := h.uc.SetHeaderImage(r.Context(), actorID, eventID, fileURL)
 	if err != nil {
 		_ = h.storage.Delete(r.Context(), fileURL)
 		if err == domain.ErrEventNotFound {
@@ -369,24 +369,17 @@ func (h *EventHandler) UploadHeaderImage(w http.ResponseWriter, r *http.Request)
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
+	if prevURL != "" {
+		_ = h.storage.Delete(r.Context(), prevURL)
+	}
 	writeJSON(w, http.StatusOK, ev)
 }
 
 // isAllowedHeaderImage validates the extension and (when present) content
-// type — the same allow-list as isAllowedEventAttachment minus PDF.
+// type — the same allow-list as isAllowedEventAttachment minus PDF, kept in
+// one place so the two can't silently drift apart.
 func isAllowedHeaderImage(ext, contentType string) bool {
-	switch ext {
-	case ".png":
-		return contentType == "" || contentType == "image/png"
-	case ".jpg", ".jpeg":
-		return contentType == "" || contentType == "image/jpeg"
-	case ".gif":
-		return contentType == "" || contentType == "image/gif"
-	case ".webp":
-		return contentType == "" || contentType == "image/webp"
-	default:
-		return false
-	}
+	return ext != ".pdf" && isAllowedEventAttachment(ext, contentType)
 }
 
 // DeleteHeaderImage clears an event's header image and, best-effort, removes
