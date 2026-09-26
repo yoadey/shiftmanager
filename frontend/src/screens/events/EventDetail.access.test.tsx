@@ -39,6 +39,8 @@ vi.mock('@/api/events', () => ({
   useEventAttachments: () => ({ data: [] }),
   useUploadEventAttachment: () => ({ mutate: vi.fn(), isPending: false }),
   useDeleteEventAttachment: () => ({ mutate: vi.fn(), isPending: false }),
+  useUploadEventHeaderImage: () => ({ mutate: vi.fn(), isPending: false }),
+  useDeleteEventHeaderImage: () => ({ mutate: vi.fn(), isPending: false }),
 }));
 
 vi.mock('@/api/shifts', () => ({
@@ -91,6 +93,14 @@ describe('EventDetail board-only sheets via direct URL', () => {
     setRole('veranstaltungsleiter');
     renderAt('/events/e1/bearbeiten');
     expect(await screen.findByText('Veranstaltung bearbeiten')).toBeInTheDocument();
+  });
+
+  it('renders event editing as a real page, not inside a Sheet overlay (UX-001, bedienkonzept)', async () => {
+    setRole('veranstaltungsleiter');
+    renderAt('/events/e1/bearbeiten');
+    await screen.findByText('Veranstaltung bearbeiten');
+    expect(document.querySelector('.sm-overlay')).not.toBeInTheDocument();
+    expect(document.querySelector('.sm-sheet')).not.toBeInTheDocument();
   });
 
   it('does not open the add-helper sheet for a plain member deep-linking to /helfer/:shiftId', async () => {
@@ -169,5 +179,35 @@ describe('EventDetail click-through under the app-level remount key', () => {
     // asked for that.
     expect(screen.queryByText('Übernehmen')).not.toBeInTheDocument();
     expect(await screen.findByTitle('Zeit bearbeiten')).toBeInTheDocument();
+  });
+});
+
+describe('EventDetail description and header image (V-009, V-010)', () => {
+  it('renders the Markdown description formatted, not as raw text', async () => {
+    setRole('mitglied');
+    fixtureEvent.description = 'Bitte **pünktlich** da sein.';
+    fixtureEvent.headerImageUrl = undefined;
+    renderAt('/events/e1');
+    await screen.findByText('Sommerfest');
+    expect(screen.queryByText('Bitte **pünktlich** da sein.')).not.toBeInTheDocument();
+    expect(screen.getByText('pünktlich').tagName).toBe('STRONG');
+  });
+
+  it('shows the header image in the hero when set', async () => {
+    setRole('mitglied');
+    fixtureEvent.description = 'Das jährliche Sommerfest';
+    fixtureEvent.headerImageUrl = '/uploads/event-header-abc.png';
+    const { container } = renderAt('/events/e1');
+    await screen.findByText('Sommerfest');
+    expect(container.querySelector('.ev-hero img')).toHaveAttribute('src', '/uploads/event-header-abc.png');
+    fixtureEvent.headerImageUrl = undefined;
+  });
+
+  it('shows no hero image when none is set', async () => {
+    setRole('mitglied');
+    fixtureEvent.headerImageUrl = undefined;
+    const { container } = renderAt('/events/e1');
+    await screen.findByText('Sommerfest');
+    expect(container.querySelector('.ev-hero img')).toBeNull();
   });
 });

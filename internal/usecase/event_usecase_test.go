@@ -193,6 +193,72 @@ func TestDeleteAttachment_WrongEvent(t *testing.T) {
 	assert.ErrorIs(t, err, domain.ErrEventAttachmentNotFound)
 }
 
+func TestSetHeaderImage(t *testing.T) {
+	uc, events, _, _, audit, _, _ := newEventUC()
+	eventID := uuid.New()
+	events.add(&domain.Event{ID: eventID, Status: domain.EventStatusDraft})
+
+	e, prevURL, err := uc.SetHeaderImage(context.Background(), uuid.New(), eventID, "/uploads/event-header-abc.png")
+	require.NoError(t, err)
+	assert.Equal(t, "/uploads/event-header-abc.png", e.HeaderImageURL)
+	assert.Empty(t, prevURL)
+	assert.True(t, audit.has(domain.AuditActionUpdate, domain.AuditEntityEvent))
+
+	stored, err := events.GetByID(context.Background(), eventID)
+	require.NoError(t, err)
+	assert.Equal(t, "/uploads/event-header-abc.png", stored.HeaderImageURL)
+}
+
+func TestSetHeaderImage_ReplacesExisting(t *testing.T) {
+	uc, events, _, _, _, _, _ := newEventUC()
+	eventID := uuid.New()
+	events.add(&domain.Event{ID: eventID, Status: domain.EventStatusDraft, HeaderImageURL: "/uploads/event-header-old.png"})
+
+	e, prevURL, err := uc.SetHeaderImage(context.Background(), uuid.New(), eventID, "/uploads/event-header-new.png")
+	require.NoError(t, err)
+	assert.Equal(t, "/uploads/event-header-new.png", e.HeaderImageURL)
+	// The caller (handler) needs the old URL back to delete that now-orphaned
+	// file from storage — the same contract ClearHeaderImage already has.
+	assert.Equal(t, "/uploads/event-header-old.png", prevURL)
+}
+
+func TestSetHeaderImage_UnknownEvent(t *testing.T) {
+	uc, _, _, _, _, _, _ := newEventUC()
+	_, _, err := uc.SetHeaderImage(context.Background(), uuid.New(), uuid.New(), "/uploads/x.png")
+	assert.ErrorIs(t, err, domain.ErrEventNotFound)
+}
+
+func TestClearHeaderImage(t *testing.T) {
+	uc, events, _, _, audit, _, _ := newEventUC()
+	eventID := uuid.New()
+	events.add(&domain.Event{ID: eventID, Status: domain.EventStatusDraft, HeaderImageURL: "/uploads/event-header-abc.png"})
+
+	prevURL, err := uc.ClearHeaderImage(context.Background(), uuid.New(), eventID)
+	require.NoError(t, err)
+	assert.Equal(t, "/uploads/event-header-abc.png", prevURL)
+	assert.True(t, audit.has(domain.AuditActionUpdate, domain.AuditEntityEvent))
+
+	stored, err := events.GetByID(context.Background(), eventID)
+	require.NoError(t, err)
+	assert.Empty(t, stored.HeaderImageURL)
+}
+
+func TestClearHeaderImage_NoneSet(t *testing.T) {
+	uc, events, _, _, _, _, _ := newEventUC()
+	eventID := uuid.New()
+	events.add(&domain.Event{ID: eventID, Status: domain.EventStatusDraft})
+
+	prevURL, err := uc.ClearHeaderImage(context.Background(), uuid.New(), eventID)
+	require.NoError(t, err)
+	assert.Empty(t, prevURL)
+}
+
+func TestClearHeaderImage_UnknownEvent(t *testing.T) {
+	uc, _, _, _, _, _, _ := newEventUC()
+	_, err := uc.ClearHeaderImage(context.Background(), uuid.New(), uuid.New())
+	assert.ErrorIs(t, err, domain.ErrEventNotFound)
+}
+
 func TestGetEventTimeline_Occupancy(t *testing.T) {
 	uc, events, shifts, regs, _, _, _ := newEventUC()
 	eventID := uuid.New()

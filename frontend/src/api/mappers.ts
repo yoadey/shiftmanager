@@ -27,6 +27,7 @@ export interface RawEvent {
   recurrenceFrequency?: string;
   recurrenceUntil?: string;
   recurrenceGroupId?: string;
+  headerImageUrl?: string;
 }
 
 interface RawShift {
@@ -140,6 +141,7 @@ export function flatToEvent(e: RawEvent): Event {
     description: e.description ?? '',
     days: [],
     recurrenceFrequency: (e.recurrenceFrequency || undefined) as RecurrenceFrequency | undefined,
+    headerImageUrl: e.headerImageUrl || undefined,
   };
 }
 

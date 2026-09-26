@@ -1,8 +1,7 @@
-import React, { useState } from 'react';
+import React, { useState, lazy, Suspense } from 'react';
 import { Icon } from '@/components/ui/Icon';
 import { Badge } from '@/components/ui/Badge';
 import { Button } from '@/components/ui/Button';
-import { Sheet } from '@/components/ui/Sheet';
 import { Stepper } from '@/components/ui/Stepper';
 import { Toggle } from '@/components/ui/Toggle';
 import { Field, Input, Textarea, Select } from '@/components/forms/Field';
@@ -12,6 +11,10 @@ import { useCreateShift } from '@/api/shifts';
 import { fmtDate } from '@/screens/_demo';
 import { Section, EmptyState } from '@/screens/member/MemberDashboard';
 import type { EventStatus } from '@/types';
+
+// F-009: MDXEditor (Lexical-based) is a comparatively heavy dependency —
+// its own chunk, only fetched once an event form actually renders.
+const MarkdownEditor = lazy(() => import('@/components/forms/MarkdownEditor'));
 
 function datesBetween(start: string, end: string): string[] {
   const out: string[] = [];
@@ -193,31 +196,39 @@ export function CreateEventFlow({ onClose }: { onClose: () => void }) {
   };
 
   return (
-    <Sheet variant="full" onClose={onClose}>
-      <div className="cef-head" style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '54px 18px 14px', borderBottom: '1px solid var(--line)' }}>
+    <div className="fade-in">
+      <div className="sm-header detail" style={{ alignItems: 'center', gap: 12 }}>
         <button
           onClick={step === 0 ? onClose : () => setStep(step - 1)}
           className="pressable"
-          style={{ width: 38, height: 38, borderRadius: '50%', border: '1px solid var(--line)', background: 'var(--surface)', display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer' }}
+          style={{ width: 40, height: 40, borderRadius: '50%', border: '1px solid var(--line)', background: 'var(--surface)', display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer' }}
         >
-          <Icon name={step === 0 ? 'x' : 'chevL'} size={19} stroke={2.4} />
+          <Icon name={step === 0 ? 'x' : 'chevL'} size={20} stroke={2.4} />
         </button>
         <div style={{ flex: 1 }}>
           <div className="sm-eyebrow">Schritt {step + 1} von 3</div>
-          <div style={{ fontFamily: 'Bricolage Grotesque', fontWeight: 800, fontSize: 20 }}>{labels[step]}</div>
+          <div className="sm-title" style={{ fontSize: 22 }}>{labels[step]}</div>
         </div>
       </div>
-      <div style={{ display: 'flex', gap: 6, padding: '12px 18px 0' }}>
+      <div style={{ display: 'flex', gap: 6, padding: '0 18px 14px' }}>
         {labels.map((l, i) => (
           <div key={l} style={{ flex: 1, height: 4, borderRadius: 4, background: i <= step ? 'var(--primary)' : 'var(--line)', transition: 'background .2s' }} />
         ))}
       </div>
 
-      <div className="sheet-body" style={{ flex: 1 }}>
+      <div className="sm-pad" style={{ paddingTop: 0 }}>
         {step === 0 && (
           <div className="fade-in">
             <Field label="Name der Veranstaltung"><Input placeholder="z. B. Sommerturnier 2026" value={f.name} onChange={(e) => set('name', e.target.value)} /></Field>
-            <Field label="Beschreibung (optional)"><Textarea placeholder="Worum geht es? Was sollen Helfer wissen?" value={f.description} onChange={(e) => set('description', e.target.value)} /></Field>
+            <Field label="Beschreibung (optional)">
+              <Suspense fallback={<Textarea placeholder="Worum geht es? Was sollen Helfer wissen?" value={f.description} onChange={(e) => set('description', e.target.value)} />}>
+                <MarkdownEditor
+                  markdown={f.description}
+                  onChange={(md) => set('description', md)}
+                  placeholder="Worum geht es? Was sollen Helfer wissen?"
+                />
+              </Suspense>
+            </Field>
             <Field label="Ort"><Input placeholder="z. B. Sporthalle Aachen-Brand" value={f.location} onChange={(e) => set('location', e.target.value)} /></Field>
             <Field label="Kategorie">
               <Select value={f.category} onChange={(e) => set('category', e.target.value)}>
@@ -283,14 +294,14 @@ export function CreateEventFlow({ onClose }: { onClose: () => void }) {
             })}
           </div>
         )}
-      </div>
 
-      <div className="sheet-foot">
-        {step < 2
-          ? <Button disabled={step === 0 ? !step0valid : shifts.length === 0} icon="arrowR" onClick={() => setStep(step + 1)}>{step === 1 && shifts.length === 0 ? 'Mind. eine Schicht' : 'Weiter'}</Button>
-          : <Button icon="check" disabled={createEvent.isPending || createShift.isPending} onClick={finish}>Veranstaltung erstellen</Button>}
+        <div style={{ marginTop: 18 }}>
+          {step < 2
+            ? <Button disabled={step === 0 ? !step0valid : shifts.length === 0} icon="arrowR" onClick={() => setStep(step + 1)}>{step === 1 && shifts.length === 0 ? 'Mind. eine Schicht' : 'Weiter'}</Button>
+            : <Button icon="check" disabled={createEvent.isPending || createShift.isPending} onClick={finish}>Veranstaltung erstellen</Button>}
+        </div>
       </div>
-    </Sheet>
+    </div>
   );
 }
 
