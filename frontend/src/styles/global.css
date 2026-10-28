@@ -105,7 +105,9 @@ h1,h2,h3,h4 { font-family: 'Bricolage Grotesque', sans-serif; margin: 0; letter-
 .b-full { background: #EFEBE0; color: #6A6453; }
 .b-info { background: #E8EFF8; color: #2F5C97; }
 .b-neutral { background: #F0ECE1; color: #6A6453; }
-.b-primary { background: color-mix(in srgb, var(--primary) 22%, #fff); color: var(--on-primary); }
+/* The tint is always light (22 % brand colour on white), so the text stays
+   dark; --on-primary only suits a full brand-colour background. */
+.b-primary { background: color-mix(in srgb, var(--primary) 22%, #fff); color: var(--ink); }
 
 /* ── chips ── */
 .sm-chiprow { display: flex; gap: 8px; overflow-x: auto; padding: 2px 0; }
