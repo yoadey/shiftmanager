@@ -38,7 +38,7 @@ migrations/         — golang-migrate SQL-Migrationsdateien
 frontend/           — React-SPA (TypeScript, Vite, TanStack Query, Zustand)
 ```
 
-Alle Kubernetes-Manifeste liegen unter `deploy/kubernetes/`. Die CI/CD-Pipeline baut ein einziges Docker-Image (`ghcr.io/yoadey/shiftmanager`) und deployt es auf einem k3s-Cluster via GitHub Actions.
+Alle Kubernetes-Manifeste liegen unter `deploy/kubernetes/`. Die CI-Pipeline baut ein einziges Docker-Image (`ghcr.io/yoadey/shiftmanager`); das Deployment erfolgt nicht aus diesem Repository, sondern per GitOps (Flux) aus dem Cluster-Repository.
 
 Die vollständigen funktionalen und nicht-funktionalen Anforderungen finden sich in [`project/requirements_extracted.txt`](project/requirements_extracted.txt).
 
@@ -243,15 +243,11 @@ kubectl apply -f deploy/kubernetes/cronjob-backup.yaml
 kubectl apply -f deploy/kubernetes/redis-deployment.yaml
 ```
 
-### GitHub Actions (automatisch)
+### GitHub Actions
 
-Das Workflow-Paar fuehrt folgendes aus:
+**CI** (`.github/workflows/ci.yml`) — bei jedem Push und PR: Backend-Lint (golangci-lint + go vet), Backend-Tests mit Race-Detector, Frontend-Build (faengt TypeScript-Fehler ab). Bei Push auf `main`: Docker-Image bauen und nach `ghcr.io/yoadey/shiftmanager` pushen.
 
-1. **CI** (`.github/workflows/ci.yml`) — bei jedem Push und PR: Backend-Lint (golangci-lint + go vet), Backend-Tests mit Race-Detector, Frontend-Build (faengt TypeScript-Fehler ab). Bei Push auf `main`: Docker-Image bauen und nach `ghcr.io/yoadey/shiftmanager` pushen.
-
-2. **Deploy** (`.github/workflows/deploy.yml`) — bei Push auf `main` nach erfolgreichem CI: Image-Tag im Deployment-Manifest aktualisieren, alle Manifeste per `kubectl apply` einfahren, Rollout abwarten.
-
-Benoetigter Repository-Secret: `KUBECONFIG` (base64-kodierte kubeconfig).
+Aus diesem Repository wird nichts deployt: Die Cluster-Umgebungen werden per GitOps (Flux Image Automation) verwaltet und uebernehmen neue `main`-Builds von dort automatisch.
 
 ### Datenbankbackup
 
