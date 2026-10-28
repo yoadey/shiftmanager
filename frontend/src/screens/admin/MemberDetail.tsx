@@ -9,7 +9,7 @@ import { Stepper } from '@/components/ui/Stepper';
 import { useAppStore } from '@/store/app.store';
 import { routes } from '@/routes';
 import { useSmartBack } from '@/hooks/useSmartBack';
-import { useMember, useUpdateMember, useDeactivateMember } from '@/api/members';
+import { useMember, useUpdateMember, useDeactivateMember, isPendingApproval } from '@/api/members';
 import { useMemberHours } from '@/api/hours';
 import { useSettings, useMemberFeeTiers, useUpdateMemberFeeTiers } from '@/api/settings';
 import { useStats } from '@/api/stats';
@@ -230,6 +230,8 @@ export function MemberDetail() {
   const { data: stats } = useStats();
   const clubYearId = stats?.clubYearId ?? '';
   const activate = useUpdateMember();
+  const reject = useDeactivateMember();
+  const [confirmReject, setConfirmReject] = useState(false);
   const memberQ = useMember(id);
   const hoursQ = useMemberHours(id);
   const { data: settings } = useSettings();
@@ -240,6 +242,19 @@ export function MemberDetail() {
   if (memberQ.isError || !memberQ.data) return <ErrorState text="Dieses Mitglied wurde nicht gefunden." />;
 
   const m = memberQ.data;
+  const pending = isPendingApproval(m);
+
+  const onActivate = (ok: string, fail: string) =>
+    activate.mutate(
+      { id, active: true },
+      { onSuccess: () => showToast(ok), onError: () => showToast(fail, 'crit') },
+    );
+
+  const onReject = () =>
+    reject.mutate(id, {
+      onSuccess: () => { setConfirmReject(false); showToast('Registrierung abgelehnt.'); },
+      onError: () => showToast('Ablehnen fehlgeschlagen.', 'crit'),
+    });
 
   // Hour account + booking history come from the hours API (includes manual bookings).
   const h = hoursQ.data?.confirmed ?? 0;
@@ -273,9 +288,10 @@ export function MemberDetail() {
           <div style={{ flex: 1 }}>
             <div style={{ fontFamily: 'Bricolage Grotesque', fontWeight: 800, fontSize: 19 }}>{m.first} {m.last}</div>
             <div style={{ color: 'var(--muted)', fontSize: 12.5, fontWeight: 600 }}>{m.email}</div>
-            <div style={{ color: 'var(--muted)', fontSize: 12, fontWeight: 600 }}>seit {fmtDate(m.since, 'short')}</div>
+            <div style={{ color: 'var(--muted)', fontSize: 12, fontWeight: 600 }}>seit {fmtDate(m.since.slice(0, 10), 'short')}</div>
           </div>
-          {m.active === false && <Badge kind="warn">Nicht freigeschaltet</Badge>}
+          {pending && <Badge kind="warn">Nicht freigeschaltet</Badge>}
+          {m.active === false && !pending && <Badge kind="neutral">Ausgetreten</Badge>}
           <button
             className="pressable"
             onClick={() => navigate(routes.mitgliedBearbeiten(id))}
@@ -285,28 +301,37 @@ export function MemberDetail() {
             <Icon name="edit" size={16} color="var(--ink-2)" />
           </button>
         </div>
-        {m.active === false && (
-          <div className="sm-card pad" style={{ marginTop: 12, display: 'flex', alignItems: 'center', gap: 12, background: 'var(--warn-bg)' }}>
+        {pending && (
+          <div className="sm-card pad" style={{ marginTop: 12, display: 'flex', alignItems: 'center', gap: 12, background: 'var(--warn-bg)', flexWrap: 'wrap' }}>
             <Icon name="clock" size={20} color="var(--warn)" />
-            <div style={{ flex: 1 }}>
+            <div style={{ flex: '1 1 180px' }}>
               <div style={{ fontWeight: 800, fontSize: 14.5 }}>Konto wartet auf Freischaltung</div>
               <div style={{ color: 'var(--ink-2)', fontSize: 12.5, fontWeight: 600 }}>Per OIDC registriert, aber noch nicht aktiviert.</div>
             </div>
-            <Button
-              size="sm"
-              icon="check"
-              loading={activate.isPending}
-              onClick={() =>
-                activate.mutate(
-                  { id, active: true },
-                  {
-                    onSuccess: () => showToast('Mitglied freigeschaltet.'),
-                    onError: () => showToast('Freischaltung fehlgeschlagen.', 'crit'),
-                  },
-                )
-              }
-            >
-              Freischalten
+            {confirmReject ? (
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                <Button size="sm" variant="ghost" onClick={() => setConfirmReject(false)}>Nein</Button>
+                <Button size="sm" variant="danger" loading={reject.isPending} onClick={onReject}>Ja, ablehnen</Button>
+              </div>
+            ) : (
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                <Button size="sm" variant="ghost" onClick={() => setConfirmReject(true)}>Ablehnen</Button>
+                <Button size="sm" icon="check" loading={activate.isPending} onClick={() => onActivate('Mitglied freigeschaltet.', 'Freischaltung fehlgeschlagen.')}>
+                  Freischalten
+                </Button>
+              </div>
+            )}
+          </div>
+        )}
+        {m.active === false && !pending && (
+          <div className="sm-card pad" style={{ marginTop: 12, display: 'flex', alignItems: 'center', gap: 12, background: 'var(--surface-2)' }}>
+            <Icon name="user" size={20} color="var(--muted)" />
+            <div style={{ flex: 1 }}>
+              <div style={{ fontWeight: 800, fontSize: 14.5 }}>Mitglied ist ausgetreten</div>
+              <div style={{ color: 'var(--ink-2)', fontSize: 12.5, fontWeight: 600 }}>Deaktiviert am {fmtDate((m.left ?? '').slice(0, 10), 'short')}.</div>
+            </div>
+            <Button size="sm" variant="soft" loading={activate.isPending} onClick={() => onActivate('Mitglied reaktiviert.', 'Reaktivieren fehlgeschlagen.')}>
+              Reaktivieren
             </Button>
           </div>
         )}

@@ -5,6 +5,7 @@ import { MobileShell } from '@/components/layout/MobileShell';
 import { Toast } from '@/components/ui/Toast';
 import { ErrorBoundary } from '@/components/ui/ErrorBoundary';
 import { TweaksPanel } from '@/components/tweaks/TweaksPanel';
+import { PendingMembersBanner } from '@/components/layout/PendingMembersBanner';
 import { useAppStore } from '@/store/app.store';
 import { useAuthStore } from '@/store/auth.store';
 import { useBranding, useSettings } from '@/api/settings';
@@ -231,6 +232,9 @@ export default function App() {
 
   const screenContent = (
     <Suspense fallback={<LoadingFallback />}>
+      <ErrorBoundary>
+        <PendingMembersBanner />
+      </ErrorBoundary>
       <ErrorBoundary key={navKey} label="diesem Bereich">
         <ScreenRoutes />
       </ErrorBoundary>

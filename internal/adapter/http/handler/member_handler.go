@@ -22,7 +22,9 @@ func NewMemberHandler(uc *usecase.MemberUsecase) *MemberHandler {
 	return &MemberHandler{uc: uc}
 }
 
-// List returns a paginated list of members.
+// List returns a paginated list of members. Query parameters: limit (default
+// 50, 0 = all), offset, search, status (active|pending|left|approved).
+// The total number of matches is returned in the X-Total-Count header.
 // GET /api/v1/members
 func (h *MemberHandler) List(w http.ResponseWriter, r *http.Request) {
 	filter := port.MemberFilter{
@@ -35,12 +37,20 @@ func (h *MemberHandler) List(w http.ResponseWriter, r *http.Request) {
 		b := active == "true"
 		filter.IsActive = &b
 	}
+	filter.Status = port.MemberStatus(r.URL.Query().Get("status"))
+	if !filter.Status.Valid() {
+		writeError(w, http.StatusBadRequest, "invalid status")
+		return
+	}
 
-	members, err := h.uc.ListMembers(r.Context(), filter)
+	members, total, err := h.uc.ListMembers(r.Context(), filter)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
+	// The body stays a plain array; the total behind the page travels in a
+	// header so paginating clients can render page controls.
+	w.Header().Set("X-Total-Count", strconv.Itoa(total))
 	writeJSON(w, http.StatusOK, members)
 }
 

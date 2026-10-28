@@ -553,16 +553,36 @@ paths:
     get:
       operationId: listMembers
       tags: [members]
-      summary: List all members
+      summary: List members (paginated, sorted by last/first name)
       parameters:
-        - { name: search, in: query, schema: { type: string } }
-        - { name: isActive, in: query, schema: { type: boolean } }
+        - name: search
+          in: query
+          description: Case-insensitive match on first name, last name, full name or e-mail.
+          schema: { type: string }
+        - { name: active, in: query, schema: { type: boolean } }
+        - name: status
+          in: query
+          description: |
+            Account state filter. `pending` = self-registered via OIDC and waiting
+            for activation (inactive, no leave date); `left` = deactivated;
+            `approved` = everyone except pending registrations.
+          schema: { type: string, enum: [active, pending, left, approved] }
+        - name: limit
+          in: query
+          description: Page size; 0 returns all matches.
+          schema: { type: integer, minimum: 0, default: 50 }
+        - { name: offset, in: query, schema: { type: integer, minimum: 0, default: 0 } }
       responses:
         "200":
           description: Member list
+          headers:
+            X-Total-Count:
+              description: Number of members matching the filter, ignoring limit/offset.
+              schema: { type: integer }
           content:
             application/json:
               schema: { type: array, items: { $ref: '#/components/schemas/Member' } }
+        "400": { $ref: '#/components/responses/BadRequest' }
         "401": { $ref: '#/components/responses/Unauthorized' }
     post:
       operationId: createMember

@@ -24,7 +24,7 @@ func (f *fakeOIDC) GetAuthURL(state string) string { return "https://idp.example
 func (f *fakeOIDC) Exchange(_ context.Context, _ string) (*port.OIDCTokens, error) {
 	return &port.OIDCTokens{IDToken: "id-token"}, nil
 }
-func (f *fakeOIDC) VerifyIDToken(_ context.Context, _ string) (*port.OIDCClaims, error) {
+func (f *fakeOIDC) VerifyIDToken(_ context.Context, _ *port.OIDCTokens) (*port.OIDCClaims, error) {
 	return f.claims, nil
 }
 
@@ -164,6 +164,81 @@ func TestCallback_UnknownUser_AutoRegisteredInactive(t *testing.T) {
 	}
 	if len(audit.actions) == 0 || audit.actions[0] != "member.autoregister" {
 		t.Errorf("expected autoregister audit, got %v", audit.actions)
+	}
+}
+
+func TestCallback_UnknownUser_WithOIDCRole_CreatedActive(t *testing.T) {
+	store := newFakeStore()
+	claims := &port.OIDCClaims{Subject: "sub-r1", Email: "vl@club.de", Name: "Vera Leiter", Provider: "kc", Role: domain.RoleVeranstaltungsleiter}
+	h, audit := newHandler(store, claims, "")
+
+	frag := callback(t, h)
+
+	if !strings.HasPrefix(frag, "token=") {
+		t.Fatalf("member with OIDC role should be logged in, got %q", frag)
+	}
+	if len(store.created) != 1 {
+		t.Fatalf("expected 1 created member, got %d", len(store.created))
+	}
+	m := store.created[0]
+	if !m.IsActive || m.Role != domain.RoleVeranstaltungsleiter {
+		t.Errorf("want active veranstaltungsleiter, got active=%v role=%q", m.IsActive, m.Role)
+	}
+	if len(audit.actions) == 0 || audit.actions[0] != "member.oidc_role_provision" {
+		t.Errorf("expected oidc_role_provision audit, got %v", audit.actions)
+	}
+}
+
+func TestCallback_PendingMember_WithOIDCRole_Activated(t *testing.T) {
+	store := newFakeStore()
+	pending := &domain.Member{ID: uuid.New(), Email: "wait@club.de", Role: domain.RoleMitglied, IsActive: false}
+	store.bySubject["sub-r2"] = pending
+	claims := &port.OIDCClaims{Subject: "sub-r2", Email: "wait@club.de", Provider: "kc", Role: domain.RoleMitglied}
+	h, _ := newHandler(store, claims, "")
+
+	frag := callback(t, h)
+
+	if !strings.HasPrefix(frag, "token=") {
+		t.Fatalf("pending member with OIDC role should be admitted, got %q", frag)
+	}
+	if !pending.IsActive {
+		t.Error("pending member should be activated")
+	}
+	if len(store.updated) == 0 {
+		t.Error("activation should persist via Update")
+	}
+}
+
+func TestCallback_LeftMember_WithOIDCRole_StaysInactive(t *testing.T) {
+	store := newFakeStore()
+	left := time.Now().Add(-24 * time.Hour)
+	former := &domain.Member{ID: uuid.New(), Email: "gone@club.de", Role: domain.RoleMitglied, IsActive: false, LeftAt: &left}
+	store.bySubject["sub-r3"] = former
+	claims := &port.OIDCClaims{Subject: "sub-r3", Email: "gone@club.de", Provider: "kc", Role: domain.RoleAdmin}
+	h, _ := newHandler(store, claims, "")
+
+	frag := callback(t, h)
+
+	if frag != "error=inactive" {
+		t.Fatalf("deactivated member must not be re-admitted by the IdP role, got %q", frag)
+	}
+	if former.IsActive || former.Role != domain.RoleMitglied {
+		t.Errorf("deactivated member must stay unchanged, got active=%v role=%q", former.IsActive, former.Role)
+	}
+}
+
+func TestCallback_ActiveMember_RoleNotOverwrittenByOIDC(t *testing.T) {
+	store := newFakeStore()
+	existing := &domain.Member{ID: uuid.New(), Email: "board@club.de", Role: domain.RoleVorstand, IsActive: true}
+	store.bySubject["sub-r4"] = existing
+	claims := &port.OIDCClaims{Subject: "sub-r4", Email: "board@club.de", Provider: "kc", Role: domain.RoleMitglied}
+	h, _ := newHandler(store, claims, "")
+
+	if frag := callback(t, h); !strings.HasPrefix(frag, "token=") {
+		t.Fatalf("want token, got %q", frag)
+	}
+	if existing.Role != domain.RoleVorstand {
+		t.Errorf("in-app role must win for active members, got %q", existing.Role)
 	}
 }
 

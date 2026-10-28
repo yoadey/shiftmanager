@@ -66,9 +66,18 @@ func (uc *MemberUsecase) CreateMember(ctx context.Context, actorID uuid.UUID, in
 	return m, nil
 }
 
-// ListMembers returns members matching the filter.
-func (uc *MemberUsecase) ListMembers(ctx context.Context, filter port.MemberFilter) ([]*domain.Member, error) {
-	return uc.members.List(ctx, filter)
+// ListMembers returns the page of members matching the filter together with
+// the total number of matches (for pagination).
+func (uc *MemberUsecase) ListMembers(ctx context.Context, filter port.MemberFilter) ([]*domain.Member, int, error) {
+	members, err := uc.members.List(ctx, filter)
+	if err != nil {
+		return nil, 0, err
+	}
+	total, err := uc.members.CountFiltered(ctx, filter)
+	if err != nil {
+		return nil, 0, err
+	}
+	return members, total, nil
 }
 
 // GetMember returns a single member by ID.
@@ -109,6 +118,11 @@ func (uc *MemberUsecase) UpdateMember(ctx context.Context, actorID uuid.UUID, id
 		m.IsActive = *input.IsActive
 		if *input.IsActive {
 			m.LeftAt = nil
+		} else if m.LeftAt == nil {
+			// Record the leave date so a deactivated member is not mistaken
+			// for a registration pending approval.
+			now := time.Now().UTC()
+			m.LeftAt = &now
 		}
 	}
 
@@ -122,13 +136,15 @@ func (uc *MemberUsecase) UpdateMember(ctx context.Context, actorID uuid.UUID, id
 	return m, nil
 }
 
-// DeactivateMember soft-deletes a member by marking them inactive.
+// DeactivateMember soft-deletes a member by marking them inactive. It also
+// rejects a registration pending approval: the account then counts as left
+// and no longer shows up as waiting for activation.
 func (uc *MemberUsecase) DeactivateMember(ctx context.Context, actorID uuid.UUID, id uuid.UUID) error {
 	m, err := uc.members.GetByID(ctx, id)
 	if err != nil {
 		return err
 	}
-	if !m.IsActive {
+	if !m.IsActive && !m.IsPendingApproval() {
 		return domain.ErrMemberInactive
 	}
 

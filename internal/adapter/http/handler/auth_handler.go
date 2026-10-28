@@ -158,7 +158,7 @@ func (h *AuthHandler) Callback(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	claims, err := svc.VerifyIDToken(r.Context(), tokens.IDToken)
+	claims, err := svc.VerifyIDToken(r.Context(), tokens)
 	if err != nil {
 		h.redirectError(w, r, "token_invalid")
 		return
@@ -181,7 +181,9 @@ func (h *AuthHandler) Callback(w http.ResponseWriter, r *http.Request) {
 	case member == nil:
 		// Unknown identity: auto-register a new member. Per policy they remain
 		// INACTIVE (pending admin activation) — except the configured bootstrap
-		// admin, who is created as an active administrator.
+		// admin, who is created as an active administrator, and identities the
+		// provider's role expression assigns a role, who are created active
+		// with that role.
 		member, err = h.provisionMember(r, claims, isBootstrapAdmin)
 		if err != nil {
 			h.redirectError(w, r, "server_error")
@@ -208,6 +210,16 @@ func (h *AuthHandler) Callback(w http.ResponseWriter, r *http.Request) {
 			member.IsActive = true
 			changed = true
 			_ = h.audit.WriteAudit(r, &member.ID, "member.bootstrap_admin", "member", member.ID.String(), before, *member)
+		} else if claims.Role != "" && member.IsPendingApproval() {
+			// Registered earlier without a role (e.g. before the role was
+			// granted at the IdP): admit them now. Deactivated members (with a
+			// leave date) and active members' roles are left alone — those are
+			// managed in the app.
+			before := *member
+			member.Role = claims.Role
+			member.IsActive = true
+			changed = true
+			_ = h.audit.WriteAudit(r, &member.ID, "member.oidc_role_activate", "member", member.ID.String(), before, *member)
 		}
 		if changed {
 			if err := h.members.Update(r, member); err != nil {
@@ -239,7 +251,8 @@ func (h *AuthHandler) Callback(w http.ResponseWriter, r *http.Request) {
 
 // provisionMember creates a member record for a first-time OIDC user. Regular
 // users are created inactive (pending admin activation); the configured
-// bootstrap admin is created as an active administrator.
+// bootstrap admin is created as an active administrator, and users whose
+// claims map to a role are created active with that role.
 func (h *AuthHandler) provisionMember(r *http.Request, claims *port.OIDCClaims, bootstrapAdmin bool) (*domain.Member, error) {
 	first, last := splitName(claims.Name, claims.Email)
 	member := &domain.Member{
@@ -248,9 +261,12 @@ func (h *AuthHandler) provisionMember(r *http.Request, claims *port.OIDCClaims, 
 		LastName:    last,
 		Email:       claims.Email,
 		JoinedAt:    time.Now().UTC(),
-		IsActive:    bootstrapAdmin,
+		IsActive:    bootstrapAdmin || claims.Role != "",
 		Role:        domain.RoleMitglied,
 		OIDCSubject: &claims.Subject,
+	}
+	if claims.Role != "" {
+		member.Role = claims.Role
 	}
 	if bootstrapAdmin {
 		member.Role = domain.RoleAdmin
@@ -263,8 +279,11 @@ func (h *AuthHandler) provisionMember(r *http.Request, claims *port.OIDCClaims, 
 	h.linkOIDC(r, member.ID, claims)
 
 	action := "member.autoregister"
-	if bootstrapAdmin {
+	switch {
+	case bootstrapAdmin:
 		action = "member.bootstrap_admin"
+	case claims.Role != "":
+		action = "member.oidc_role_provision"
 	}
 	_ = h.audit.WriteAudit(r, &member.ID, action, "member", member.ID.String(), nil, *member)
 	return member, nil

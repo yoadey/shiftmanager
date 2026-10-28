@@ -74,13 +74,40 @@ func (f *fakeMemberRepo) List(ctx context.Context, filter port.MemberFilter) ([]
 	}
 	var out []*domain.Member
 	for _, m := range f.members {
-		if filter.IsActive != nil && m.IsActive != *filter.IsActive {
+		if !fakeMemberMatches(m, filter) {
 			continue
 		}
 		cp := *m
 		out = append(out, &cp)
 	}
 	return out, nil
+}
+
+func (f *fakeMemberRepo) CountFiltered(ctx context.Context, filter port.MemberFilter) (int, error) {
+	n := 0
+	for _, m := range f.members {
+		if fakeMemberMatches(m, filter) {
+			n++
+		}
+	}
+	return n, nil
+}
+
+func fakeMemberMatches(m *domain.Member, filter port.MemberFilter) bool {
+	if filter.IsActive != nil && m.IsActive != *filter.IsActive {
+		return false
+	}
+	switch filter.Status {
+	case port.MemberStatusActive:
+		return m.IsActive
+	case port.MemberStatusPending:
+		return m.IsPendingApproval()
+	case port.MemberStatusLeft:
+		return !m.IsActive && m.LeftAt != nil
+	case port.MemberStatusApproved:
+		return !m.IsPendingApproval()
+	}
+	return true
 }
 
 func (f *fakeMemberRepo) Update(ctx context.Context, m *domain.Member) error {

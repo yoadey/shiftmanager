@@ -50,6 +50,19 @@ app:
     redirectUrl: "http://localhost:8080/api/v1/auth/callback"
     # SPA route the backend redirects to after login (token in URL fragment).
     loginRedirectUrl: "/auth/callback"
+    # Optional JMESPath expression mapping the IdP's claims to an app role,
+    # like Grafana's role_attribute_path. It is evaluated against the ID
+    # token claims, then against the UserInfo response. It must yield one of:
+    # kiosk, mitglied, veranstaltungsleiter, vorstand, admin (case-insensitive).
+    # When it does, a user logging in for the first time (or still waiting
+    # for activation) is admitted right away with that role; otherwise they
+    # wait for manual activation as usual. Roles of members who are already
+    # active are managed in the app and not overwritten; deactivated members
+    # are not re-admitted. Only use with an IdP you trust to assign roles.
+    # Examples:
+    #   contains(groups[*], 'sm-admin') && 'admin' || contains(groups[*], 'vorstand') && 'vorstand' || contains(groups[*], 'mitglieder') && 'mitglied'
+    #   resource_access.shiftmanager.roles[0]        (Keycloak client roles)
+    roleAttributePath: ""
 
   # Sensitive — JWT signing secret (min. 32 chars). REQUIRED.
   # Generate: openssl rand -hex 32

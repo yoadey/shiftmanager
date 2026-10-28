@@ -1,30 +1,64 @@
-import React, { useState, useRef } from 'react';
-import { useNavigate, useLocation } from 'react-router-dom';
+import React, { useState, useRef, useEffect } from 'react';
+import { useNavigate, useLocation, useSearchParams } from 'react-router-dom';
 import { Icon } from '@/components/ui/Icon';
 import { Avatar } from '@/components/ui/Avatar';
 import { Field, Input } from '@/components/forms/Field';
 import { useAppStore } from '@/store/app.store';
 import { useAuthStore } from '@/store/auth.store';
-import { useMembers, useCreateMember, useExportMembersCSV, useImportMembersCSV, useImportMembersPreview } from '@/api/members';
+import { Badge } from '@/components/ui/Badge';
+import { Button } from '@/components/ui/Button';
+import {
+  useMemberPage, usePendingMembers, useUpdateMember, useDeactivateMember,
+  useCreateMember, useExportMembersCSV, useImportMembersCSV, useImportMembersPreview,
+} from '@/api/members';
 import type { ImportPreviewResult } from '@/api/members';
 import { useEvents } from '@/api/events';
 import { useSettings } from '@/api/settings';
 import { LoadingState, ErrorState } from '@/components/ui/States';
 import { EmptyState } from '@/screens/member/MemberDashboard';
-import { hrs } from '@/screens/_demo';
+import { fmtDate, hrs } from '@/screens/_demo';
 import { routes } from '@/routes';
 import { useSmartBack } from '@/hooks/useSmartBack';
+
+export const MEMBERS_PAGE_SIZE = 25;
 
 export function AdminMembers() {
   const { showToast } = useAppStore();
   const { user } = useAuthStore();
   const uid = user?.id ?? '';
-  const [q, setQ] = useState('');
   const navigate = useNavigate();
   const location = useLocation();
   const closeModal = useSmartBack(routes.mitglieder);
 
-  const membersQ = useMembers();
+  // Page and search live in the URL (?seite=2&suche=…) so returning from a
+  // member's detail page via the back button lands on the same page.
+  const [searchParams, setSearchParams] = useSearchParams();
+  const search = searchParams.get('suche') ?? '';
+  const page = Math.max(0, (Number(searchParams.get('seite')) || 1) - 1);
+  const [q, setQ] = useState(search);
+  const setListParams = (next: { page?: number; search?: string }) => {
+    const p = new URLSearchParams(searchParams);
+    const nextSearch = next.search ?? search;
+    const nextPage = next.page ?? page;
+    if (nextSearch) p.set('suche', nextSearch); else p.delete('suche');
+    if (nextPage > 0) p.set('seite', String(nextPage + 1)); else p.delete('seite');
+    setSearchParams(p, { replace: next.page === undefined });
+  };
+  // Debounce typing into the server-side search; a new search starts at page 1.
+  useEffect(() => {
+    if (q.trim() === search) return;
+    const t = setTimeout(() => setListParams({ search: q.trim(), page: 0 }), 300);
+    return () => clearTimeout(t);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [q]);
+
+  // Pending registrations are listed separately on top; the paginated list
+  // below shows everyone else (active and deactivated members).
+  const membersQ = useMemberPage({ page, pageSize: MEMBERS_PAGE_SIZE, search, status: 'approved' });
+  const pendingQ = usePendingMembers();
+  const approve = useUpdateMember();
+  const reject = useDeactivateMember();
+  const [confirmReject, setConfirmReject] = useState<string | null>(null);
   const eventsQ = useEvents();
   const { data: settings } = useSettings();
   const exportCsv = useExportMembersCSV();
@@ -47,9 +81,12 @@ export function AdminMembers() {
   const [newSince, setNewSince] = useState(() => new Date().toISOString().slice(0, 10));
   const createMember = useCreateMember();
 
-  const members = membersQ.data ?? [];
+  const members = membersQ.data?.items ?? [];
+  const total = membersQ.data?.total ?? 0;
+  const pending = pendingQ.data ?? [];
+  const pageCount = Math.max(1, Math.ceil(total / MEMBERS_PAGE_SIZE));
   const yearGoal = settings?.yearGoal ?? 20;
-  const memberMap: Record<string, { first: string; last: string }> = members.reduce(
+  const memberMap: Record<string, { first: string; last: string }> = [...members, ...pending].reduce(
     (acc, m) => { acc[m.id] = { first: m.first, last: m.last }; return acc; },
     {} as Record<string, { first: string; last: string }>,
   );
@@ -69,9 +106,31 @@ export function AdminMembers() {
     ),
   );
 
-  const list = members.filter((m) =>
-    (m.first + ' ' + m.last).toLowerCase().includes(q.toLowerCase()),
-  );
+  const list = members;
+
+  // A page beyond the end (e.g. after the last member on it was removed, or a
+  // stale bookmark) snaps back to the last existing page.
+  useEffect(() => {
+    if (membersQ.data && page > 0 && page >= pageCount) setListParams({ page: pageCount - 1 });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [membersQ.data, page, pageCount]);
+
+  const onApprove = (id: string, name: string) => {
+    approve.mutate(
+      { id, active: true },
+      {
+        onSuccess: () => showToast(`${name} wurde freigeschaltet.`),
+        onError: () => showToast('Freischaltung fehlgeschlagen.', 'crit'),
+      },
+    );
+  };
+
+  const onReject = (id: string, name: string) => {
+    reject.mutate(id, {
+      onSuccess: () => { setConfirmReject(null); showToast(`Registrierung von ${name} abgelehnt.`); },
+      onError: () => showToast('Ablehnen fehlgeschlagen.', 'crit'),
+    });
+  };
 
   const onExport = () => {
     showToast('Mitglieder-Export wird erstellt …');
@@ -141,7 +200,7 @@ export function AdminMembers() {
     <div className="fade-in">
       <div className="sm-header">
         <div>
-          <div className="sm-eyebrow">{members.length} Einträge</div>
+          <div className="sm-eyebrow">{total + pending.length} Einträge</div>
           <div className="sm-title">Mitglieder</div>
         </div>
         <div style={{ display: 'flex', gap: 8 }}>
@@ -177,11 +236,64 @@ export function AdminMembers() {
           <Input placeholder="Mitglied suchen…" value={q} onChange={(e) => setQ(e.target.value)} style={{ paddingLeft: 40 }} />
         </div>
       </div>
+      {pending.length > 0 && (
+        <div className="sm-pad" style={{ paddingTop: 12, paddingBottom: 0 }} data-testid="pending-members">
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8, margin: '0 2px 8px' }}>
+            <Icon name="clock" size={16} color="var(--warn)" />
+            <span style={{ fontWeight: 800, fontSize: 14.5 }}>Warten auf Freischaltung</span>
+            <Badge kind="warn" dot={false}>{pending.length}</Badge>
+          </div>
+          <div className="sm-card" style={{ overflow: 'hidden', background: 'var(--warn-bg)' }}>
+            {pending.map((m, i) => {
+              const name = `${m.first} ${m.last}`.trim() || m.email;
+              return (
+                <React.Fragment key={m.id}>
+                  {i > 0 && <hr className="sm-divider" style={{ marginLeft: 64 }} />}
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '12px 14px', flexWrap: 'wrap' }}>
+                    <div
+                      className="pressable"
+                      onClick={() => navigate(routes.mitglied(m.id))}
+                      style={{ display: 'flex', alignItems: 'center', gap: 12, flex: '1 1 180px', minWidth: 0, cursor: 'pointer' }}
+                    >
+                      <Avatar memberId={m.id} members={memberMap} size={40} />
+                      <div style={{ minWidth: 0 }}>
+                        <div style={{ fontWeight: 700, fontSize: 14.5 }}>{name}</div>
+                        <div style={{ color: 'var(--muted)', fontSize: 12, fontWeight: 600, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                          {m.email} · registriert am {fmtDate(m.since.slice(0, 10), 'short')}
+                        </div>
+                      </div>
+                    </div>
+                    {confirmReject === m.id ? (
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                        <span style={{ fontSize: 13, fontWeight: 600, color: 'var(--ink-2)' }}>Ablehnen?</span>
+                        <Button size="sm" variant="ghost" onClick={() => setConfirmReject(null)}>Nein</Button>
+                        <Button size="sm" variant="danger" loading={reject.isPending} onClick={() => onReject(m.id, name)}>Ja, ablehnen</Button>
+                      </div>
+                    ) : (
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                        <Button size="sm" variant="ghost" onClick={() => setConfirmReject(m.id)}>Ablehnen</Button>
+                        <Button
+                          size="sm"
+                          icon="check"
+                          loading={approve.isPending && approve.variables?.id === m.id}
+                          onClick={() => onApprove(m.id, name)}
+                        >
+                          Freischalten
+                        </Button>
+                      </div>
+                    )}
+                  </div>
+                </React.Fragment>
+              );
+            })}
+          </div>
+        </div>
+      )}
       <div className="sm-pad" style={{ paddingTop: 12 }}>
         {membersQ.isLoading && <LoadingState />}
         {membersQ.isError && <ErrorState />}
         {!membersQ.isLoading && !membersQ.isError && list.length === 0 && (
-          <EmptyState icon="users" title="Keine Mitglieder" text={q ? 'Für diese Suche gibt es keine Treffer.' : 'Es sind noch keine Mitglieder angelegt.'} />
+          <EmptyState icon="users" title="Keine Mitglieder" text={search ? 'Für diese Suche gibt es keine Treffer.' : 'Es sind noch keine Mitglieder angelegt.'} />
         )}
         {!membersQ.isLoading && !membersQ.isError && list.length > 0 && (
         <div className="sm-card" style={{ overflow: 'hidden' }}>
@@ -198,8 +310,9 @@ export function AdminMembers() {
                 >
                   <Avatar memberId={m.id} members={memberMap} size={40} />
                   <div style={{ flex: 1, minWidth: 0 }}>
-                    <div style={{ fontWeight: 700, fontSize: 14.5 }}>
-                      {m.first} {m.last}{m.id === uid && <span style={{ color: 'var(--muted)', fontWeight: 600 }}> · du</span>}
+                    <div style={{ fontWeight: 700, fontSize: 14.5, display: 'flex', alignItems: 'center', gap: 8 }}>
+                      <span>{m.first} {m.last}{m.id === uid && <span style={{ color: 'var(--muted)', fontWeight: 600 }}> · du</span>}</span>
+                      {m.active === false && <Badge kind="neutral" dot={false}>Ausgetreten</Badge>}
                     </div>
                     <div style={{ color: 'var(--muted)', fontSize: 12, fontWeight: 600 }}>{hrs(h)} / {goal} h{m.goal && ' · ind. Ziel'}</div>
                   </div>
@@ -214,6 +327,22 @@ export function AdminMembers() {
             );
           })}
         </div>
+        )}
+        {!membersQ.isError && pageCount > 1 && (
+          <nav aria-label="Seiten" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10, marginTop: 12 }}>
+            <Button size="sm" variant="ghost" disabled={page === 0} onClick={() => setListParams({ page: page - 1 })}>
+              <Icon name="chevL" size={14} stroke={2.4} /> Zurück
+            </Button>
+            <span style={{ color: 'var(--muted)', fontSize: 12.5, fontWeight: 700, textAlign: 'center' }}>
+              <span style={{ display: 'block' }}>Seite {page + 1} von {pageCount}</span>
+              <span style={{ display: 'block', fontWeight: 600, fontSize: 11.5 }}>
+                {page * MEMBERS_PAGE_SIZE + 1}–{Math.min((page + 1) * MEMBERS_PAGE_SIZE, total)} von {total}
+              </span>
+            </span>
+            <Button size="sm" variant="ghost" disabled={page >= pageCount - 1} onClick={() => setListParams({ page: page + 1 })}>
+              Weiter <Icon name="chevR" size={14} stroke={2.4} />
+            </Button>
+          </nav>
         )}
       </div>
 

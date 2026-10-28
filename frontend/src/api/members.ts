@@ -1,4 +1,4 @@
-import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import { useQuery, useMutation, useQueryClient, keepPreviousData } from '@tanstack/react-query';
 import { apiGet, apiPost, apiPut, apiDelete, apiClient } from './client';
 import type { Member } from '@/types';
 
@@ -31,6 +31,7 @@ function toMember(r: RawMember): Member {
     since: r.joinedAt ?? '',
     goal: r.individualGoalHours ?? null,
     active: r.isActive,
+    left: r.leftAt ?? null,
     reminderOptOut: r.reminderOptOut,
     notifyNewEvents: r.notifyNewEvents,
   };
@@ -61,10 +62,61 @@ function toRawWrite(data: MemberWrite): Record<string, unknown> {
 
 // ── Queries ────────────────────────────────────────────────────────────────
 
+/** True for an account that registered itself via OIDC and still waits for
+ * activation — inactive, but (unlike a deactivated member) without a leave date. */
+export function isPendingApproval(m: Pick<Member, 'active' | 'left'>): boolean {
+  return m.active === false && !m.left;
+}
+
+/** All members (unpaginated) — for name lookups and pickers. */
 export function useMembers() {
   return useQuery({
     queryKey: ['members'],
-    queryFn: () => apiGet<RawMember[]>('/members').then((rows) => rows.map(toMember)),
+    // limit=0 lifts the backend's default page size of 50.
+    queryFn: () => apiGet<RawMember[]>('/members', { params: { limit: 0 } }).then((rows) => rows.map(toMember)),
+  });
+}
+
+export type MemberStatus = 'active' | 'pending' | 'left' | 'approved';
+
+export interface MemberPageParams {
+  page: number;      // 0-based
+  pageSize: number;
+  search?: string;
+  status?: MemberStatus;
+}
+
+export interface MemberPage {
+  items: Member[];
+  total: number;
+}
+
+/** One page of members, sorted by last/first name; total comes from X-Total-Count. */
+export function useMemberPage({ page, pageSize, search = '', status }: MemberPageParams) {
+  return useQuery({
+    queryKey: ['members', 'page', { page, pageSize, search, status }],
+    queryFn: async (): Promise<MemberPage> => {
+      const res = await apiClient.get<RawMember[]>('/members', {
+        params: { limit: pageSize, offset: page * pageSize, search: search || undefined, status },
+      });
+      const items = res.data.map(toMember);
+      const total = Number(res.headers['x-total-count']);
+      return { items, total: Number.isFinite(total) ? total : items.length };
+    },
+    // Keep the current page on screen while the next one loads.
+    placeholderData: keepPreviousData,
+  });
+}
+
+/** Self-registered accounts waiting for activation (usually only a handful). */
+export function usePendingMembers(enabled = true) {
+  return useQuery({
+    queryKey: ['members', 'pending'],
+    queryFn: () =>
+      apiGet<RawMember[]>('/members', { params: { status: 'pending', limit: 0 } }).then((rows) => rows.map(toMember)),
+    enabled,
+    // New registrations arrive without any action in this tab; poll gently.
+    refetchInterval: 5 * 60 * 1000,
   });
 }
 

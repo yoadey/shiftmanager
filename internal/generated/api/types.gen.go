@@ -141,19 +141,19 @@ func (e HourEntryType) Valid() bool {
 
 // Defines values for HourEntryStatus.
 const (
-	Confirmed HourEntryStatus = "confirmed"
-	Pending   HourEntryStatus = "pending"
-	Rejected  HourEntryStatus = "rejected"
+	HourEntryStatusConfirmed HourEntryStatus = "confirmed"
+	HourEntryStatusPending   HourEntryStatus = "pending"
+	HourEntryStatusRejected  HourEntryStatus = "rejected"
 )
 
 // Valid indicates whether the value is a known member of the HourEntryStatus enum.
 func (e HourEntryStatus) Valid() bool {
 	switch e {
-	case Confirmed:
+	case HourEntryStatusConfirmed:
 		return true
-	case Pending:
+	case HourEntryStatusPending:
 		return true
-	case Rejected:
+	case HourEntryStatusRejected:
 		return true
 	default:
 		return false
@@ -196,6 +196,30 @@ func (e RecurrenceFrequency) Valid() bool {
 	case Monthly:
 		return true
 	case Weekly:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for ListMembersParamsStatus.
+const (
+	ListMembersParamsStatusActive   ListMembersParamsStatus = "active"
+	ListMembersParamsStatusApproved ListMembersParamsStatus = "approved"
+	ListMembersParamsStatusLeft     ListMembersParamsStatus = "left"
+	ListMembersParamsStatusPending  ListMembersParamsStatus = "pending"
+)
+
+// Valid indicates whether the value is a known member of the ListMembersParamsStatus enum.
+func (e ListMembersParamsStatus) Valid() bool {
+	switch e {
+	case ListMembersParamsStatusActive:
+		return true
+	case ListMembersParamsStatusApproved:
+		return true
+	case ListMembersParamsStatusLeft:
+		return true
+	case ListMembersParamsStatusPending:
 		return true
 	default:
 		return false
@@ -641,9 +665,22 @@ type SearchKioskMembersParams struct {
 
 // ListMembersParams defines parameters for ListMembers.
 type ListMembersParams struct {
-	Search   *string `form:"search,omitempty" json:"search,omitempty"`
-	IsActive *bool   `form:"isActive,omitempty" json:"isActive,omitempty"`
+	// Search Case-insensitive match on first name, last name, full name or e-mail.
+	Search *string `form:"search,omitempty" json:"search,omitempty"`
+	Active *bool   `form:"active,omitempty" json:"active,omitempty"`
+
+	// Status Account state filter. `pending` = self-registered via OIDC and waiting
+	// for activation (inactive, no leave date); `left` = deactivated;
+	// `approved` = everyone except pending registrations.
+	Status *ListMembersParamsStatus `form:"status,omitempty" json:"status,omitempty"`
+
+	// Limit Page size; 0 returns all matches.
+	Limit  *int `form:"limit,omitempty" json:"limit,omitempty"`
+	Offset *int `form:"offset,omitempty" json:"offset,omitempty"`
 }
+
+// ListMembersParamsStatus defines parameters for ListMembers.
+type ListMembersParamsStatus string
 
 // ImportMembersMultipartBody defines parameters for ImportMembers.
 type ImportMembersMultipartBody struct {
@@ -875,7 +912,7 @@ type ServerInterface interface {
 	// Register for a shift via kiosk (no auth); sends confirmation email
 	// (POST /kiosk/shifts/{id}/register)
 	KioskRegister(w http.ResponseWriter, r *http.Request, id UUID)
-	// List all members
+	// List members (paginated, sorted by last/first name)
 	// (GET /members)
 	ListMembers(w http.ResponseWriter, r *http.Request, params ListMembersParams)
 	// Create a member (Vorstand+)
@@ -1190,7 +1227,7 @@ func (_ Unimplemented) KioskRegister(w http.ResponseWriter, r *http.Request, id 
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
-// List all members
+// List members (paginated, sorted by last/first name)
 // (GET /members)
 func (_ Unimplemented) ListMembers(w http.ResponseWriter, r *http.Request, params ListMembersParams) {
 	w.WriteHeader(http.StatusNotImplemented)
@@ -2551,15 +2588,54 @@ func (siw *ServerInterfaceWrapper) ListMembers(w http.ResponseWriter, r *http.Re
 		return
 	}
 
-	// ------------- Optional query parameter "isActive" -------------
+	// ------------- Optional query parameter "active" -------------
 
-	err = runtime.BindQueryParameterWithOptions("form", true, false, "isActive", r.URL.Query(), &params.IsActive, runtime.BindQueryParameterOptions{Type: "boolean", Format: ""})
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "active", r.URL.Query(), &params.Active, runtime.BindQueryParameterOptions{Type: "boolean", Format: ""})
 	if err != nil {
 		var requiredError *runtime.RequiredParameterError
 		if errors.As(err, &requiredError) {
-			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "isActive"})
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "active"})
 		} else {
-			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "isActive", Err: err})
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "active", Err: err})
+		}
+		return
+	}
+
+	// ------------- Optional query parameter "status" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "status", r.URL.Query(), &params.Status, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "status"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "status", Err: err})
+		}
+		return
+	}
+
+	// ------------- Optional query parameter "limit" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "limit", r.URL.Query(), &params.Limit, runtime.BindQueryParameterOptions{Type: "integer", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "limit"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "limit", Err: err})
+		}
+		return
+	}
+
+	// ------------- Optional query parameter "offset" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "offset", r.URL.Query(), &params.Offset, runtime.BindQueryParameterOptions{Type: "integer", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "offset"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "offset", Err: err})
 		}
 		return
 	}

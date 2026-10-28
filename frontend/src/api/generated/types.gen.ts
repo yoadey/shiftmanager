@@ -477,13 +477,32 @@ export type ListMembersData = {
   body?: never;
   path?: never;
   query?: {
+    /**
+     * Case-insensitive match on first name, last name, full name or e-mail.
+     */
     search?: string;
-    isActive?: boolean;
+    active?: boolean;
+    /**
+     * Account state filter. `pending` = self-registered via OIDC and waiting
+     * for activation (inactive, no leave date); `left` = deactivated;
+     * `approved` = everyone except pending registrations.
+     *
+     */
+    status?: "active" | "pending" | "left" | "approved";
+    /**
+     * Page size; 0 returns all matches.
+     */
+    limit?: number;
+    offset?: number;
   };
   url: "/members";
 };
 
 export type ListMembersErrors = {
+  /**
+   * Invalid request
+   */
+  400: ErrorResponse;
   /**
    * Missing or invalid JWT
    */
