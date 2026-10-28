@@ -12,6 +12,7 @@ const m = (id: string, extra: Partial<Member> = {}): Member => ({
 let pageItems: Member[] = [];
 let pageTotal = 0;
 let pending: Member[] = [];
+let pendingError = false;
 const pageCalls: MemberPageParams[] = [];
 const approve = vi.fn();
 const reject = vi.fn();
@@ -22,7 +23,7 @@ vi.mock('@/api/members', () => ({
     pageCalls.push(p);
     return { data: { items: pageItems, total: pageTotal }, isLoading: false, isError: false };
   },
-  usePendingMembers: () => ({ data: pending }),
+  usePendingMembers: () => ({ data: pendingError ? undefined : pending, isError: pendingError }),
   useUpdateMember: () => ({ mutate: approve, isPending: false, variables: undefined }),
   useDeactivateMember: () => ({ mutate: reject, isPending: false }),
   useCreateMember: () => idle(),
@@ -49,6 +50,7 @@ describe('AdminMembers', () => {
     pageItems = [m('1'), m('2', { active: false, left: '2026-01-01' })];
     pageTotal = 2;
     pending = [];
+    pendingError = false;
     pageCalls.length = 0;
     approve.mockClear();
     reject.mockClear();
@@ -72,6 +74,12 @@ describe('AdminMembers', () => {
     expect(reject).not.toHaveBeenCalled();
     fireEvent.click(screen.getByRole('button', { name: /Ja, ablehnen/ }));
     expect(reject).toHaveBeenCalledWith('p', expect.anything());
+  });
+
+  it('says so when pending registrations could not be loaded', () => {
+    pendingError = true;
+    renderAt();
+    expect(screen.getByRole('alert')).toHaveTextContent('Wartende Registrierungen konnten nicht geladen werden.');
   });
 
   it('requests approved members only and marks deactivated ones', () => {

@@ -122,6 +122,12 @@ func (h *MemberHandler) Get(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusNotFound, "member not found")
 		return
 	}
+	// As in List: a pending self-registration is visible to the board only
+	// (ML-010), answered like a missing member so its existence isn't leaked.
+	if m.IsPendingApproval() && !domain.HasRole(middleware.GetUserRole(r.Context()), domain.RoleVorstand) {
+		writeError(w, http.StatusNotFound, "member not found")
+		return
+	}
 	writeJSON(w, http.StatusOK, m)
 }
 

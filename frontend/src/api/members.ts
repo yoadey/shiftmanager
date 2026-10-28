@@ -68,12 +68,14 @@ export function isPendingApproval(m: Pick<Member, 'active' | 'left'>): boolean {
   return m.active === false && !m.left;
 }
 
-/** All members (unpaginated) — for name lookups and pickers. */
-export function useMembers() {
+/** All members (unpaginated) — for name lookups and pickers. Pass
+ * enabled=false where the list is not needed, sparing the full download. */
+export function useMembers(enabled = true) {
   return useQuery({
     queryKey: ['members'],
     // limit=0 lifts the backend's default page size of 50.
     queryFn: () => apiGet<RawMember[]>('/members', { params: { limit: 0 } }).then((rows) => rows.map(toMember)),
+    enabled,
   });
 }
 

@@ -224,6 +224,14 @@ export function AdminMembers() {
           <Input placeholder="Mitglied suchen…" value={q} onChange={(e) => setQ(e.target.value)} style={{ paddingLeft: 40 }} />
         </div>
       </div>
+      {pendingQ.isError && (
+        <div className="sm-pad" style={{ paddingTop: 12, paddingBottom: 0 }}>
+          <div className="sm-card pad" role="alert" style={{ display: 'flex', alignItems: 'center', gap: 10, background: 'var(--warn-bg)', fontSize: 13, fontWeight: 600 }}>
+            <Icon name="clock" size={18} color="var(--warn)" />
+            Wartende Registrierungen konnten nicht geladen werden.
+          </div>
+        </div>
+      )}
       {pending.length > 0 && (
         <div className="sm-pad" style={{ paddingTop: 12, paddingBottom: 0 }} data-testid="pending-members">
           <div style={{ display: 'flex', alignItems: 'center', gap: 8, margin: '0 2px 8px' }}>

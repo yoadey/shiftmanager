@@ -68,7 +68,7 @@ export function AdminDashboard() {
   // Headline stats from the dedicated /stats endpoint (D-004). Guard undefined so
   // the cards render zeros rather than NaN while the query is in flight.
   const totalConfirmedHours = stats?.totalConfirmedHours ?? 0;
-  const activeMembers = stats?.activeMembers ?? membersQ.data?.length ?? 0;
+  const activeMembers = stats?.activeMembers ?? membersQ.data?.filter((m) => m.active !== false).length ?? 0;
   const openShifts = stats?.openShifts ?? 0;
   const upcomingShifts = stats?.upcomingShifts ?? 0;
   const membersBelowTarget = stats?.membersBelowTarget ?? 0;

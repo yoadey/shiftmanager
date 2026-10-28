@@ -176,7 +176,7 @@ func (h *AuthHandler) Callback(w http.ResponseWriter, r *http.Request) {
 	// Without an e-mail claim there is nothing to match on: an empty lookup
 	// would hit any other account registered without an address and link
 	// this identity to it. Normalise like provisionMember stores it.
-	if email := strings.ToLower(strings.TrimSpace(claims.Email)); member == nil && email != "" {
+	if email := normalizeEmail(claims.Email); member == nil && email != "" {
 		member, _ = h.members.GetByEmail(r, email)
 	}
 
@@ -284,7 +284,7 @@ func (h *AuthHandler) provisionMember(r *http.Request, claims *port.OIDCClaims, 
 		LastName:  last,
 		// Stored lower-cased like CreateMember does: GetByEmail lower-cases
 		// its argument, so a mixed-case address would never match again.
-		Email:       strings.ToLower(strings.TrimSpace(claims.Email)),
+		Email:       normalizeEmail(claims.Email),
 		JoinedAt:    time.Now().UTC(),
 		IsActive:    bootstrapAdmin || claims.Role != "",
 		Role:        domain.RoleMitglied,
@@ -312,6 +312,11 @@ func (h *AuthHandler) provisionMember(r *http.Request, claims *port.OIDCClaims, 
 	}
 	_ = h.audit.WriteAudit(r, &member.ID, action, "member", member.ID.String(), nil, *member)
 	return member, nil
+}
+
+// normalizeEmail lower-cases and trims an address the way members are stored.
+func normalizeEmail(email string) string {
+	return strings.ToLower(strings.TrimSpace(email))
 }
 
 // onlyLinkedIdentity reports whether the member's sole OIDC link is the
