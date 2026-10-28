@@ -10,7 +10,7 @@ export interface MemberHourAccount {
   goal: number;
   clubYearLabel?: string;
   /** Fee in cents due if no further hours are worked this club year; absent
-   * without fee tiers (or on someone else's account without board rights). */
+   * without fee tiers and for inactive members. */
   openFeeCents?: number;
   entries: HourEntry[];
 }

@@ -58,11 +58,6 @@ func (h *KioskHandler) PublicTimeline(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
-	// The kiosk only shows published events (as /kiosk/events lists them).
-	if timeline.Event.Status != domain.EventStatusPublished {
-		writeError(w, http.StatusNotFound, "event not found")
-		return
-	}
 	writeJSON(w, http.StatusOK, timeline)
 }
 
@@ -97,6 +92,12 @@ func (h *KioskHandler) Register(w http.ResponseWriter, r *http.Request) {
 	var regInput usecase.RegisterInput
 	regInput.ShiftID = shiftID
 	regInput.Comment = body.Comment
+	// Picking a member is only possible through the member search; with it
+	// switched off the kiosk takes e-mail addresses only (K-002, K-004).
+	if body.MemberID != nil && !h.kioskSearchEnabled(r) {
+		writeError(w, http.StatusForbidden, "kiosk member search is disabled; register with an e-mail address")
+		return
+	}
 	if body.MemberID != nil {
 		regInput.MemberID = body.MemberID
 	} else {
@@ -138,6 +139,16 @@ func (h *KioskHandler) ListEvents(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, events)
 }
 
+// kioskSearchEnabled reports whether the admin allows the kiosk member
+// search (K-002); without settings (tests) it is allowed.
+func (h *KioskHandler) kioskSearchEnabled(r *http.Request) bool {
+	if h.settingsUC == nil {
+		return true
+	}
+	st, err := h.settingsUC.GetSettings(r.Context())
+	return err == nil && st.KioskSearch
+}
+
 // kioskSearchLimit caps the anonymous kiosk member search.
 const kioskSearchLimit = 20
 
@@ -149,11 +160,9 @@ func (h *KioskHandler) SearchMembers(w http.ResponseWriter, r *http.Request) {
 	}
 	// With the search switched off the kiosk only takes e-mail addresses
 	// (K-002, K-004); don't answer name queries behind the UI's back.
-	if h.settingsUC != nil {
-		if st, err := h.settingsUC.GetSettings(r.Context()); err != nil || !st.KioskSearch {
-			writeError(w, http.StatusForbidden, "kiosk member search is disabled")
-			return
-		}
+	if !h.kioskSearchEnabled(r) {
+		writeError(w, http.StatusForbidden, "kiosk member search is disabled")
+		return
 	}
 	q := strings.TrimSpace(r.URL.Query().Get("q"))
 	if len(q) < 2 {

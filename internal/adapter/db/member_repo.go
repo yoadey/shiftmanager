@@ -221,11 +221,17 @@ func applyMemberFilter(q *gorm.DB, filter port.MemberFilter) *gorm.DB {
 	if s := strings.TrimSpace(filter.Search); s != "" {
 		// Escape LIKE wildcards so "%" or "_" in a search match literally.
 		like := "%" + likeEscaper.Replace(strings.ToLower(s)) + "%"
-		if filter.SearchNamesOnly {
-			q = q.Where(`(lower(first_name) LIKE ? ESCAPE '\' OR lower(last_name) LIKE ? ESCAPE '\' OR lower(first_name || ' ' || last_name) LIKE ? ESCAPE '\')`, like, like, like)
-		} else {
-			q = q.Where(`(lower(first_name) LIKE ? ESCAPE '\' OR lower(last_name) LIKE ? ESCAPE '\' OR lower(first_name || ' ' || last_name) LIKE ? ESCAPE '\' OR lower(email) LIKE ? ESCAPE '\')`, like, like, like, like)
+		columns := []string{"first_name", "last_name", "first_name || ' ' || last_name"}
+		if !filter.SearchNamesOnly {
+			columns = append(columns, "email")
 		}
+		conds := make([]string, len(columns))
+		args := make([]any, len(columns))
+		for i, c := range columns {
+			conds[i] = "lower(" + c + `) LIKE ? ESCAPE '\'`
+			args[i] = like
+		}
+		q = q.Where("("+strings.Join(conds, " OR ")+")", args...)
 	}
 	return q
 }

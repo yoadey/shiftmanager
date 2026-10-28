@@ -421,10 +421,12 @@ func TestTimeline_OnlyNamesOfOthers(t *testing.T) {
 	assert.Empty(t, seen["Max M."]["comment"])
 	assert.NotContains(t, seen["Hans G."], "guestEmail")
 	assert.NotContains(t, seen["Hans G."], "guestName", "the full guest name must not leak next to the abbreviated one")
+	assert.NotContains(t, seen["Max M."], "memberId", "no ids to act on someone else's behalf")
 
 	// Max sees his own registration in full.
 	seen = byName(regsOf(timeline, member))
 	assert.Equal(t, "komme später", seen["Max Mustermann"]["comment"])
+	assert.Equal(t, db.MemberID.String(), seen["Max Mustermann"]["memberId"])
 
 	// The organiser sees full names, comments and the guest's e-mail.
 	seen = byName(regsOf(timeline, leiter))
@@ -438,15 +440,39 @@ func TestTimeline_OnlyNamesOfOthers(t *testing.T) {
 	assert.NotContains(t, seen["Hans G."], "guestEmail")
 	assert.NotContains(t, seen["Hans G."], "guestName")
 
-	// ... and only for published events.
+	// ... and only for published events; members never see drafts (V-006).
 	resp = post(t, s, "/api/v1/events", leiter, `{"name": "Entwurf", "location": "Halle", "category": "Fest",
 		"startDate": "2026-12-20T10:00:00Z", "endDate": "2026-12-20T20:00:00Z", "visibility": "public"}`)
 	require.Equal(t, http.StatusCreated, resp.StatusCode)
 	var draft map[string]any
 	decode(t, resp, &draft)
-	resp = get(t, s, "/api/v1/kiosk/events/"+draft["id"].(string), "")
-	assert.Equal(t, http.StatusNotFound, resp.StatusCode)
+	draftID := draft["id"].(string)
+	for _, c := range []struct{ path, tok string }{
+		{"/api/v1/kiosk/events/" + draftID, ""},
+		{"/api/v1/events/" + draftID, other},
+		{"/api/v1/events/" + draftID + "/timeline", other},
+	} {
+		resp = get(t, s, c.path, c.tok)
+		assert.Equal(t, http.StatusNotFound, resp.StatusCode, c.path)
+		resp.Body.Close()
+	}
+	resp = get(t, s, "/api/v1/events/"+draftID, leiter)
+	assert.Equal(t, http.StatusOK, resp.StatusCode, "organisers see their drafts")
 	resp.Body.Close()
+
+	listNames := func(tok string) []string {
+		resp := get(t, s, "/api/v1/events?status=draft", tok)
+		require.Equal(t, http.StatusOK, resp.StatusCode)
+		var events []map[string]any
+		decode(t, resp, &events)
+		var out []string
+		for _, e := range events {
+			out = append(out, e["name"].(string))
+		}
+		return out
+	}
+	assert.Empty(t, listNames(other), "members cannot list drafts")
+	assert.Equal(t, []string{"Entwurf"}, listNames(leiter))
 }
 
 // The kiosk search answers only when enabled, with id and abbreviated name (K-002, K-003).
@@ -454,6 +480,12 @@ func TestKioskMemberSearch(t *testing.T) {
 	s := startServer(t)
 	resp := get(t, s, "/api/v1/kiosk/members?q=max", "")
 	assert.Equal(t, http.StatusForbidden, resp.StatusCode, "search disabled by default")
+	resp.Body.Close()
+
+	// Without the search the kiosk takes e-mail addresses only (K-002).
+	register := fmt.Sprintf(`{"memberId": "%s"}`, db.MemberID)
+	resp = post(t, s, "/api/v1/kiosk/shifts/"+db.Shift2ID.String()+"/register", "", register)
+	assert.Equal(t, http.StatusForbidden, resp.StatusCode)
 	resp.Body.Close()
 
 	board := token(t, s, "vorstand", db.AdminID.String(), "admin@test.local")
@@ -467,6 +499,10 @@ func TestKioskMemberSearch(t *testing.T) {
 	decode(t, resp, &hits)
 	require.Len(t, hits, 1)
 	assert.Equal(t, map[string]any{"id": db.MemberID.String(), "name": "Max M."}, hits[0])
+
+	resp = post(t, s, "/api/v1/kiosk/shifts/"+db.Shift2ID.String()+"/register", "", register)
+	assert.Equal(t, http.StatusCreated, resp.StatusCode, "member picked via the enabled search")
+	resp.Body.Close()
 
 	// No lookups by e-mail address from the anonymous kiosk.
 	resp = get(t, s, "/api/v1/kiosk/members?q=max@test.local", "")

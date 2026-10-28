@@ -97,6 +97,8 @@ type EventFilter struct {
 	Status     *domain.EventStatus
 	Visibility *domain.EventVisibility
 	Category   string
+	// ExcludeDrafts hides draft events (non-organisers, V-006).
+	ExcludeDrafts bool
 	// FromDate keeps events that end at or after it.
 	FromDate *time.Time
 	// ToDate keeps events that start strictly before it (exclusive bound).

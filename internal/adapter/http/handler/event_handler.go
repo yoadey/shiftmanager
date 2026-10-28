@@ -46,6 +46,8 @@ func (h *EventHandler) List(w http.ResponseWriter, r *http.Request) {
 		Offset:    offset,
 		Category:  q.Get("category"),
 		FreeSlots: q.Get("freeSlots") == "true",
+		// Members never see drafts (V-006); organisers manage them.
+		ExcludeDrafts: !domain.HasRole(middleware.GetUserRole(r.Context()), domain.RoleVeranstaltungsleiter),
 	}
 
 	switch q.Get("order") {

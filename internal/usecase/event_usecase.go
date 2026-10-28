@@ -440,7 +440,12 @@ func (uc *EventUsecase) GetEventTimeline(ctx context.Context, eventID uuid.UUID)
 	if err != nil {
 		return nil, err
 	}
+	return uc.buildTimeline(ctx, event)
+}
 
+// buildTimeline loads an event's shifts and registrations, grouped by day.
+func (uc *EventUsecase) buildTimeline(ctx context.Context, event *domain.Event) (*domain.EventTimeline, error) {
+	eventID := event.ID
 	shifts, err := uc.shifts.FindByEventID(ctx, eventID)
 	if err != nil {
 		return nil, fmt.Errorf("load shifts: %w", err)
@@ -487,12 +492,38 @@ type TimelineViewer struct {
 	Role string
 }
 
+// anonymous reports whether the viewer is the unauthenticated kiosk.
+func (v TimelineViewer) anonymous() bool { return v.ID == uuid.Nil && v.Role == "" }
+
+// EventVisibleTo reports whether viewer may see the event at all (V-006):
+// organisers see every event, members everything but drafts (completed
+// events stay visible for their shift history), the anonymous kiosk only
+// published events.
+func EventVisibleTo(e *domain.Event, viewer TimelineViewer) bool {
+	switch {
+	case domain.HasRole(viewer.Role, domain.RoleVeranstaltungsleiter):
+		return true
+	case viewer.anonymous():
+		return e.Status == domain.EventStatusPublished
+	default:
+		return e.Status != domain.EventStatusDraft
+	}
+}
+
 // GetEventTimelineFor returns the timeline as viewer may see it (SC-011):
 // every registration carries the name to show, and below the
 // Veranstaltungsleiter role other people's registrations are reduced to that
-// name — no guest e-mail, comment, booked hours or reservation deadline.
+// name — no member id, guest e-mail, comment, booked hours or reservation
+// deadline. An event the viewer may not see is reported as not found.
 func (uc *EventUsecase) GetEventTimelineFor(ctx context.Context, eventID uuid.UUID, viewer TimelineViewer) (*domain.EventTimeline, error) {
-	tl, err := uc.GetEventTimeline(ctx, eventID)
+	event, err := uc.events.GetByID(ctx, eventID)
+	if err != nil {
+		return nil, err
+	}
+	if !EventVisibleTo(event, viewer) {
+		return nil, domain.ErrEventNotFound
+	}
+	tl, err := uc.buildTimeline(ctx, event)
 	if err != nil {
 		return nil, err
 	}
@@ -561,7 +592,9 @@ func (uc *EventUsecase) GetEventTimelineFor(ctx context.Context, eventID uuid.UU
 
 				own := viewer.ID != uuid.Nil && r.MemberID != nil && *r.MemberID == viewer.ID
 				if !organiser && !own {
+					// No ids to act on others' behalf (e.g. kiosk sign-up);
 					// DisplayName carries the (abbreviated) guest name.
+					r.MemberID = nil
 					r.GuestName = nil
 					r.GuestEmail = nil
 					r.Comment = ""

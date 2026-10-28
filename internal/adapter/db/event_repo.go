@@ -91,6 +91,9 @@ func applyEventFilter(q *gorm.DB, filter port.EventFilter) *gorm.DB {
 	if filter.Category != "" {
 		q = q.Where("category = ?", filter.Category)
 	}
+	if filter.ExcludeDrafts {
+		q = q.Where("status <> ?", string(domain.EventStatusDraft))
+	}
 	if filter.FromDate != nil {
 		q = q.Where("end_date >= ?", *filter.FromDate)
 	}

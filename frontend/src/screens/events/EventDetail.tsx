@@ -300,8 +300,8 @@ function AddMemberSheet({
   const [guestName, setGuestName] = useState('');
   const [guestEmail, setGuestEmail] = useState('');
 
-  // Organisers search by name only — they have no access to the member
-  // list (ML-014); the server returns active members, id and name.
+  // Organisers have no access to the member list: the lookup searches active
+  // members by name or e-mail and returns only id and name (ML-014).
   const [query, setQuery] = useState('');
   useEffect(() => {
     const t = setTimeout(() => setQuery(search), 250);
