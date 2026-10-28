@@ -36,18 +36,25 @@ export function AdminMembers() {
   const search = searchParams.get('suche') ?? '';
   const page = Math.max(0, (Number(searchParams.get('seite')) || 1) - 1);
   const [q, setQ] = useState(search);
-  const setListParams = (next: { page?: number; search?: string }) => {
+  // Only explicit page navigation adds a history entry; search updates and
+  // the out-of-range snap replace the current one (otherwise the back button
+  // would replay every search, or bounce back onto the page that snaps again).
+  const setListParams = (next: { page?: number; search?: string }, replace: boolean) => {
     const p = new URLSearchParams(searchParams);
     const nextSearch = next.search ?? search;
     const nextPage = next.page ?? page;
     if (nextSearch) p.set('suche', nextSearch); else p.delete('suche');
     if (nextPage > 0) p.set('seite', String(nextPage + 1)); else p.delete('seite');
-    setSearchParams(p, { replace: next.page === undefined });
+    setSearchParams(p, { replace });
   };
+  // Keep the input in sync when the URL search changes from outside (back/forward).
+  useEffect(() => {
+    setQ((cur) => (cur.trim() === search ? cur : search));
+  }, [search]);
   // Debounce typing into the server-side search; a new search starts at page 1.
   useEffect(() => {
     if (q.trim() === search) return;
-    const t = setTimeout(() => setListParams({ search: q.trim(), page: 0 }), 300);
+    const t = setTimeout(() => setListParams({ search: q.trim(), page: 0 }, true), 300);
     return () => clearTimeout(t);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [q]);
@@ -111,7 +118,7 @@ export function AdminMembers() {
   // A page beyond the end (e.g. after the last member on it was removed, or a
   // stale bookmark) snaps back to the last existing page.
   useEffect(() => {
-    if (membersQ.data && page > 0 && page >= pageCount) setListParams({ page: pageCount - 1 });
+    if (membersQ.data && page > 0 && page >= pageCount) setListParams({ page: pageCount - 1 }, true);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [membersQ.data, page, pageCount]);
 
@@ -200,7 +207,7 @@ export function AdminMembers() {
     <div className="fade-in">
       <div className="sm-header">
         <div>
-          <div className="sm-eyebrow">{total + pending.length} Einträge</div>
+          <div className="sm-eyebrow">{search ? total : total + pending.length} Einträge</div>
           <div className="sm-title">Mitglieder</div>
         </div>
         <div style={{ display: 'flex', gap: 8 }}>
@@ -330,7 +337,7 @@ export function AdminMembers() {
         )}
         {!membersQ.isError && pageCount > 1 && (
           <nav aria-label="Seiten" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10, marginTop: 12 }}>
-            <Button size="sm" variant="ghost" disabled={page === 0} onClick={() => setListParams({ page: page - 1 })}>
+            <Button size="sm" variant="ghost" disabled={page === 0} onClick={() => setListParams({ page: page - 1 }, false)}>
               <Icon name="chevL" size={14} stroke={2.4} /> Zurück
             </Button>
             <span style={{ color: 'var(--muted)', fontSize: 12.5, fontWeight: 700, textAlign: 'center' }}>
@@ -339,7 +346,7 @@ export function AdminMembers() {
                 {page * MEMBERS_PAGE_SIZE + 1}–{Math.min((page + 1) * MEMBERS_PAGE_SIZE, total)} von {total}
               </span>
             </span>
-            <Button size="sm" variant="ghost" disabled={page >= pageCount - 1} onClick={() => setListParams({ page: page + 1 })}>
+            <Button size="sm" variant="ghost" disabled={page >= pageCount - 1} onClick={() => setListParams({ page: page + 1 }, false)}>
               Weiter <Icon name="chevR" size={14} stroke={2.4} />
             </Button>
           </nav>

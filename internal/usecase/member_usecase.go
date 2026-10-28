@@ -73,6 +73,10 @@ func (uc *MemberUsecase) ListMembers(ctx context.Context, filter port.MemberFilt
 	if err != nil {
 		return nil, 0, err
 	}
+	if filter.Limit <= 0 && filter.Offset <= 0 {
+		// Unpaginated: the result already is every match.
+		return members, len(members), nil
+	}
 	total, err := uc.members.CountFiltered(ctx, filter)
 	if err != nil {
 		return nil, 0, err

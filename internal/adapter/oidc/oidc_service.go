@@ -122,7 +122,7 @@ func (s *Service) VerifyIDToken(ctx context.Context, tokens *port.OIDCTokens) (*
 			out.Role = s.roles.Resolve(raw)
 		}
 		if out.Role == "" && tokens.AccessToken != "" {
-			out.Role = s.roleFromUserInfo(ctx, tokens.AccessToken)
+			out.Role = s.roleFromUserInfo(ctx, tokens.AccessToken, idToken.Subject)
 		}
 	}
 	return out, nil
@@ -130,10 +130,11 @@ func (s *Service) VerifyIDToken(ctx context.Context, tokens *port.OIDCTokens) (*
 
 // roleFromUserInfo evaluates the role expression against the UserInfo
 // response. Failures yield no role: the member then waits for manual
-// activation, exactly as without a role expression.
-func (s *Service) roleFromUserInfo(ctx context.Context, accessToken string) string {
+// activation, exactly as without a role expression. The response is only
+// trusted when its subject matches the id_token's (OIDC Core 5.3.2).
+func (s *Service) roleFromUserInfo(ctx context.Context, accessToken, subject string) string {
 	info, err := s.provider.UserInfo(ctx, oauth2.StaticTokenSource(&oauth2.Token{AccessToken: accessToken}))
-	if err != nil {
+	if err != nil || info.Subject != subject {
 		return ""
 	}
 	var raw map[string]any
