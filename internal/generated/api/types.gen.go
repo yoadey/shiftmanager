@@ -671,7 +671,9 @@ type ListMembersParams struct {
 
 	// Status Account state filter. `pending` = self-registered via OIDC and waiting
 	// for activation (inactive, no leave date); `left` = deactivated;
-	// `approved` = everyone except pending registrations.
+	// `approved` = everyone except pending registrations. Without the
+	// vorstand or admin role, `pending` is rejected with 403 and an
+	// omitted status means `approved`.
 	Status *ListMembersParamsStatus `form:"status,omitempty" json:"status,omitempty"`
 
 	// Limit Page size; 0 returns all matches.

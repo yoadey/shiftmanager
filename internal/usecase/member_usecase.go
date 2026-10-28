@@ -28,7 +28,7 @@ func NewMemberUsecase(members port.MemberRepository, audit port.AuditRepository)
 
 // CreateMember validates and persists a new member.
 func (uc *MemberUsecase) CreateMember(ctx context.Context, actorID uuid.UUID, input CreateMemberInput) (*domain.Member, error) {
-	input.Email = strings.ToLower(strings.TrimSpace(input.Email))
+	input.Email = domain.NormalizeEmail(input.Email)
 	if input.Email == "" {
 		return nil, fmt.Errorf("email is required")
 	}
@@ -106,7 +106,7 @@ func (uc *MemberUsecase) UpdateMember(ctx context.Context, actorID uuid.UUID, id
 		m.LastName = strings.TrimSpace(input.LastName)
 	}
 	if input.Email != "" {
-		input.Email = strings.ToLower(strings.TrimSpace(input.Email))
+		input.Email = domain.NormalizeEmail(input.Email)
 		if input.Email != m.Email {
 			if existing, err := uc.members.GetByEmail(ctx, input.Email); err == nil && existing != nil {
 				return nil, domain.ErrMemberEmailConflict

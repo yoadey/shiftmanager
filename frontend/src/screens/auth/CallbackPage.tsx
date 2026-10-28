@@ -15,6 +15,7 @@ const ERROR_MESSAGES: Record<string, string> = {
   exchange_failed: 'Der Token-Austausch mit dem Identity-Provider ist fehlgeschlagen.',
   token_invalid: 'Das ID-Token konnte nicht verifiziert werden.',
   inactive: 'Dein Konto ist (noch) nicht freigeschaltet. Bitte wende dich an den Vorstand.',
+  email_missing: 'Dein Identity-Provider hat keine E-Mail-Adresse übermittelt. Ohne E-Mail-Adresse kann kein Zugang angelegt werden; bitte wende dich an den Vorstand.',
   server_error: 'Bei der Anmeldung ist ein interner Fehler aufgetreten. Bitte versuche es erneut.',
 };
 

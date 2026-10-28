@@ -46,7 +46,9 @@ func (r *MemberRepo) GetByID(ctx context.Context, id uuid.UUID) (*domain.Member,
 
 func (r *MemberRepo) GetByEmail(ctx context.Context, email string) (*domain.Member, error) {
 	var model MemberModel
-	err := r.db.WithContext(ctx).Where("email = ?", strings.ToLower(email)).First(&model).Error
+	// Compare case-insensitively on both sides: rows self-registered before
+	// addresses were normalised may still carry mixed case.
+	err := r.db.WithContext(ctx).Where("lower(email) = ?", strings.ToLower(strings.TrimSpace(email))).First(&model).Error
 	if err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
 			return nil, domain.ErrMemberNotFound

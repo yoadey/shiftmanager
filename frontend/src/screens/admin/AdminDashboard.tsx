@@ -4,7 +4,6 @@ import { Badge } from '@/components/ui/Badge';
 import { Button } from '@/components/ui/Button';
 import { useIsVorstand } from '@/hooks/useIsVorstand';
 import { useEvents } from '@/api/events';
-import { useMembers } from '@/api/members';
 import { useSettings, useBranding } from '@/api/settings';
 import { useStats } from '@/api/stats';
 import { calcOccupancy } from '@/hooks/useOccupancy';
@@ -38,7 +37,6 @@ export function AdminDashboard() {
   const today = new Date().toISOString().slice(0, 10);
 
   const eventsQ = useEvents();
-  const membersQ = useMembers();
   const statsQ = useStats();
   const { data: settings } = useSettings();
   const { data: branding } = useBranding();
@@ -68,13 +66,13 @@ export function AdminDashboard() {
   // Headline stats from the dedicated /stats endpoint (D-004). Guard undefined so
   // the cards render zeros rather than NaN while the query is in flight.
   const totalConfirmedHours = stats?.totalConfirmedHours ?? 0;
-  const activeMembers = stats?.activeMembers ?? membersQ.data?.filter((m) => m.active !== false).length ?? 0;
+  const activeMembers = stats?.activeMembers ?? 0;
   const openShifts = stats?.openShifts ?? 0;
   const upcomingShifts = stats?.upcomingShifts ?? 0;
   const membersBelowTarget = stats?.membersBelowTarget ?? 0;
 
-  if (eventsQ.isLoading || membersQ.isLoading || statsQ.isLoading) return <LoadingState />;
-  if (eventsQ.isError || membersQ.isError || statsQ.isError) return <ErrorState />;
+  if (eventsQ.isLoading || statsQ.isLoading) return <LoadingState />;
+  if (eventsQ.isError || statsQ.isError) return <ErrorState />;
 
   return (
     <div className="fade-in">

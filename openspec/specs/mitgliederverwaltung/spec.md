@@ -127,6 +127,10 @@ mehr als wartend erscheint.
 - **WHEN** sich ein OIDC-Nutzer anmeldet, dessen Subject und E-Mail keinem Mitglied zugeordnet sind, und keine Rolle über A-006 erhält
 - **THEN** legt das System ein inaktives Mitglied ohne Austrittsdatum an, stellt kein JWT aus und zeigt den Hinweis „wartet auf Freischaltung“
 
+#### Scenario: Registrierung ohne E-Mail-Adresse
+- **WHEN** sich ein unbekannter OIDC-Nutzer anmeldet, dessen Claims keine E-Mail-Adresse enthalten
+- **THEN** legt das System kein Mitglied an und weist den Login mit einem Hinweis ab, dass keine E-Mail-Adresse übermittelt wurde
+
 #### Scenario: Registrierung freischalten
 - **WHEN** ein Vorstandsmitglied bei einer wartenden Registrierung „Freischalten“ wählt
 - **THEN** ist das Mitglied aktiv und kann sich beim nächsten Login anmelden

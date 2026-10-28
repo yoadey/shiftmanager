@@ -82,3 +82,17 @@ func TestMemberRepoList_SearchTreatsWildcardsLiterally(t *testing.T) {
 		}
 	}
 }
+
+func TestMemberRepoGetByEmail_MatchesLegacyMixedCase(t *testing.T) {
+	r := newTestMemberRepo(t)
+	// Self-registrations used to store the e-mail claim as sent by the IdP.
+	m := createTestMember(t, r, "Max", "Muster", "Max.Muster@Example.org")
+
+	got, err := r.GetByEmail(context.Background(), "max.muster@example.org")
+	if err != nil {
+		t.Fatalf("legacy mixed-case address not matched: %v", err)
+	}
+	if got.ID != m.ID {
+		t.Errorf("got member %s, want %s", got.ID, m.ID)
+	}
+}

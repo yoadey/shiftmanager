@@ -2,6 +2,7 @@ package handler
 
 import (
 	"context"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -41,6 +42,8 @@ type fakeMemberStore struct {
 	created   []*domain.Member
 	updated   []*domain.Member
 	links     []*domain.OIDCLink
+	// lookupErr, when set, is returned by GetByOIDCSubject (a failing DB).
+	lookupErr error
 }
 
 func newFakeStore() *fakeMemberStore {
@@ -67,6 +70,9 @@ func (s *fakeMemberStore) GetByID(_ *http.Request, id uuid.UUID) (*domain.Member
 	return nil, domain.ErrMemberNotFound
 }
 func (s *fakeMemberStore) GetByOIDCSubject(_ *http.Request, _, subject string) (*domain.Member, error) {
+	if s.lookupErr != nil {
+		return nil, s.lookupErr
+	}
 	if m, ok := s.bySubject[subject]; ok {
 		return m, nil
 	}
@@ -180,6 +186,22 @@ func TestCallback_UnknownUser_AutoRegisteredInactive(t *testing.T) {
 	}
 	if len(audit.actions) == 0 || audit.actions[0] != "member.autoregister" {
 		t.Errorf("expected autoregister audit, got %v", audit.actions)
+	}
+}
+
+func TestCallback_LookupError_DoesNotRegisterDuplicate(t *testing.T) {
+	store := newFakeStore()
+	store.lookupErr = errors.New("connection reset")
+	claims := &port.OIDCClaims{Subject: "sub-e1", Email: "known@club.de", Name: "Known User", Provider: "kc", Role: domain.RoleMitglied}
+	h, _ := newHandler(store, claims, "")
+
+	frag := callback(t, h)
+
+	if frag != "error=server_error" {
+		t.Errorf("want server_error on a failed lookup, got %q", frag)
+	}
+	if len(store.created) != 0 {
+		t.Errorf("a failed lookup must not register a new member, got %d", len(store.created))
 	}
 }
 
@@ -341,6 +363,19 @@ func TestCallback_ActiveMember_SkipsUserInfo(t *testing.T) {
 	}
 }
 
+func TestCallback_UnknownUser_WithoutEmail_NotRegistered(t *testing.T) {
+	store := newFakeStore()
+	claims := &port.OIDCClaims{Subject: "sub-ne", Email: "  ", Provider: "kc", Role: domain.RoleMitglied}
+	h, _ := newHandler(store, claims, "")
+
+	if frag := callback(t, h); frag != "error=email_missing" {
+		t.Fatalf("want error=email_missing, got %q", frag)
+	}
+	if len(store.created) != 0 {
+		t.Errorf("must not register a member without e-mail, got %d", len(store.created))
+	}
+}
+
 func TestCallback_BootstrapAdmin_Unknown_CreatedActiveAdmin(t *testing.T) {
 	store := newFakeStore()
 	claims := &port.OIDCClaims{Subject: "sub-2", Email: "boss@club.de", Name: "Chef", Provider: "kc"}
@@ -409,11 +444,11 @@ func TestCallback_NoEmailClaim_NotMatchedToOtherEmaillessAccount(t *testing.T) {
 			t.Fatalf("identity without e-mail must not be linked to another e-mail-less account")
 		}
 	}
-	if len(store.created) != 1 {
-		t.Fatalf("expected a new (pending) registration, got %d created", len(store.created))
+	if len(store.created) != 0 {
+		t.Fatalf("no member may be registered without an e-mail, got %d created", len(store.created))
 	}
-	if frag != "error=registered" {
-		t.Errorf("expected pending registration, got %q", frag)
+	if frag != "error=email_missing" {
+		t.Errorf("expected error=email_missing, got %q", frag)
 	}
 }
 

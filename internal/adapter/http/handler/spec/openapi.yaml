@@ -565,7 +565,9 @@ paths:
           description: |
             Account state filter. `pending` = self-registered via OIDC and waiting
             for activation (inactive, no leave date); `left` = deactivated;
-            `approved` = everyone except pending registrations.
+            `approved` = everyone except pending registrations. Without the
+            vorstand or admin role, `pending` is rejected with 403 and an
+            omitted status means `approved`.
           schema: { type: string, enum: [active, pending, left, approved] }
         - name: limit
           in: query
@@ -584,6 +586,7 @@ paths:
               schema: { type: array, items: { $ref: '#/components/schemas/Member' } }
         "400": { $ref: '#/components/responses/BadRequest' }
         "401": { $ref: '#/components/responses/Unauthorized' }
+        "403": { $ref: '#/components/responses/Forbidden' }
     post:
       operationId: createMember
       tags: [members]

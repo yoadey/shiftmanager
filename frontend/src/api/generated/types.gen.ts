@@ -485,7 +485,9 @@ export type ListMembersData = {
     /**
      * Account state filter. `pending` = self-registered via OIDC and waiting
      * for activation (inactive, no leave date); `left` = deactivated;
-     * `approved` = everyone except pending registrations.
+     * `approved` = everyone except pending registrations. Without the
+     * vorstand or admin role, `pending` is rejected with 403 and an
+     * omitted status means `approved`.
      *
      */
     status?: "active" | "pending" | "left" | "approved";
@@ -507,6 +509,10 @@ export type ListMembersErrors = {
    * Missing or invalid JWT
    */
   401: ErrorResponse;
+  /**
+   * Insufficient role
+   */
+  403: ErrorResponse;
 };
 
 export type ListMembersError = ListMembersErrors[keyof ListMembersErrors];

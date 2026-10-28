@@ -135,6 +135,12 @@ func (m *Member) IsPendingApproval() bool {
 	return !m.IsActive && m.LeftAt == nil
 }
 
+// NormalizeEmail trims and lower-cases an address the way members are stored
+// (member e-mails are compared case-insensitively).
+func NormalizeEmail(email string) string {
+	return strings.ToLower(strings.TrimSpace(email))
+}
+
 // ParseRole matches s case-insensitively against the known roles and returns
 // the canonical role name, or "" when s names no role.
 func ParseRole(s string) string {

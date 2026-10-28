@@ -2,6 +2,7 @@ package handler
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"net/url"
@@ -171,13 +172,24 @@ func (h *AuthHandler) Callback(w http.ResponseWriter, r *http.Request) {
 	// Resolve the member: match by OIDC subject (oidc_links), then fall back to
 	// e-mail. The members list is maintained independently of the IdP (ML-004),
 	// so a known member's first login is matched by their e-mail address.
-	member, _ := h.members.GetByOIDCSubject(r, claims.Provider, claims.Subject)
+	// Only "not found" may fall through to registration: treating a failed
+	// lookup as an unknown identity would create a duplicate account (active,
+	// with the IdP role, when a role expression is configured).
+	member, err := h.members.GetByOIDCSubject(r, claims.Provider, claims.Subject)
+	if err != nil && !errors.Is(err, domain.ErrMemberNotFound) {
+		h.redirectError(w, r, "server_error")
+		return
+	}
 	matchedBySubject := member != nil
 	// Without an e-mail claim there is nothing to match on: an empty lookup
 	// would hit any other account registered without an address and link
 	// this identity to it. Normalise like provisionMember stores it.
-	if email := normalizeEmail(claims.Email); member == nil && email != "" {
-		member, _ = h.members.GetByEmail(r, email)
+	if email := domain.NormalizeEmail(claims.Email); member == nil && email != "" {
+		member, err = h.members.GetByEmail(r, email)
+		if err != nil && !errors.Is(err, domain.ErrMemberNotFound) {
+			h.redirectError(w, r, "server_error")
+			return
+		}
 	}
 
 	// An IdP role may only admit a pending account that this very login
@@ -207,6 +219,13 @@ func (h *AuthHandler) Callback(w http.ResponseWriter, r *http.Request) {
 		// admin, who is created as an active administrator, and identities the
 		// provider's role expression assigns a role, who are created active
 		// with that role.
+		if domain.NormalizeEmail(claims.Email) == "" {
+			// The e-mail is a mandatory member field (ML-002) and the key for
+			// matching members across providers; without it no account can
+			// be registered.
+			h.redirectError(w, r, "email_missing")
+			return
+		}
 		member, err = h.provisionMember(r, claims, isBootstrapAdmin)
 		if err != nil {
 			h.redirectError(w, r, "server_error")
@@ -284,7 +303,7 @@ func (h *AuthHandler) provisionMember(r *http.Request, claims *port.OIDCClaims, 
 		LastName:  last,
 		// Stored lower-cased like CreateMember does: GetByEmail lower-cases
 		// its argument, so a mixed-case address would never match again.
-		Email:       normalizeEmail(claims.Email),
+		Email:       domain.NormalizeEmail(claims.Email),
 		JoinedAt:    time.Now().UTC(),
 		IsActive:    bootstrapAdmin || claims.Role != "",
 		Role:        domain.RoleMitglied,
@@ -312,11 +331,6 @@ func (h *AuthHandler) provisionMember(r *http.Request, claims *port.OIDCClaims, 
 	}
 	_ = h.audit.WriteAudit(r, &member.ID, action, "member", member.ID.String(), nil, *member)
 	return member, nil
-}
-
-// normalizeEmail lower-cases and trims an address the way members are stored.
-func normalizeEmail(email string) string {
-	return strings.ToLower(strings.TrimSpace(email))
 }
 
 // onlyLinkedIdentity reports whether the member's sole OIDC link is the
