@@ -3,11 +3,15 @@ package oidc
 import (
 	"context"
 	"fmt"
+	"time"
 
 	coreoidc "github.com/coreos/go-oidc/v3/oidc"
 	"github.com/yoadey/shiftmanager/internal/port"
 	"golang.org/x/oauth2"
 )
+
+// userInfoTimeout bounds the UserInfo request made for role mapping.
+const userInfoTimeout = 10 * time.Second
 
 // Config holds the OIDC provider configuration.
 type Config struct {
@@ -133,6 +137,9 @@ func (s *Service) VerifyIDToken(ctx context.Context, tokens *port.OIDCTokens) (*
 // activation, exactly as without a role expression. The response is only
 // trusted when its subject matches the id_token's (OIDC Core 5.3.2).
 func (s *Service) roleFromUserInfo(ctx context.Context, accessToken, subject string) string {
+	// Bound the extra round-trip so a hanging IdP cannot stall the login.
+	ctx, cancel := context.WithTimeout(ctx, userInfoTimeout)
+	defer cancel()
 	info, err := s.provider.UserInfo(ctx, oauth2.StaticTokenSource(&oauth2.Token{AccessToken: accessToken}))
 	if err != nil || info.Subject != subject {
 		return ""

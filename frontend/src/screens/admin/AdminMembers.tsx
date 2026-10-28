@@ -34,7 +34,7 @@ export function AdminMembers() {
   // member's detail page via the back button lands on the same page.
   const [searchParams, setSearchParams] = useSearchParams();
   const search = searchParams.get('suche') ?? '';
-  const page = Math.max(0, (Number(searchParams.get('seite')) || 1) - 1);
+  const page = Math.max(0, Math.floor(Number(searchParams.get('seite')) || 1) - 1);
   const [q, setQ] = useState(search);
   // Only explicit page navigation adds a history entry; search updates and
   // the out-of-range snap replace the current one (otherwise the back button
@@ -113,14 +113,14 @@ export function AdminMembers() {
     ),
   );
 
-  const list = members;
-
   // A page beyond the end (e.g. after the last member on it was removed, or a
   // stale bookmark) snaps back to the last existing page.
   useEffect(() => {
-    if (membersQ.data && page > 0 && page >= pageCount) setListParams({ page: pageCount - 1 }, true);
+    // Placeholder data still carries the previous query's total (e.g. after
+    // going back from a search), so only snap once the real page has loaded.
+    if (membersQ.data && !membersQ.isPlaceholderData && page > 0 && page >= pageCount) setListParams({ page: pageCount - 1 }, true);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [membersQ.data, page, pageCount]);
+  }, [membersQ.data, membersQ.isPlaceholderData, page, pageCount]);
 
   const onApprove = (id: string, name: string) => {
     approve.mutate(
@@ -299,12 +299,12 @@ export function AdminMembers() {
       <div className="sm-pad" style={{ paddingTop: 12 }}>
         {membersQ.isLoading && <LoadingState />}
         {membersQ.isError && <ErrorState />}
-        {!membersQ.isLoading && !membersQ.isError && list.length === 0 && (
+        {!membersQ.isLoading && !membersQ.isError && members.length === 0 && (
           <EmptyState icon="users" title="Keine Mitglieder" text={search ? 'Für diese Suche gibt es keine Treffer.' : 'Es sind noch keine Mitglieder angelegt.'} />
         )}
-        {!membersQ.isLoading && !membersQ.isError && list.length > 0 && (
+        {!membersQ.isLoading && !membersQ.isError && members.length > 0 && (
         <div className="sm-card" style={{ overflow: 'hidden' }}>
-          {list.map((m, i) => {
+          {members.map((m, i) => {
             const goal = m.goal ?? yearGoal;
             const h = hours[m.id] ?? 0;
             return (

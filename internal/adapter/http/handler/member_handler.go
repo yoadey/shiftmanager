@@ -33,6 +33,10 @@ func (h *MemberHandler) List(w http.ResponseWriter, r *http.Request) {
 		Search: r.URL.Query().Get("search"),
 	}
 
+	if filter.Limit < 0 || filter.Offset < 0 {
+		writeError(w, http.StatusBadRequest, "limit and offset must not be negative")
+		return
+	}
 	if active := r.URL.Query().Get("active"); active != "" {
 		b := active == "true"
 		filter.IsActive = &b

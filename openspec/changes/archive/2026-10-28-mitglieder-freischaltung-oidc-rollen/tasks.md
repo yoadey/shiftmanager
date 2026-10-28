@@ -5,16 +5,17 @@
 - [x] 1.1 `domain.Member.IsPendingApproval()` (inaktiv ohne Austrittsdatum) und `domain.ParseRole()` (Rollenname case-insensitiv normalisieren)
 - [x] 1.2 `port.MemberFilter.Status` (`active|pending|left|approved`) und `MemberRepository.CountFiltered`; gemeinsamer Filter `applyMemberFilter` in `member_repo.go` für `List` und `CountFiltered`; Suche zusätzlich über den vollständigen Namen
 - [x] 1.3 `MemberUsecase.ListMembers` liefert Seite + Gesamtzahl; `UpdateMember` setzt bei Deaktivierung das Austrittsdatum; `DeactivateMember` akzeptiert wartende Registrierungen (Ablehnen)
+- [x] 1.4 Einmaliger Backfill `010_backfill_member_left_at` (in `db.Migrate` mit Vermerk in `data_migrations`, plus `migrations/010_backfill_member_left_at.up.sql`): Austrittsdatum für inaktive Mitglieder ohne reine `member.autoregister`-Audit-Historie
 
 ## 2. API
 
-- [x] 2.1 `GET /api/v1/members`: Parameter `status` (400 bei unbekanntem Wert), Header `X-Total-Count`; Kiosk-Suche an neue Signatur angepasst
+- [x] 2.1 `GET /api/v1/members`: Parameter `status` (400 bei unbekanntem Wert oder negativem `limit`/`offset`), Header `X-Total-Count`; Kiosk-Suche an neue Signatur angepasst
 - [x] 2.2 `api/openapi.yaml` aktualisiert (`status`, `limit`, `offset`, `active`, Header, 400) und `make generate` ausgeführt
 
 ## 3. OIDC-Rollenzuordnung
 
 - [x] 3.1 `internal/adapter/oidc/role.go`: `RoleMapper` (JMESPath via `github.com/jmespath/go-jmespath`), `ErrInvalidRoleExpression`
-- [x] 3.2 `VerifyIDToken` erhält `*OIDCTokens`, wertet den Ausdruck gegen ID-Token-Claims und ersatzweise UserInfo aus, Ergebnis in `OIDCClaims.Role`
+- [x] 3.2 `VerifyIDToken` erhält `*OIDCTokens`, wertet den Ausdruck gegen ID-Token-Claims und ersatzweise UserInfo aus (nur bei passendem `sub`, 10-s-Timeout), Ergebnis in `OIDCClaims.Role`
 - [x] 3.3 Konfiguration `OIDC_ROLE_ATTRIBUTE_PATH` / `OIDC_<N>_ROLE_ATTRIBUTE_PATH` (ohne Erben), `main.go` bricht bei ungültigem Ausdruck ab
 - [x] 3.4 `AuthHandler.Callback`: neue Nutzer mit Rolle aktiv anlegen (`member.oidc_role_provision`), wartende Mitglieder mit Rolle aktivieren (`member.oidc_role_activate`); aktive Rollen und ausgetretene Mitglieder unverändert; Bootstrap-Admin hat Vorrang
 

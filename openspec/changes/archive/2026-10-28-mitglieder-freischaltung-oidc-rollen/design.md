@@ -31,18 +31,30 @@ ID-Token.
 - Keine Paginierung der übrigen Listen (Dashboard, manuelle Buchung,
   Veranstaltungsdetail); sie laden weiterhin alle Mitglieder, jetzt
   explizit mit `limit=0` statt implizit begrenzt auf 50.
-- Kein Fix des Testmodus-Problems, dass `sqlite::memory:` pro
-  DB-Verbindung eine eigene leere Datenbank erzeugt.
 
 ## Decisions
 
 - **„Wartet“ = `is_active = false AND left_at IS NULL`** statt einer neuen
   Status-Spalte. Alle Deaktivierungspfade setzen bereits `left_at`
   (`MemberRepo.Deactivate`, `Anonymize`) — außer `PUT /members/{id}` mit
-  `isActive=false`; dieser setzt jetzt ebenfalls das Austrittsdatum. So
-  braucht es weder Migration noch Backfill. Altdaten, die über `PUT`
-  deaktiviert wurden, erscheinen einmalig als wartend und lassen sich dort
-  ablehnen. `domain.Member.IsPendingApproval()` kapselt die Regel.
+  `isActive=false`; dieser setzt jetzt ebenfalls das Austrittsdatum. Eine
+  Schemaänderung ist nicht nötig. `domain.Member.IsPendingApproval()`
+  kapselt die Regel.
+- **Einmaliger Backfill für Altdaten** (`010_backfill_member_left_at`):
+  Früher über `PUT` deaktivierte Mitglieder haben kein Austrittsdatum und
+  sähen sonst wie wartende Registrierungen aus — mit Rollenausdruck würde der
+  IdP sie beim nächsten Login wieder zulassen. Selbstregistrierungen
+  entstehen immer zusammen mit einem Audit-Eintrag `member.autoregister`;
+  nur Mitglieder, deren Audit-Historie ausschließlich daraus besteht,
+  bleiben wartend, alle anderen inaktiven Mitglieder ohne Austrittsdatum
+  erhalten eins. Im Zweifel also „ausgetreten“ (reaktivierbar) statt
+  „wartend“ (vom IdP zulassbar). Da Produktion per GORM-AutoMigrate
+  migriert (`/shiftmanager migrate`), läuft der Backfill in `db.Migrate`
+  und wird in der neuen Tabelle `data_migrations` als erledigt vermerkt —
+  ein erneuter Lauf würde später bearbeitete wartende Konten fälschlich
+  umstellen. Für den golang-migrate-Weg liegt dasselbe SQL in
+  `migrations/010_backfill_member_left_at.up.sql` (ein Test hält beide
+  synchron).
 - **Ablehnen = Deaktivieren.** `DeactivateMember` akzeptiert neben aktiven
   jetzt auch wartende Mitglieder. Alternative DSGVO-Löschung verworfen:
   sie ist nicht umkehrbar und ein erneuter Login würde ein frisches Konto
@@ -94,9 +106,12 @@ ID-Token.
   `member.oidc_role_activate`).
 - [`limit=0` liefert unbegrenzt viele Zeilen] → bestehendes Verhalten,
   bei Vereinsgrößen von einigen hundert Mitgliedern unkritisch.
-- [Altdaten: über `PUT` deaktivierte Mitglieder ohne Austrittsdatum
-  erscheinen als wartend] → einmalig über „Ablehnen“ bereinigbar; kein
-  automatischer Backfill, da solche Fälle nicht von echten wartenden
-  Registrierungen unterscheidbar sind.
+- [Backfill stuft eine echte wartende Registrierung als ausgetreten ein,
+  z. B. wenn ihr Audit-Eintrag fehlt oder ein Admin sie bereits bearbeitet
+  hat] → bewusst in diese Richtung: Der Vorstand kann sie in der
+  Detailansicht reaktivieren; umgekehrt könnte der IdP ein ausgeschiedenes
+  Mitglied zulassen.
+- [Hängender UserInfo-Endpoint verzögert den Login] → Anfrage auf 10 s
+  begrenzt; bei Fehler oder Zeitüberschreitung gilt „keine Rolle“.
 - [SQLite `lower()` behandelt nur ASCII] → betrifft nur Tests/Testmodus;
   PostgreSQL in Produktion ist Unicode-fähig.

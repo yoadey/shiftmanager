@@ -46,10 +46,11 @@ func isInMemorySQLite(dsn string) bool {
 	return strings.Contains(dsn, ":memory:") || strings.Contains(dsn, "mode=memory")
 }
 
-// Migrate runs AutoMigrate for all registered models. Safe to call on every
-// startup; GORM will only add missing columns and tables.
+// Migrate runs AutoMigrate for all registered models, then any one-off data
+// migrations not yet applied. Safe to call on every startup; GORM will only
+// add missing columns and tables.
 func Migrate(db *gorm.DB) error {
-	return db.AutoMigrate(
+	if err := db.AutoMigrate(
 		&MemberModel{},
 		&OIDCLinkModel{},
 		&EventModel{},
@@ -67,5 +68,9 @@ func Migrate(db *gorm.DB) error {
 		&EmailTemplateModel{},
 		&EmailLogModel{},
 		&BrandingHistoryModel{},
-	)
+		&DataMigrationModel{},
+	); err != nil {
+		return err
+	}
+	return runDataMigrations(db)
 }
