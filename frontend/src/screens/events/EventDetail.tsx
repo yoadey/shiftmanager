@@ -59,10 +59,16 @@ function findEvent(events: Event[], id: string): Event | undefined {
 }
 
 function MiniStat({ label, val, accent }: { label: string; val: number; accent?: boolean }) {
+  // An accented tile takes the brand colour as background, so --on-primary
+  // (picked for contrast against it) stays readable with any branding.
   return (
-    <div className="sm-card" style={{ flex: 1, padding: '12px 10px', textAlign: 'center' }}>
+    <div
+      className="sm-card"
+      data-testid={`ministat-${label}`}
+      style={{ flex: 1, padding: '12px 10px', textAlign: 'center', ...(accent && { background: 'var(--primary)', borderColor: 'var(--primary)' }) }}
+    >
       <div style={{ fontFamily: 'Bricolage Grotesque', fontWeight: 800, fontSize: 22, color: accent ? 'var(--on-primary)' : 'var(--ink)' }}>{val}</div>
-      <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--muted)', marginTop: 1 }}>{label}</div>
+      <div style={{ fontSize: 11, fontWeight: 700, color: accent ? 'var(--on-primary)' : 'var(--muted)', opacity: accent ? 0.8 : 1, marginTop: 1 }}>{label}</div>
     </div>
   );
 }

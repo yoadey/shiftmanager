@@ -153,6 +153,20 @@ describe('EventDetail helper names', () => {
   });
 });
 
+describe('EventDetail stat tiles', () => {
+  // The free-places count used --on-primary text on the white card, which
+  // vanished with a dark brand colour; the accented tile now carries the
+  // brand colour as its background.
+  it('puts the free-places count on the brand colour when places are free', async () => {
+    setRole('mitglied');
+    renderAt('/events/e1');
+    const tile = await screen.findByTestId('ministat-Freie Plätze');
+    expect(tile).toHaveTextContent('4');
+    expect(tile.style.background).toBe('var(--primary)');
+    expect(screen.getByTestId('ministat-Schichten').style.background).toBe('');
+  });
+});
+
 // Regression coverage for a second bug: App.tsx keys the screen's
 // ErrorBoundary on the URL so it resets when navigating to a genuinely
 // different screen, but it used to key on the *full* pathname — including a
