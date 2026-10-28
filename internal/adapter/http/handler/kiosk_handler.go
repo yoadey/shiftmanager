@@ -1,6 +1,7 @@
 package handler
 
 import (
+	"errors"
 	"net/http"
 	"strings"
 
@@ -49,7 +50,16 @@ func (h *KioskHandler) PublicTimeline(w http.ResponseWriter, r *http.Request) {
 
 	// Anonymous viewer: names only, per name mode (SC-011).
 	timeline, err := h.eventUC.GetEventTimelineFor(r.Context(), id, usecase.TimelineViewer{})
+	if errors.Is(err, domain.ErrEventNotFound) {
+		writeError(w, http.StatusNotFound, "event not found")
+		return
+	}
 	if err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	// The kiosk only shows published events (as /kiosk/events lists them).
+	if timeline.Event.Status != domain.EventStatusPublished {
 		writeError(w, http.StatusNotFound, "event not found")
 		return
 	}
@@ -128,6 +138,9 @@ func (h *KioskHandler) ListEvents(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, events)
 }
 
+// kioskSearchLimit caps the anonymous kiosk member search.
+const kioskSearchLimit = 20
+
 // SearchMembers returns active members matching a search query for kiosk lookup.
 // GET /api/v1/kiosk/members?q=...
 func (h *KioskHandler) SearchMembers(w http.ResponseWriter, r *http.Request) {
@@ -147,8 +160,14 @@ func (h *KioskHandler) SearchMembers(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "query must be at least 2 characters")
 		return
 	}
-	active := true
-	members, _, err := h.memberUC.ListMembers(r.Context(), port.MemberFilter{Search: q, IsActive: &active})
+	// Names only (no e-mail lookups) and a capped result, so an anonymous
+	// caller can neither probe addresses nor page through the roster (K-003).
+	members, _, err := h.memberUC.ListMembers(r.Context(), port.MemberFilter{
+		Search:          q,
+		SearchNamesOnly: true,
+		Status:          port.MemberStatusActive,
+		Limit:           kioskSearchLimit,
+	})
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return

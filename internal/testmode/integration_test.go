@@ -420,6 +420,7 @@ func TestTimeline_OnlyNamesOfOthers(t *testing.T) {
 	require.Contains(t, seen, "Hans G.")
 	assert.Empty(t, seen["Max M."]["comment"])
 	assert.NotContains(t, seen["Hans G."], "guestEmail")
+	assert.NotContains(t, seen["Hans G."], "guestName", "the full guest name must not leak next to the abbreviated one")
 
 	// Max sees his own registration in full.
 	seen = byName(regsOf(timeline, member))
@@ -435,6 +436,17 @@ func TestTimeline_OnlyNamesOfOthers(t *testing.T) {
 	require.Contains(t, seen, "Max M.")
 	assert.Empty(t, seen["Max M."]["comment"])
 	assert.NotContains(t, seen["Hans G."], "guestEmail")
+	assert.NotContains(t, seen["Hans G."], "guestName")
+
+	// ... and only for published events.
+	resp = post(t, s, "/api/v1/events", leiter, `{"name": "Entwurf", "location": "Halle", "category": "Fest",
+		"startDate": "2026-12-20T10:00:00Z", "endDate": "2026-12-20T20:00:00Z", "visibility": "public"}`)
+	require.Equal(t, http.StatusCreated, resp.StatusCode)
+	var draft map[string]any
+	decode(t, resp, &draft)
+	resp = get(t, s, "/api/v1/kiosk/events/"+draft["id"].(string), "")
+	assert.Equal(t, http.StatusNotFound, resp.StatusCode)
+	resp.Body.Close()
 }
 
 // The kiosk search answers only when enabled, with id and abbreviated name (K-002, K-003).
@@ -455,6 +467,13 @@ func TestKioskMemberSearch(t *testing.T) {
 	decode(t, resp, &hits)
 	require.Len(t, hits, 1)
 	assert.Equal(t, map[string]any{"id": db.MemberID.String(), "name": "Max M."}, hits[0])
+
+	// No lookups by e-mail address from the anonymous kiosk.
+	resp = get(t, s, "/api/v1/kiosk/members?q=max@test.local", "")
+	require.Equal(t, http.StatusOK, resp.StatusCode)
+	hits = nil
+	decode(t, resp, &hits)
+	assert.Empty(t, hits)
 }
 
 func TestGetMember(t *testing.T) {

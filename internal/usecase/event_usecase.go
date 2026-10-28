@@ -522,7 +522,7 @@ func (uc *EventUsecase) GetEventTimelineFor(ctx context.Context, eventID uuid.UU
 	if len(ids) > 0 {
 		list, err := uc.members.List(ctx, port.MemberFilter{IDs: ids})
 		if err != nil {
-			return nil, fmt.Errorf("load members: %w", err)
+			return nil, fmt.Errorf("load members for timeline names: %w", err)
 		}
 		for _, m := range list {
 			members[m.ID] = m
@@ -532,7 +532,7 @@ func (uc *EventUsecase) GetEventTimelineFor(ctx context.Context, eventID uuid.UU
 		m := members[id]
 		switch {
 		case m == nil:
-			return ""
+			return "Unbekannt" // e.g. the member record is gone
 		case organiser:
 			return m.FullName()
 		default:
@@ -561,6 +561,8 @@ func (uc *EventUsecase) GetEventTimelineFor(ctx context.Context, eventID uuid.UU
 
 				own := viewer.ID != uuid.Nil && r.MemberID != nil && *r.MemberID == viewer.ID
 				if !organiser && !own {
+					// DisplayName carries the (abbreviated) guest name.
+					r.GuestName = nil
 					r.GuestEmail = nil
 					r.Comment = ""
 					r.BookedHours = nil

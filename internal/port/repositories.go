@@ -38,6 +38,9 @@ type MemberFilter struct {
 	IsActive *bool
 	Status   MemberStatus // "" = no status restriction
 	Search   string       // matches first/last name or email
+	// SearchNamesOnly restricts Search to names (no e-mail), for the
+	// anonymous kiosk (K-003).
+	SearchNamesOnly bool
 	// IDs, when non-nil, restricts the result to these members (batch load).
 	IDs []uuid.UUID
 	// ExcludeIDs drops these members before Limit/Offset apply.

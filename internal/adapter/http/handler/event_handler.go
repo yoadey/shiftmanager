@@ -1,6 +1,7 @@
 package handler
 
 import (
+	"errors"
 	"net/http"
 	"strconv"
 	"time"
@@ -142,8 +143,12 @@ func (h *EventHandler) GetWithTimeline(w http.ResponseWriter, r *http.Request) {
 		ID:   middleware.GetUserID(r.Context()),
 		Role: middleware.GetUserRole(r.Context()),
 	})
-	if err != nil {
+	if errors.Is(err, domain.ErrEventNotFound) {
 		writeError(w, http.StatusNotFound, "event not found")
+		return
+	}
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
 	writeJSON(w, http.StatusOK, timeline)
