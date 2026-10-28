@@ -232,7 +232,8 @@ export default function App() {
 
   const screenContent = (
     <Suspense fallback={<LoadingFallback />}>
-      <ErrorBoundary>
+      {/* A failing notice must not put an error panel on top of every screen. */}
+      <ErrorBoundary label="Freischaltungs-Hinweis" fallback={() => null}>
         <PendingMembersBanner />
       </ErrorBoundary>
       <ErrorBoundary key={navKey} label="diesem Bereich">

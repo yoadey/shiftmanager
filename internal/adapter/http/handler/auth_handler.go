@@ -59,6 +59,7 @@ type memberStore interface {
 	Create(r *http.Request, m *domain.Member) error
 	Update(r *http.Request, m *domain.Member) error
 	LinkOIDC(r *http.Request, link *domain.OIDCLink) error
+	GetOIDCLinks(r *http.Request, memberID uuid.UUID) ([]*domain.OIDCLink, error)
 }
 
 type auditWriter interface {
@@ -177,13 +178,16 @@ func (h *AuthHandler) Callback(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// An IdP role may only admit a pending account that this very login
-	// identity registered: matched by provider+subject AND the subject that
-	// created the record. A pending record merely sharing the e-mail address
-	// may have been registered by someone else via another provider (one that
-	// does not verify e-mails); activating it would hand that registrant an
-	// active account. Such records keep waiting for a board member.
+	// identity registered: matched by provider+subject, created with this
+	// subject, and with no other OIDC identity linked to it. A pending record
+	// that merely shares the e-mail address may have been registered by
+	// someone else via another provider (one that does not verify e-mails,
+	// or whose subjects collide with this issuer's); activating it would hand
+	// that registrant an active account. Such records keep waiting for a
+	// board member.
 	ownsPending := member != nil && matchedBySubject && member.IsPendingApproval() &&
-		member.OIDCSubject != nil && *member.OIDCSubject == claims.Subject
+		member.OIDCSubject != nil && *member.OIDCSubject == claims.Subject &&
+		h.onlyLinkedIdentity(r, member.ID, claims)
 
 	// A role only takes effect for new or owned pending members (and the
 	// bootstrap admin rule wins over it), so only those logins pay for the
@@ -303,6 +307,16 @@ func (h *AuthHandler) provisionMember(r *http.Request, claims *port.OIDCClaims, 
 	}
 	_ = h.audit.WriteAudit(r, &member.ID, action, "member", member.ID.String(), nil, *member)
 	return member, nil
+}
+
+// onlyLinkedIdentity reports whether the member's sole OIDC link is the
+// given provider+subject. Lookup errors count as "no".
+func (h *AuthHandler) onlyLinkedIdentity(r *http.Request, memberID uuid.UUID, claims *port.OIDCClaims) bool {
+	links, err := h.members.GetOIDCLinks(r, memberID)
+	if err != nil || len(links) != 1 {
+		return false
+	}
+	return links[0].Provider == claims.Provider && links[0].Subject == claims.Subject
 }
 
 // linkOIDC records an oidc_links row, ignoring errors (the e-mail fallback

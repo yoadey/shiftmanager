@@ -8,7 +8,7 @@ import { useAuthStore } from '@/store/auth.store';
 import { Badge } from '@/components/ui/Badge';
 import { Button } from '@/components/ui/Button';
 import {
-  useMemberPage, usePendingMembers, useUpdateMember, useDeactivateMember,
+  useMemberPage, usePendingMembers,
   useCreateMember, useExportMembersCSV, useImportMembersCSV, useImportMembersPreview,
 } from '@/api/members';
 import type { ImportPreviewResult } from '@/api/members';
@@ -16,7 +16,8 @@ import { useEvents } from '@/api/events';
 import { useSettings } from '@/api/settings';
 import { LoadingState, ErrorState } from '@/components/ui/States';
 import { EmptyState } from '@/screens/member/MemberDashboard';
-import { fmtDate, hrs } from '@/screens/_demo';
+import { fmtDate, hrs, localDay } from '@/screens/_demo';
+import { PendingApprovalActions } from './PendingApprovalActions';
 import { routes } from '@/routes';
 import { useSmartBack } from '@/hooks/useSmartBack';
 
@@ -63,9 +64,6 @@ export function AdminMembers() {
   // below shows everyone else (active and deactivated members).
   const membersQ = useMemberPage({ page, pageSize: MEMBERS_PAGE_SIZE, search, status: 'approved' });
   const pendingQ = usePendingMembers();
-  const approve = useUpdateMember();
-  const reject = useDeactivateMember();
-  const [confirmReject, setConfirmReject] = useState<string | null>(null);
   const eventsQ = useEvents();
   const { data: settings } = useSettings();
   const exportCsv = useExportMembersCSV();
@@ -121,23 +119,6 @@ export function AdminMembers() {
     if (membersQ.data && !membersQ.isPlaceholderData && page > 0 && page >= pageCount) setListParams({ page: pageCount - 1 }, true);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [membersQ.data, membersQ.isPlaceholderData, page, pageCount]);
-
-  const onApprove = (id: string, name: string) => {
-    approve.mutate(
-      { id, active: true },
-      {
-        onSuccess: () => showToast(`${name} wurde freigeschaltet.`),
-        onError: () => showToast('Freischaltung fehlgeschlagen.', 'crit'),
-      },
-    );
-  };
-
-  const onReject = (id: string, name: string) => {
-    reject.mutate(id, {
-      onSuccess: () => { setConfirmReject(null); showToast(`Registrierung von ${name} abgelehnt.`); },
-      onError: () => showToast('Ablehnen fehlgeschlagen.', 'crit'),
-    });
-  };
 
   const onExport = () => {
     showToast('Mitglieder-Export wird erstellt …');
@@ -266,29 +247,11 @@ export function AdminMembers() {
                       <div style={{ minWidth: 0 }}>
                         <div style={{ fontWeight: 700, fontSize: 14.5 }}>{name}</div>
                         <div style={{ color: 'var(--muted)', fontSize: 12, fontWeight: 600, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                          {m.email} · registriert am {fmtDate(m.since.slice(0, 10), 'short')}
+                          {m.email} · registriert am {fmtDate(localDay(m.since), 'short')}
                         </div>
                       </div>
                     </div>
-                    {confirmReject === m.id ? (
-                      <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                        <span style={{ fontSize: 13, fontWeight: 600, color: 'var(--ink-2)' }}>Ablehnen?</span>
-                        <Button size="sm" variant="ghost" onClick={() => setConfirmReject(null)}>Nein</Button>
-                        <Button size="sm" variant="danger" loading={reject.isPending} onClick={() => onReject(m.id, name)}>Ja, ablehnen</Button>
-                      </div>
-                    ) : (
-                      <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                        <Button size="sm" variant="ghost" onClick={() => setConfirmReject(m.id)}>Ablehnen</Button>
-                        <Button
-                          size="sm"
-                          icon="check"
-                          loading={approve.isPending && approve.variables?.id === m.id}
-                          onClick={() => onApprove(m.id, name)}
-                        >
-                          Freischalten
-                        </Button>
-                      </div>
-                    )}
+                    <PendingApprovalActions id={m.id} name={name} />
                   </div>
                 </React.Fragment>
               );

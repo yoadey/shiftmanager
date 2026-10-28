@@ -10,12 +10,13 @@ import { useAppStore } from '@/store/app.store';
 import { routes } from '@/routes';
 import { useSmartBack } from '@/hooks/useSmartBack';
 import { useMember, useUpdateMember, useDeactivateMember, isPendingApproval } from '@/api/members';
+import { PendingApprovalActions } from './PendingApprovalActions';
 import { useMemberHours } from '@/api/hours';
 import { useSettings, useMemberFeeTiers, useUpdateMemberFeeTiers } from '@/api/settings';
 import { useStats } from '@/api/stats';
 import { LoadingState, ErrorState } from '@/components/ui/States';
 import { Field, Input } from '@/components/forms/Field';
-import { fmtDate, hrs } from '@/screens/_demo';
+import { fmtDate, hrs, localDay } from '@/screens/_demo';
 import { Section } from '@/screens/member/MemberDashboard';
 import type { Member, MemberFeeTier } from '@/types';
 
@@ -230,8 +231,6 @@ export function MemberDetail() {
   const { data: stats } = useStats();
   const clubYearId = stats?.clubYearId ?? '';
   const activate = useUpdateMember();
-  const reject = useDeactivateMember();
-  const [confirmReject, setConfirmReject] = useState(false);
   const memberQ = useMember(id);
   const hoursQ = useMemberHours(id);
   const { data: settings } = useSettings();
@@ -244,17 +243,14 @@ export function MemberDetail() {
   const m = memberQ.data;
   const pending = isPendingApproval(m);
 
-  const onActivate = (ok: string, fail: string) =>
+  const onReactivate = () =>
     activate.mutate(
       { id, active: true },
-      { onSuccess: () => showToast(ok), onError: () => showToast(fail, 'crit') },
+      {
+        onSuccess: () => showToast('Mitglied reaktiviert.'),
+        onError: () => showToast('Reaktivieren fehlgeschlagen.', 'crit'),
+      },
     );
-
-  const onReject = () =>
-    reject.mutate(id, {
-      onSuccess: () => { setConfirmReject(false); showToast('Registrierung abgelehnt.'); },
-      onError: () => showToast('Ablehnen fehlgeschlagen.', 'crit'),
-    });
 
   // Hour account + booking history come from the hours API (includes manual bookings).
   const h = hoursQ.data?.confirmed ?? 0;
@@ -288,7 +284,7 @@ export function MemberDetail() {
           <div style={{ flex: 1 }}>
             <div style={{ fontFamily: 'Bricolage Grotesque', fontWeight: 800, fontSize: 19 }}>{m.first} {m.last}</div>
             <div style={{ color: 'var(--muted)', fontSize: 12.5, fontWeight: 600 }}>{m.email}</div>
-            <div style={{ color: 'var(--muted)', fontSize: 12, fontWeight: 600 }}>seit {fmtDate(m.since.slice(0, 10), 'short')}</div>
+            <div style={{ color: 'var(--muted)', fontSize: 12, fontWeight: 600 }}>seit {fmtDate(localDay(m.since), 'short')}</div>
           </div>
           {pending && <Badge kind="warn">Nicht freigeschaltet</Badge>}
           {m.active === false && !pending && <Badge kind="neutral">Ausgetreten</Badge>}
@@ -308,19 +304,7 @@ export function MemberDetail() {
               <div style={{ fontWeight: 800, fontSize: 14.5 }}>Konto wartet auf Freischaltung</div>
               <div style={{ color: 'var(--ink-2)', fontSize: 12.5, fontWeight: 600 }}>Per OIDC registriert, aber noch nicht aktiviert.</div>
             </div>
-            {confirmReject ? (
-              <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                <Button size="sm" variant="ghost" onClick={() => setConfirmReject(false)}>Nein</Button>
-                <Button size="sm" variant="danger" loading={reject.isPending} onClick={onReject}>Ja, ablehnen</Button>
-              </div>
-            ) : (
-              <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                <Button size="sm" variant="ghost" onClick={() => setConfirmReject(true)}>Ablehnen</Button>
-                <Button size="sm" icon="check" loading={activate.isPending} onClick={() => onActivate('Mitglied freigeschaltet.', 'Freischaltung fehlgeschlagen.')}>
-                  Freischalten
-                </Button>
-              </div>
-            )}
+            <PendingApprovalActions id={id} name={`${m.first} ${m.last}`.trim() || m.email} />
           </div>
         )}
         {m.active === false && !pending && (
@@ -328,9 +312,9 @@ export function MemberDetail() {
             <Icon name="user" size={20} color="var(--muted)" />
             <div style={{ flex: 1 }}>
               <div style={{ fontWeight: 800, fontSize: 14.5 }}>Mitglied ist ausgetreten</div>
-              <div style={{ color: 'var(--ink-2)', fontSize: 12.5, fontWeight: 600 }}>Deaktiviert am {fmtDate((m.left ?? '').slice(0, 10), 'short')}.</div>
+              <div style={{ color: 'var(--ink-2)', fontSize: 12.5, fontWeight: 600 }}>Deaktiviert am {fmtDate(localDay(m.left), 'short')}.</div>
             </div>
-            <Button size="sm" variant="soft" loading={activate.isPending} onClick={() => onActivate('Mitglied reaktiviert.', 'Reaktivieren fehlgeschlagen.')}>
+            <Button size="sm" variant="soft" loading={activate.isPending} onClick={onReactivate}>
               Reaktivieren
             </Button>
           </div>

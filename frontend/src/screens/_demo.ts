@@ -201,6 +201,16 @@ export function fmtDate(iso: string, style?: string): string {
   return new Intl.DateTimeFormat('de-DE', { day: 'numeric', month: 'long', year: 'numeric' }).format(d);
 }
 
+/** Local calendar day (YYYY-MM-DD) of an ISO timestamp, for fmtDate. Slicing
+ * the string instead would yield the UTC day, one off around midnight. */
+export function localDay(iso: string | null | undefined): string {
+  if (!iso) return '';
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return '';
+  const pad = (n: number) => String(n).padStart(2, '0');
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+}
+
 export function durH(start: string, end: string): number {
   const [sh, sm] = start.split(':').map(Number);
   const [eh, em] = end.split(':').map(Number);

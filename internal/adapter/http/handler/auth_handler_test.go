@@ -85,6 +85,15 @@ func (s *fakeMemberStore) LinkOIDC(_ *http.Request, link *domain.OIDCLink) error
 	s.links = append(s.links, link)
 	return nil
 }
+func (s *fakeMemberStore) GetOIDCLinks(_ *http.Request, memberID uuid.UUID) ([]*domain.OIDCLink, error) {
+	var out []*domain.OIDCLink
+	for _, l := range s.links {
+		if l.MemberID == memberID {
+			out = append(out, l)
+		}
+	}
+	return out, nil
+}
 
 type fakeAudit struct{ actions []string }
 
@@ -201,6 +210,7 @@ func TestCallback_PendingMember_WithOIDCRole_Activated(t *testing.T) {
 	sub := "sub-r2"
 	pending := &domain.Member{ID: uuid.New(), Email: "wait@club.de", Role: domain.RoleMitglied, IsActive: false, OIDCSubject: &sub}
 	store.bySubject["sub-r2"] = pending
+	store.links = append(store.links, &domain.OIDCLink{MemberID: pending.ID, Provider: "kc", Subject: sub})
 	claims := &port.OIDCClaims{Subject: "sub-r2", Email: "wait@club.de", Provider: "kc", Role: domain.RoleMitglied}
 	h, _ := newHandler(store, claims, "")
 
@@ -225,6 +235,7 @@ func TestCallback_ForeignPendingRecord_NotActivatedByOIDCRole(t *testing.T) {
 	attackerSub := "attacker-sub"
 	foreign := &domain.Member{ID: uuid.New(), Email: "victim@club.de", Role: domain.RoleMitglied, IsActive: false, OIDCSubject: &attackerSub}
 	store.byEmail["victim@club.de"] = foreign
+	store.links = append(store.links, &domain.OIDCLink{MemberID: foreign.ID, Provider: "other-idp", Subject: attackerSub})
 	claims := &port.OIDCClaims{Subject: "victim-sub", Email: "victim@club.de", Provider: "kc", Role: domain.RoleVorstand}
 	h, _ := newHandler(store, claims, "")
 	h.oidc["default"].(*fakeOIDC).userInfoRole = domain.RoleVorstand
@@ -239,6 +250,29 @@ func TestCallback_ForeignPendingRecord_NotActivatedByOIDCRole(t *testing.T) {
 	}
 	if foreign.IsActive || foreign.Role != domain.RoleMitglied {
 		t.Errorf("foreign pending record must stay pending, got active=%v role=%q", foreign.IsActive, foreign.Role)
+	}
+}
+
+// Subjects are only unique per issuer: another provider issuing the same
+// "sub" must not be able to claim (and activate) a pending record.
+func TestCallback_PendingRecord_SameSubjectOtherIssuer_NotActivated(t *testing.T) {
+	store := newFakeStore()
+	sub := "alice"
+	pending := &domain.Member{ID: uuid.New(), Email: "alice@club.de", Role: domain.RoleMitglied, IsActive: false, OIDCSubject: &sub}
+	store.byEmail["alice@club.de"] = pending
+	store.links = append(store.links, &domain.OIDCLink{MemberID: pending.ID, Provider: "issuer-a", Subject: sub})
+	claims := &port.OIDCClaims{Subject: sub, Email: "alice@club.de", Provider: "kc", Role: domain.RoleAdmin}
+	h, _ := newHandler(store, claims, "")
+
+	if frag := callback(t, h); frag != "error=inactive" {
+		t.Fatalf("e-mail match: want error=inactive, got %q", frag)
+	}
+	store.bySubject[sub] = pending // (kc, alice) is linked now
+	if frag := callback(t, h); frag != "error=inactive" {
+		t.Fatalf("subject match from another issuer: want error=inactive, got %q", frag)
+	}
+	if pending.IsActive {
+		t.Error("pending record must not be activated by another issuer's identity")
 	}
 }
 
