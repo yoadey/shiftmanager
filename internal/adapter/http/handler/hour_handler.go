@@ -156,7 +156,7 @@ func (h *HourHandler) GetMemberAccountByID(w http.ResponseWriter, r *http.Reques
 		writeError(w, http.StatusBadRequest, "invalid memberId")
 		return
 	}
-	if !canReadHoursOf(r, memberID) {
+	if !isSelfOrBoard(r, memberID) { // SA-011
 		writeError(w, http.StatusForbidden, "forbidden")
 		return
 	}
@@ -168,12 +168,6 @@ func (h *HourHandler) GetMemberAccountByID(w http.ResponseWriter, r *http.Reques
 	writeJSON(w, http.StatusOK, full)
 }
 
-// canReadHoursOf reports whether the caller may see memberID's hour account:
-// their own, or anyone's for the board (SA-011).
-func canReadHoursOf(r *http.Request, memberID uuid.UUID) bool {
-	return memberID == middleware.GetUserID(r.Context()) ||
-		domain.HasRole(middleware.GetUserRole(r.Context()), domain.RoleVorstand)
-}
 
 // GetMemberAccount returns a member's hour account for a club year.
 // GET /api/v1/hours/account?memberId=...&clubYearId=...
@@ -188,7 +182,7 @@ func (h *HourHandler) GetMemberAccount(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "clubYearId is required")
 		return
 	}
-	if !canReadHoursOf(r, memberID) {
+	if !isSelfOrBoard(r, memberID) { // SA-011
 		writeError(w, http.StatusForbidden, "forbidden")
 		return
 	}

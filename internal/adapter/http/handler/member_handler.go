@@ -107,7 +107,7 @@ func (h *MemberHandler) Get(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Members may read their own record; other members are for the board only (ML-010).
-	if id != middleware.GetUserID(r.Context()) && !domain.HasRole(middleware.GetUserRole(r.Context()), domain.RoleVorstand) {
+	if !isSelfOrBoard(r, id) {
 		writeError(w, http.StatusForbidden, "forbidden")
 		return
 	}

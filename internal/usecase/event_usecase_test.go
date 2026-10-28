@@ -141,7 +141,7 @@ func TestAddAttachment(t *testing.T) {
 	assert.Equal(t, "image/png", a.ContentType)
 	assert.True(t, audit.has(domain.AuditActionCreate, domain.AuditEntityEvent))
 
-	list, err := uc.ListAttachments(context.Background(), eventID)
+	list, err := uc.ListAttachments(context.Background(), eventID, TimelineViewer{Role: domain.RoleVeranstaltungsleiter})
 	require.NoError(t, err)
 	require.Len(t, list, 1)
 	assert.Equal(t, "flyer.png", list[0].FileName)
@@ -159,7 +159,7 @@ func TestAddAttachment_UnknownEvent(t *testing.T) {
 
 func TestListAttachments_UnknownEvent(t *testing.T) {
 	uc, _, _, _, _, _, _ := newEventUC()
-	_, err := uc.ListAttachments(context.Background(), uuid.New())
+	_, err := uc.ListAttachments(context.Background(), uuid.New(), TimelineViewer{Role: domain.RoleVeranstaltungsleiter})
 	assert.ErrorIs(t, err, domain.ErrEventNotFound)
 }
 
@@ -175,7 +175,7 @@ func TestDeleteAttachment(t *testing.T) {
 	assert.Equal(t, a.URL, deleted.URL)
 	assert.True(t, audit.has(domain.AuditActionDelete, domain.AuditEntityEvent))
 
-	list, err := uc.ListAttachments(context.Background(), eventID)
+	list, err := uc.ListAttachments(context.Background(), eventID, TimelineViewer{Role: domain.RoleVeranstaltungsleiter})
 	require.NoError(t, err)
 	assert.Empty(t, list)
 }
@@ -271,7 +271,7 @@ func TestGetEventTimeline_Occupancy(t *testing.T) {
 	regs.add(&domain.Registration{ID: uuid.New(), ShiftID: shiftID, State: domain.RegistrationStateRegistered})
 	regs.add(&domain.Registration{ID: uuid.New(), ShiftID: shiftID, State: domain.RegistrationStateConfirmed})
 
-	tl, err := uc.GetEventTimeline(context.Background(), eventID)
+	tl, err := uc.getEventTimeline(context.Background(), eventID)
 	require.NoError(t, err)
 	require.Len(t, tl.Days, 1)
 	require.Len(t, tl.Days[0].Shifts, 1)
@@ -281,6 +281,49 @@ func TestGetEventTimeline_Occupancy(t *testing.T) {
 	assert.False(t, occ.IsUnder)
 	assert.False(t, occ.IsFull)
 	assert.Equal(t, domain.OccupancyBesetzt, occ.Status())
+}
+
+func TestGetEventTimelineFor_NamesAndVisibility(t *testing.T) {
+	uc, events, shifts, regs, _, members, _ := newEventUC()
+	ctx := context.Background()
+	eventID := uuid.New()
+	events.add(&domain.Event{ID: eventID, Status: domain.EventStatusPublished})
+	day := time.Date(2026, 6, 1, 8, 0, 0, 0, time.UTC)
+	shiftID := uuid.New()
+	shifts.add(&domain.Shift{ID: shiftID, EventID: eventID, StartAt: day, EndAt: day.Add(4 * time.Hour), Date: day, MaxHelpers: 3})
+	memberID := uuid.New()
+	members.add(&domain.Member{ID: memberID, FirstName: "Max", LastName: "Mustermann", IsActive: true})
+	guest := "Hans Peter Gast"
+	regs.add(&domain.Registration{ID: uuid.New(), ShiftID: shiftID, MemberID: &memberID, State: domain.RegistrationStateRegistered})
+	regs.add(&domain.Registration{ID: uuid.New(), ShiftID: shiftID, GuestName: &guest, State: domain.RegistrationStateRegistered})
+
+	names := func(viewer TimelineViewer) []string {
+		t.Helper()
+		tl, err := uc.GetEventTimelineFor(ctx, eventID, viewer)
+		require.NoError(t, err)
+		var out []string
+		for _, r := range tl.Days[0].Shifts[0].Registrations {
+			out = append(out, r.DisplayName)
+		}
+		return out
+	}
+	member := TimelineViewer{ID: uuid.New(), Role: domain.RoleMitglied}
+	assert.ElementsMatch(t, []string{"Max M.", "Hans Peter G."}, names(member))
+	assert.ElementsMatch(t, []string{"Max Mustermann", "Hans Peter Gast"}, names(TimelineViewer{ID: uuid.New(), Role: domain.RoleVeranstaltungsleiter}))
+
+	// Names are a nicety: a failing member query degrades, it doesn't fail the view.
+	members.failNextList = true
+	assert.ElementsMatch(t, []string{"Unbekannt", "Hans Peter G."}, names(member))
+
+	// Drafts are hidden from members and the kiosk, not from organisers (V-006).
+	draftID := uuid.New()
+	events.add(&domain.Event{ID: draftID, Status: domain.EventStatusDraft})
+	_, err := uc.GetEventTimelineFor(ctx, draftID, member)
+	assert.ErrorIs(t, err, domain.ErrEventNotFound)
+	_, err = uc.ListAttachments(ctx, draftID, TimelineViewer{})
+	assert.ErrorIs(t, err, domain.ErrEventNotFound)
+	_, err = uc.ListAttachments(ctx, draftID, TimelineViewer{Role: domain.RoleVeranstaltungsleiter})
+	assert.NoError(t, err)
 }
 
 func TestAddMonthsClamped(t *testing.T) {

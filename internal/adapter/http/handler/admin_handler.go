@@ -4,7 +4,6 @@ import (
 	"net/http"
 
 	"github.com/yoadey/shiftmanager/internal/adapter/http/middleware"
-	"github.com/yoadey/shiftmanager/internal/domain"
 	"github.com/yoadey/shiftmanager/internal/usecase"
 )
 
@@ -50,8 +49,7 @@ func (h *PrivacyHandler) ExportData(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	actorID := middleware.GetUserID(r.Context())
-	role := middleware.GetUserRole(r.Context())
-	if actorID != id && !domain.HasRole(role, domain.RoleVorstand) {
+	if !isSelfOrBoard(r, id) {
 		writeError(w, http.StatusForbidden, "insufficient permissions")
 		return
 	}

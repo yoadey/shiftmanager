@@ -435,7 +435,7 @@ func (uc *EventUsecase) DeleteShift(ctx context.Context, actorID uuid.UUID, id u
 
 // GetEventTimeline returns an event with all its shifts grouped by day, each with
 // registrations and occupancy data.
-func (uc *EventUsecase) GetEventTimeline(ctx context.Context, eventID uuid.UUID) (*domain.EventTimeline, error) {
+func (uc *EventUsecase) getEventTimeline(ctx context.Context, eventID uuid.UUID) (*domain.EventTimeline, error) {
 	event, err := uc.events.GetByID(ctx, eventID)
 	if err != nil {
 		return nil, err
@@ -539,11 +539,13 @@ func (uc *EventUsecase) GetEventTimelineFor(ctx context.Context, eventID uuid.UU
 	organiser := domain.HasRole(viewer.Role, domain.RoleVeranstaltungsleiter)
 
 	// Load every member on the timeline in one query rather than one per helper.
+	seen := make(map[uuid.UUID]bool)
 	var ids []uuid.UUID
 	for _, d := range tl.Days {
 		for _, sh := range d.Shifts {
 			for _, r := range sh.Registrations {
-				if r.MemberID != nil {
+				if r.MemberID != nil && !seen[*r.MemberID] {
+					seen[*r.MemberID] = true
 					ids = append(ids, *r.MemberID)
 				}
 			}
@@ -551,12 +553,12 @@ func (uc *EventUsecase) GetEventTimelineFor(ctx context.Context, eventID uuid.UU
 	}
 	members := make(map[uuid.UUID]*domain.Member, len(ids))
 	if len(ids) > 0 {
-		list, err := uc.members.List(ctx, port.MemberFilter{IDs: ids})
-		if err != nil {
-			return nil, fmt.Errorf("load members for timeline names: %w", err)
-		}
-		for _, m := range list {
-			members[m.ID] = m
+		// Names are a nicety: if they can't be loaded, show the timeline with
+		// "Unbekannt" rather than failing the whole event view.
+		if list, err := uc.members.List(ctx, port.MemberFilter{IDs: ids}); err == nil {
+			for _, m := range list {
+				members[m.ID] = m
+			}
 		}
 	}
 	memberName := func(id uuid.UUID) string {
@@ -580,8 +582,9 @@ func (uc *EventUsecase) GetEventTimelineFor(ctx context.Context, eventID uuid.UU
 				case r.MemberID != nil:
 					r.DisplayName = memberName(*r.MemberID)
 				case r.GuestName != nil:
+					// Same rule as Member.DisplayNameFor: full only in "full" mode.
 					r.DisplayName = *r.GuestName
-					if !organiser && mode == domain.NameModeAbbrev {
+					if !organiser && mode != domain.NameModeFull {
 						r.DisplayName = domain.AbbreviateName(*r.GuestName)
 					}
 				case organiser && r.GuestEmail != nil:
@@ -959,9 +962,13 @@ func (uc *EventUsecase) ClearHeaderImage(ctx context.Context, actorID uuid.UUID,
 }
 
 // ListAttachments returns the files attached to an event (V-008).
-func (uc *EventUsecase) ListAttachments(ctx context.Context, eventID uuid.UUID) ([]*domain.EventAttachment, error) {
-	if _, err := uc.events.GetByID(ctx, eventID); err != nil {
+func (uc *EventUsecase) ListAttachments(ctx context.Context, eventID uuid.UUID, viewer TimelineViewer) ([]*domain.EventAttachment, error) {
+	e, err := uc.events.GetByID(ctx, eventID)
+	if err != nil {
 		return nil, err
+	}
+	if !EventVisibleTo(e, viewer) {
+		return nil, domain.ErrEventNotFound
 	}
 	return uc.attachments.ListByEvent(ctx, eventID)
 }

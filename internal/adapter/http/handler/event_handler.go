@@ -141,10 +141,7 @@ func (h *EventHandler) GetWithTimeline(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	timeline, err := h.uc.GetEventTimelineFor(r.Context(), id, usecase.TimelineViewer{
-		ID:   middleware.GetUserID(r.Context()),
-		Role: middleware.GetUserRole(r.Context()),
-	})
+	timeline, err := h.uc.GetEventTimelineFor(r.Context(), id, viewerOf(r))
 	if errors.Is(err, domain.ErrEventNotFound) {
 		writeError(w, http.StatusNotFound, "event not found")
 		return
@@ -458,7 +455,7 @@ func (h *EventHandler) ListAttachments(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "invalid event id")
 		return
 	}
-	list, err := h.uc.ListAttachments(r.Context(), eventID)
+	list, err := h.uc.ListAttachments(r.Context(), eventID, viewerOf(r))
 	if err != nil {
 		if err == domain.ErrEventNotFound {
 			writeError(w, http.StatusNotFound, "event not found")
