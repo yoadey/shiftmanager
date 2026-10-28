@@ -176,6 +176,22 @@ func (h *AuthHandler) Callback(w http.ResponseWriter, r *http.Request) {
 		member, _ = h.members.GetByEmail(r, claims.Email)
 	}
 
+	// An IdP role may only admit a pending account that this very login
+	// identity registered: matched by provider+subject AND the subject that
+	// created the record. A pending record merely sharing the e-mail address
+	// may have been registered by someone else via another provider (one that
+	// does not verify e-mails); activating it would hand that registrant an
+	// active account. Such records keep waiting for a board member.
+	ownsPending := member != nil && matchedBySubject && member.IsPendingApproval() &&
+		member.OIDCSubject != nil && *member.OIDCSubject == claims.Subject
+
+	// A role only takes effect for new or owned pending members (and the
+	// bootstrap admin rule wins over it), so only those logins pay for the
+	// UserInfo fallback when the id_token yielded no role.
+	if claims.Role == "" && !isBootstrapAdmin && (member == nil || ownsPending) {
+		claims.Role = svc.UserInfoRole(r.Context(), tokens, claims.Subject)
+	}
+
 	justRegistered := false
 	switch {
 	case member == nil:
@@ -210,7 +226,7 @@ func (h *AuthHandler) Callback(w http.ResponseWriter, r *http.Request) {
 			member.Activate()
 			changed = true
 			_ = h.audit.WriteAudit(r, &member.ID, "member.bootstrap_admin", "member", member.ID.String(), before, *member)
-		} else if claims.Role != "" && member.IsPendingApproval() {
+		} else if claims.Role != "" && ownsPending {
 			// Registered earlier without a role (e.g. before the role was
 			// granted at the IdP): admit them now. Deactivated members (with a
 			// leave date) and active members' roles are left alone — those are

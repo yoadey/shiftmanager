@@ -206,3 +206,25 @@ func TestUpdateMember_DeactivateActiveMemberReplacesStaleLeftAt(t *testing.T) {
 	require.NotNil(t, m.LeftAt)
 	assert.True(t, m.LeftAt.After(stale), "deactivation must record today, not a stale leave date")
 }
+
+func TestListMembers_TotalAcrossPages(t *testing.T) {
+	uc, members, _ := newMemberUC()
+	for _, last := range []string{"A", "B", "C", "D", "E"} {
+		members.add(&domain.Member{ID: uuid.New(), LastName: last, Email: last + "@b.de", IsActive: true})
+	}
+	cases := []struct {
+		limit, offset, wantLen, wantTotal int
+	}{
+		{2, 0, 2, 5}, // full page: needs COUNT
+		{2, 4, 1, 5}, // short last page proves the total
+		{5, 0, 5, 5}, // exactly full: COUNT
+		{2, 6, 0, 5}, // beyond the end: COUNT
+		{0, 0, 5, 5}, // unpaginated
+	}
+	for _, c := range cases {
+		list, total, err := uc.ListMembers(context.Background(), port.MemberFilter{Limit: c.limit, Offset: c.offset})
+		require.NoError(t, err)
+		assert.Len(t, list, c.wantLen, "limit=%d offset=%d", c.limit, c.offset)
+		assert.Equal(t, c.wantTotal, total, "limit=%d offset=%d", c.limit, c.offset)
+	}
+}

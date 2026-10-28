@@ -75,11 +75,15 @@ Auswertungsfehler) bedeutet „keine Rolle“.
 
 Liefert der Ausdruck eine Rolle, MUST das System einen bisher unbekannten
 Nutzer als aktives Mitglied mit dieser Rolle anlegen und ein Mitglied,
-das auf Freischaltung wartet (ML-011), mit dieser Rolle aktivieren — in
+das auf Freischaltung wartet (ML-011), mit dieser Rolle aktivieren, sofern
+genau diese OIDC-Identität (Provider und Subject) es registriert hat — in
 beiden Fällen wird der Nutzer direkt eingeloggt und der Vorgang im
 Audit-Log protokolliert. Die Rolle bereits aktiver Mitglieder MUST NOT
 überschrieben werden (sie wird in der App gepflegt), und ausgetretene
-Mitglieder MUST NOT über die Rollenzuordnung reaktiviert werden. Die
+Mitglieder MUST NOT über die Rollenzuordnung reaktiviert werden. Eine
+wartende Registrierung, die nur über die E-Mail-Adresse zugeordnet wird
+oder von einer anderen OIDC-Identität angelegt wurde, MUST NOT über die
+Rollenzuordnung aktiviert werden; sie wartet weiter auf den Vorstand. Die
 Bootstrap-Admin-Regel (A-005) hat Vorrang. Benannte Provider MUST NOT
 den Ausdruck des Einzelproviders erben. Ein syntaktisch ungültiger
 Ausdruck MUST den Serverstart mit einer Fehlermeldung abbrechen.
@@ -99,6 +103,10 @@ Ausdruck MUST den Serverstart mit einer Fehlermeldung abbrechen.
 #### Scenario: Wartende Registrierung erhält später eine Rolle
 - **WHEN** sich ein Mitglied, das auf Freischaltung wartet, anmeldet und der Ausdruck inzwischen eine Rolle liefert
 - **THEN** aktiviert das System das Mitglied mit dieser Rolle und loggt es ein
+
+#### Scenario: Fremde wartende Registrierung mit gleicher E-Mail
+- **WHEN** eine wartende Registrierung mit der E-Mail-Adresse eines Nutzers über einen anderen Provider angelegt wurde und sich dieser Nutzer mit einer Identität anmeldet, für die der Ausdruck eine Rolle liefert
+- **THEN** aktiviert das System diese Registrierung nicht, der Login wird als „inaktiv“ abgewiesen und die Registrierung wartet weiter auf Freischaltung
 
 #### Scenario: Aktives Mitglied behält seine Rolle
 - **WHEN** sich ein aktives Mitglied mit Rolle `vorstand` anmeldet und der Ausdruck `mitglied` liefert

@@ -3,6 +3,7 @@ package usecase
 import (
 	"context"
 	"fmt"
+	"sort"
 	"strings"
 	"time"
 
@@ -79,6 +80,23 @@ func (f *fakeMemberRepo) List(ctx context.Context, filter port.MemberFilter) ([]
 		}
 		cp := *m
 		out = append(out, &cp)
+	}
+	// Same order and paging as the GORM repo.
+	sort.Slice(out, func(i, j int) bool {
+		a, b := out[i], out[j]
+		if a.LastName != b.LastName {
+			return a.LastName < b.LastName
+		}
+		if a.FirstName != b.FirstName {
+			return a.FirstName < b.FirstName
+		}
+		return a.ID.String() < b.ID.String()
+	})
+	if filter.Offset > 0 {
+		out = out[min(filter.Offset, len(out)):]
+	}
+	if filter.Limit > 0 && len(out) > filter.Limit {
+		out = out[:filter.Limit]
 	}
 	return out, nil
 }

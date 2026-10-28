@@ -97,9 +97,9 @@ func (s *Service) Exchange(ctx context.Context, code string) (*port.OIDCTokens, 
 }
 
 // VerifyIDToken validates the id_token, extracts the standard claims and
-// resolves the application role. Like Grafana, the role expression is first
-// evaluated against the id_token claims and, if that yields no role, against
-// the UserInfo response (many IdPs only put groups/roles there).
+// resolves the application role from the id_token claims. Like Grafana, the
+// caller falls back to UserInfoRole when that yields no role (many IdPs only
+// put groups/roles in the UserInfo response).
 func (s *Service) VerifyIDToken(ctx context.Context, tokens *port.OIDCTokens) (*port.OIDCClaims, error) {
 	idToken, err := s.verifier.Verify(ctx, tokens.IDToken)
 	if err != nil {
@@ -125,22 +125,22 @@ func (s *Service) VerifyIDToken(ctx context.Context, tokens *port.OIDCTokens) (*
 		if err := idToken.Claims(&raw); err == nil {
 			out.Role = s.roles.Resolve(raw)
 		}
-		if out.Role == "" && tokens.AccessToken != "" {
-			out.Role = s.roleFromUserInfo(ctx, tokens.AccessToken, idToken.Subject)
-		}
 	}
 	return out, nil
 }
 
-// roleFromUserInfo evaluates the role expression against the UserInfo
-// response. Failures yield no role: the member then waits for manual
-// activation, exactly as without a role expression. The response is only
-// trusted when its subject matches the id_token's (OIDC Core 5.3.2).
-func (s *Service) roleFromUserInfo(ctx context.Context, accessToken, subject string) string {
+// UserInfoRole evaluates the role expression against the UserInfo response.
+// Failures yield no role: the member then waits for manual activation,
+// exactly as without a role expression. The response is only trusted when
+// its subject matches the id_token's (OIDC Core 5.3.2).
+func (s *Service) UserInfoRole(ctx context.Context, tokens *port.OIDCTokens, subject string) string {
+	if s.roles == nil || tokens == nil || tokens.AccessToken == "" {
+		return ""
+	}
 	// Bound the extra round-trip so a hanging IdP cannot stall the login.
 	ctx, cancel := context.WithTimeout(ctx, userInfoTimeout)
 	defer cancel()
-	info, err := s.provider.UserInfo(ctx, oauth2.StaticTokenSource(&oauth2.Token{AccessToken: accessToken}))
+	info, err := s.provider.UserInfo(ctx, oauth2.StaticTokenSource(&oauth2.Token{AccessToken: tokens.AccessToken}))
 	if err != nil || info.Subject != subject {
 		return ""
 	}

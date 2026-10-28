@@ -17,7 +17,14 @@ import (
 // --- fakes -----------------------------------------------------------------
 
 type fakeOIDC struct {
-	claims *port.OIDCClaims
+	claims        *port.OIDCClaims
+	userInfoRole  string
+	userInfoCalls int
+}
+
+func (f *fakeOIDC) UserInfoRole(_ context.Context, _ *port.OIDCTokens, _ string) string {
+	f.userInfoCalls++
+	return f.userInfoRole
 }
 
 func (f *fakeOIDC) GetAuthURL(state string) string { return "https://idp.example/auth?state=" + state }
@@ -191,7 +198,8 @@ func TestCallback_UnknownUser_WithOIDCRole_CreatedActive(t *testing.T) {
 
 func TestCallback_PendingMember_WithOIDCRole_Activated(t *testing.T) {
 	store := newFakeStore()
-	pending := &domain.Member{ID: uuid.New(), Email: "wait@club.de", Role: domain.RoleMitglied, IsActive: false}
+	sub := "sub-r2"
+	pending := &domain.Member{ID: uuid.New(), Email: "wait@club.de", Role: domain.RoleMitglied, IsActive: false, OIDCSubject: &sub}
 	store.bySubject["sub-r2"] = pending
 	claims := &port.OIDCClaims{Subject: "sub-r2", Email: "wait@club.de", Provider: "kc", Role: domain.RoleMitglied}
 	h, _ := newHandler(store, claims, "")
@@ -206,6 +214,31 @@ func TestCallback_PendingMember_WithOIDCRole_Activated(t *testing.T) {
 	}
 	if len(store.updated) == 0 {
 		t.Error("activation should persist via Update")
+	}
+}
+
+// A pending record registered by someone else (another provider, same
+// e-mail) must not be activated by the role of whoever logs in with that
+// e-mail — neither on the e-mail match nor once their subject is linked.
+func TestCallback_ForeignPendingRecord_NotActivatedByOIDCRole(t *testing.T) {
+	store := newFakeStore()
+	attackerSub := "attacker-sub"
+	foreign := &domain.Member{ID: uuid.New(), Email: "victim@club.de", Role: domain.RoleMitglied, IsActive: false, OIDCSubject: &attackerSub}
+	store.byEmail["victim@club.de"] = foreign
+	claims := &port.OIDCClaims{Subject: "victim-sub", Email: "victim@club.de", Provider: "kc", Role: domain.RoleVorstand}
+	h, _ := newHandler(store, claims, "")
+	h.oidc["default"].(*fakeOIDC).userInfoRole = domain.RoleVorstand
+
+	if frag := callback(t, h); frag != "error=inactive" {
+		t.Fatalf("e-mail match: want error=inactive, got %q", frag)
+	}
+	// Second login: the victim's subject is linked now.
+	store.bySubject["victim-sub"] = foreign
+	if frag := callback(t, h); frag != "error=inactive" {
+		t.Fatalf("subject match: want error=inactive, got %q", frag)
+	}
+	if foreign.IsActive || foreign.Role != domain.RoleMitglied {
+		t.Errorf("foreign pending record must stay pending, got active=%v role=%q", foreign.IsActive, foreign.Role)
 	}
 }
 
@@ -239,6 +272,38 @@ func TestCallback_ActiveMember_RoleNotOverwrittenByOIDC(t *testing.T) {
 	}
 	if existing.Role != domain.RoleVorstand {
 		t.Errorf("in-app role must win for active members, got %q", existing.Role)
+	}
+}
+
+func TestCallback_UnknownUser_RoleFromUserInfo(t *testing.T) {
+	store := newFakeStore()
+	claims := &port.OIDCClaims{Subject: "sub-u1", Email: "ui@club.de", Provider: "kc"}
+	h, _ := newHandler(store, claims, "")
+	idp := h.oidc["default"].(*fakeOIDC)
+	idp.userInfoRole = domain.RoleVorstand
+
+	if frag := callback(t, h); !strings.HasPrefix(frag, "token=") {
+		t.Fatalf("want token, got %q", frag)
+	}
+	if len(store.created) != 1 || !store.created[0].IsActive || store.created[0].Role != domain.RoleVorstand {
+		t.Fatalf("want active vorstand from UserInfo, got %+v", store.created)
+	}
+}
+
+// The UserInfo round-trip is skipped when its role could not take effect.
+func TestCallback_ActiveMember_SkipsUserInfo(t *testing.T) {
+	store := newFakeStore()
+	store.bySubject["sub-u2"] = &domain.Member{ID: uuid.New(), Email: "a@club.de", Role: domain.RoleMitglied, IsActive: true}
+	claims := &port.OIDCClaims{Subject: "sub-u2", Email: "a@club.de", Provider: "kc"}
+	h, _ := newHandler(store, claims, "")
+	idp := h.oidc["default"].(*fakeOIDC)
+	idp.userInfoRole = domain.RoleAdmin
+
+	if frag := callback(t, h); !strings.HasPrefix(frag, "token=") {
+		t.Fatalf("want token, got %q", frag)
+	}
+	if idp.userInfoCalls != 0 {
+		t.Errorf("UserInfo queried %d times for an active member", idp.userInfoCalls)
 	}
 }
 

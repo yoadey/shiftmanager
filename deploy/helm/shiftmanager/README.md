@@ -176,8 +176,13 @@ Rules:
   *whole* expression fail, so the fallback is never reached. Guard such
   claims with a default, e.g.
   ``contains(groups || `[]`, 'sm-admin') && 'admin' || 'mitglied'``.
+- A catch-all fallback (`|| 'mitglied'`) always yields a role from the ID
+  token, so the UserInfo response is then never consulted. If your IdP only
+  puts groups into UserInfo, leave the fallback out.
 - Members who are already active keep the role set in the app; the IdP role is
-  only used to admit new or still-pending accounts.
+  only used to admit new accounts and pending accounts registered by that same
+  login identity (a pending account that merely shares the e-mail address
+  keeps waiting for a board member).
 - Deactivated members are not re-admitted by the IdP.
 - Additional providers (`OIDC_PROVIDERS`) take their own
   `OIDC_<NAME>_ROLE_ATTRIBUTE_PATH` via `app.extraEnv`; they do not inherit

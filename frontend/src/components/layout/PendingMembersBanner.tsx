@@ -22,12 +22,13 @@ export function PendingMembersBanner() {
   if (!isVorstand || count === 0 || onMemberList) return null;
 
   return (
-    <div style={{ padding: '12px 18px 0' }}>
+    // role="status" sits on the wrapper: on the <button> itself it would
+    // replace the button role, hiding the control from assistive tech.
+    <div role="status" style={{ padding: '12px 18px 0' }}>
       <button
         type="button"
         className="pressable sm-card"
         onClick={() => navigate(routes.mitglieder)}
-        role="status"
         style={{
           width: '100%', display: 'flex', alignItems: 'center', gap: 12, padding: '12px 14px',
           background: 'var(--warn-bg)', border: '1px solid var(--line)', cursor: 'pointer', textAlign: 'left',
