@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, lazy, Suspense } from 'react';
+import { useEffect, useLayoutEffect, useRef, useState, lazy, Suspense } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { Icon } from '@/components/ui/Icon';
 import { Avatar } from '@/components/ui/Avatar';
@@ -58,18 +58,60 @@ function findEvent(events: Event[], id: string): Event | undefined {
   return events.find((e) => e.id === id);
 }
 
-function MiniStat({ label, val, accent }: { label: string; val: number; accent?: boolean }) {
-  // An accented tile takes the brand colour as background, so --on-primary
-  // (picked for contrast against it) stays readable with any branding.
+// Height of the collapsed description preview — roughly the first three lines.
+const DESCRIPTION_PREVIEW_PX = 80;
+
+// The event description as its own box, collapsed to the first lines by
+// default (V-011); the toggle only appears when there is more to show.
+function EventDescription({ text }: { text: string }) {
+  const bodyRef = useRef<HTMLDivElement>(null);
+  const [expanded, setExpanded] = useState(false);
+  const [overflows, setOverflows] = useState(false);
+
+  useLayoutEffect(() => {
+    const el = bodyRef.current;
+    if (!el) return;
+    // scrollHeight is the full content height even while clipped.
+    const measure = () => setOverflows(el.scrollHeight > DESCRIPTION_PREVIEW_PX + 4);
+    measure();
+    if (typeof ResizeObserver === 'undefined') return;
+    const ro = new ResizeObserver(measure);
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, [text]);
+
+  const collapsed = overflows && !expanded;
+  const fade = 'linear-gradient(180deg, #000 45%, transparent)';
+
   return (
-    <div
-      className="sm-card"
-      data-testid={`ministat-${label}`}
-      style={{ flex: 1, padding: '12px 10px', textAlign: 'center', ...(accent && { background: 'var(--primary)', borderColor: 'var(--primary)' }) }}
-    >
-      <div style={{ fontFamily: 'Bricolage Grotesque', fontWeight: 800, fontSize: 22, color: accent ? 'var(--on-primary)' : 'var(--ink)' }}>{val}</div>
-      <div style={{ fontSize: 11, fontWeight: 700, color: accent ? 'var(--on-primary)' : 'var(--muted)', opacity: accent ? 0.8 : 1, marginTop: 1 }}>{label}</div>
-    </div>
+    <section className="sm-card" aria-label="Beschreibung" style={{ marginTop: 14, padding: '11px 14px 12px' }}>
+      <div style={{ fontWeight: 800, fontSize: 12, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '.06em', marginBottom: 6 }}>Beschreibung</div>
+      <div
+        ref={bodyRef}
+        data-testid="event-description"
+        style={{
+          overflow: 'hidden',
+          maxHeight: collapsed ? DESCRIPTION_PREVIEW_PX : undefined,
+          WebkitMaskImage: collapsed ? fade : undefined,
+          maskImage: collapsed ? fade : undefined,
+        }}
+      >
+        <MarkdownContent text={text} />
+      </div>
+      {overflows && (
+        <button
+          className="pressable"
+          aria-expanded={expanded}
+          onClick={() => setExpanded(!expanded)}
+          style={{ border: 'none', background: 'none', padding: 0, marginTop: 6, cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: 4, fontWeight: 700, fontSize: 13, color: 'var(--ink-2)', fontFamily: 'inherit' }}
+        >
+          {expanded ? 'Weniger anzeigen' : 'Mehr anzeigen'}
+          <span style={{ display: 'inline-flex', transform: expanded ? 'rotate(180deg)' : undefined }}>
+            <Icon name="chevD" size={14} stroke={2.4} />
+          </span>
+        </button>
+      )}
+    </section>
   );
 }
 
@@ -363,13 +405,6 @@ function ShiftRow({ sh, eventId, ev, onDeregister }: { sh: Shift; eventId: strin
   const navigate = useNavigate();
   const params = useParams();
   const rest = params['*'] ?? '';
-  // A direct link or reload straight into "Helfer hinzufügen" or "Zeit
-  // bearbeiten" needs the registrant list expanded already — those sheets
-  // are only reachable through it — so the initial value checks the URL
-  // instead of always starting collapsed.
-  const [open, setOpen] = useState(
-    () => rest === `helfer/${sh.id}` || sh.signups.some((s) => rest === `zeit/${s.id ?? ''}`),
-  );
   const registering = rest === `anmelden/${sh.id}`;
   // Board-only action — the route alone doesn't imply authorization, so a
   // non-board member navigating straight to this URL must not see the sheet.
@@ -384,12 +419,13 @@ function ShiftRow({ sh, eventId, ev, onDeregister }: { sh: Shift; eventId: strin
       <span className="tl-dot" style={{ background: dotColor[o.key] }} />
       <div className="sm-card" style={{ padding: 13, border: mine ? '1.5px solid var(--primary)' : '1px solid var(--line)' }}>
         <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 10 }}>
-          <div style={{ flex: 1, minWidth: 0 }}>
+          {/* Title next to the time when there is room, below it otherwise (V-011). */}
+          <div style={{ flex: 1, minWidth: 0, display: 'flex', flexWrap: 'wrap', alignItems: 'center', columnGap: 12, rowGap: 3 }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: 6, color: 'var(--ink-2)', fontSize: 12.5, fontWeight: 800, whiteSpace: 'nowrap' }}>
               <Icon name="clock" size={13} stroke={2.3} />{sh.start}–{sh.end}
               <span style={{ color: 'var(--muted)' }}>· {hrs(durH(sh.start, sh.end))}</span>
             </div>
-            <div style={{ fontWeight: 700, fontSize: 15.5, marginTop: 3 }}>{sh.name}</div>
+            <div style={{ fontWeight: 700, fontSize: 15.5 }}>{sh.name}</div>
           </div>
           <OccBadge o={o} />
         </div>
@@ -420,18 +456,12 @@ function ShiftRow({ sh, eventId, ev, onDeregister }: { sh: Shift; eventId: strin
           </div>
         )}
 
+        {/* Organisers see the helpers right away and can add one directly;
+            the bar above already shows how many there are (SC-012). */}
         {isBoard && (
           <div style={{ marginTop: 10 }}>
-            <button
-              className="pressable"
-              onClick={() => setOpen(!open)}
-              style={{ border: 'none', background: 'none', padding: 0, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 6, fontWeight: 700, fontSize: 12.5, color: 'var(--ink-2)', fontFamily: 'inherit' }}
-            >
-              <Icon name="users" size={15} stroke={2.2} />{o.count} eingetragen<Icon name={open ? 'chevD' : 'chevR'} size={14} stroke={2.4} />
-            </button>
-            {open && (
-              <div style={{ marginTop: 8, display: 'flex', flexDirection: 'column', gap: 6 }}>
-                {sh.signups.length === 0 && <span style={{ fontSize: 12.5, color: 'var(--muted)', fontWeight: 600 }}>Noch niemand eingetragen.</span>}
+            {sh.signups.length > 0 && (
+              <div data-testid="registrations" style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(min(100%, 290px), 1fr))', gap: 6, marginBottom: 9 }}>
                 {sh.signups.map((s) => (
                   <RegistrationRow
                     key={s.id ?? s.memberId}
@@ -440,9 +470,9 @@ function ShiftRow({ sh, eventId, ev, onDeregister }: { sh: Shift; eventId: strin
                     eventId={eventId}
                   />
                 ))}
-                <Button variant="soft" size="sm" icon="plus" onClick={() => navigate(routes.eventHelfer(eventId, sh.id))}>Helfer hinzufügen</Button>
               </div>
             )}
+            <Button variant={o.free > 0 ? 'primary' : 'soft'} size="sm" icon="plus" onClick={() => navigate(routes.eventHelfer(eventId, sh.id))}>Helfer hinzufügen</Button>
           </div>
         )}
 
@@ -787,6 +817,8 @@ function EditEventPage({ ev, onClose }: { ev: Event; onClose: () => void }) {
         />
       </div>
 
+      <AttachmentsSection eventId={ev.id} editable />
+
       {/* Eckdaten */}
       <div style={{ fontWeight: 800, fontSize: 13, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '.06em', marginBottom: 10 }}>Eckdaten</div>
       <Field label="Name">
@@ -983,7 +1015,9 @@ function DeleteAttachmentDialog({ attachment, onClose, onConfirm }: { attachment
 // Images and other attachments for an event (V-008). Board members can add
 // and remove files; everyone else just sees what's there (and the section is
 // hidden entirely for them when it's empty, to keep the detail page tidy).
-function AttachmentsSection({ eventId, isBoard }: { eventId: string; isBoard: boolean }) {
+// Attachments (V-008): the event view only lists existing ones; uploading and
+// removing happens on the edit page (`editable`).
+function AttachmentsSection({ eventId, editable }: { eventId: string; editable: boolean }) {
   const { showToast } = useAppStore();
   const { data: attachments } = useEventAttachments(eventId);
   const upload = useUploadEventAttachment(eventId);
@@ -1022,33 +1056,11 @@ function AttachmentsSection({ eventId, isBoard }: { eventId: string; isBoard: bo
     setConfirmDelete(null);
   };
 
-  if (!isBoard && (!attachments || attachments.length === 0)) return null;
+  if (!editable && (!attachments || attachments.length === 0)) return null;
 
   return (
-    <div style={{ margin: '18px 0 4px' }}>
-      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 9 }}>
-        <span style={{ fontWeight: 700, fontSize: 12.5, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: 0.3 }}>Anhänge</span>
-        {isBoard && (
-          <>
-            <button
-              onClick={() => fileInputRef.current?.click()}
-              disabled={upload.isPending}
-              className="pressable"
-              title="Bild oder Datei hinzufügen"
-              style={{ width: 26, height: 26, borderRadius: '50%', border: '1px solid var(--line-2)', background: 'var(--surface)', display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer' }}
-            >
-              <Icon name="plus" size={13} stroke={2.6} color="var(--ink-2)" />
-            </button>
-            <input
-              ref={fileInputRef}
-              type="file"
-              accept={ALLOWED_ATTACHMENT_TYPES}
-              style={{ display: 'none' }}
-              onChange={onFileChange}
-            />
-          </>
-        )}
-      </div>
+    <div data-testid="attachments" style={{ margin: editable ? '0 0 20px' : '14px 0 4px' }}>
+      <div style={{ fontWeight: 800, fontSize: editable ? 13 : 12, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '.06em', marginBottom: 9 }}>Anhänge</div>
       {attachments && attachments.length > 0 && (
         <div style={{ display: 'flex', gap: 8, overflowX: 'auto', paddingBottom: 2 }}>
           {attachments.map((a) => (
@@ -1065,7 +1077,7 @@ function AttachmentsSection({ eventId, isBoard }: { eventId: string; isBoard: bo
                   {a.fileName}
                 </div>
               </a>
-              {isBoard && (
+              {editable && (
                 <button
                   onClick={() => setConfirmDelete(a)}
                   disabled={deletingIds.has(a.id)}
@@ -1079,6 +1091,28 @@ function AttachmentsSection({ eventId, isBoard }: { eventId: string; isBoard: bo
             </div>
           ))}
         </div>
+      )}
+      {editable && (
+        <>
+          <button
+            className="sm-card pressable"
+            onClick={() => fileInputRef.current?.click()}
+            disabled={upload.isPending}
+            style={{ width: '100%', marginTop: attachments && attachments.length > 0 ? 10 : 0, border: '1.5px dashed var(--line-2)', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8, padding: '14px', cursor: 'pointer', background: 'var(--surface)', fontFamily: 'inherit' }}
+          >
+            <Icon name="paperclip" size={18} color="var(--muted)" />
+            <span style={{ fontWeight: 700, fontSize: 13.5, color: 'var(--ink-2)' }}>
+              {upload.isPending ? 'Wird hochgeladen…' : 'Bild oder Datei anhängen'}
+            </span>
+          </button>
+          <input
+            ref={fileInputRef}
+            type="file"
+            accept={ALLOWED_ATTACHMENT_TYPES}
+            style={{ display: 'none' }}
+            onChange={onFileChange}
+          />
+        </>
       )}
       {confirmDelete && (
         <DeleteAttachmentDialog attachment={confirmDelete} onClose={() => setConfirmDelete(null)} onConfirm={confirmRemove} />
@@ -1123,8 +1157,6 @@ export function EventDetail() {
 
   // Prefer the dedicated timeline (multi-day grouped, occupancy ready); fall back to the event days.
   const days = timelineQ.data?.days ?? ev.days ?? [];
-  const allShifts = days.flatMap((d) => d.shifts);
-  const free = allShifts.reduce((a, s) => a + calcOccupancy(s).free, 0);
 
   return (
     <div className="fade-in">
@@ -1201,19 +1233,9 @@ export function EventDetail() {
           </span>
           <span style={{ display: 'flex', alignItems: 'center', gap: 9 }}><Icon name="pin" size={17} color="var(--muted)" />{ev.location}</span>
         </div>
-        {ev.description && (
-          <div style={{ marginTop: 14 }}>
-            <MarkdownContent text={ev.description} />
-          </div>
-        )}
+        {ev.description && <EventDescription text={ev.description} />}
 
-        <AttachmentsSection eventId={id} isBoard={isBoard} />
-
-        <div style={{ display: 'flex', gap: 10, margin: '16px 0 4px' }}>
-          <MiniStat label="Schichten" val={allShifts.length} />
-          <MiniStat label="Freie Plätze" val={free} accent={free > 0} />
-          <MiniStat label={days.length > 1 ? 'Tage' : 'Tag'} val={days.length} />
-        </div>
+        <AttachmentsSection eventId={id} editable={false} />
 
         {days.map((day, i) => (
           <div className="tl-day" key={day.date}>
@@ -1243,4 +1265,4 @@ export function EventDetail() {
   );
 }
 
-export { ShiftRow, RegisterSheet, DeregisterDialog, MiniStat, findEvent };
+export { ShiftRow, RegisterSheet, DeregisterDialog, findEvent };

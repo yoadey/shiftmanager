@@ -1,4 +1,4 @@
-import { describe, it, expect, vi } from 'vitest';
+import { describe, it, expect, vi, afterEach } from 'vitest';
 import { render, screen, fireEvent } from '@testing-library/react';
 import { MemoryRouter, Routes, Route, useLocation } from 'react-router-dom';
 import { useAuthStore } from '@/store/auth.store';
@@ -30,13 +30,15 @@ const fixtureEvent: Event = {
   ],
 };
 
+let attachmentsData: { id: string; eventId: string; fileName: string; url: string; contentType: string; sizeBytes: number; uploadedAt: string }[] = [];
+
 vi.mock('@/api/events', () => ({
   useEvent: () => ({ data: fixtureEvent, isLoading: false, isError: false }),
   useEventTimeline: () => ({ data: { event: fixtureEvent, days: fixtureEvent.days }, isLoading: false, isError: false }),
   useUpdateEvent: () => ({ mutate: vi.fn(), mutateAsync: vi.fn(), isPending: false }),
   useDeleteEvent: () => ({ mutate: vi.fn(), isPending: false }),
   useCompleteEvent: () => ({ mutate: vi.fn(), isPending: false }),
-  useEventAttachments: () => ({ data: [] }),
+  useEventAttachments: () => ({ data: attachmentsData }),
   useUploadEventAttachment: () => ({ mutate: vi.fn(), isPending: false }),
   useDeleteEventAttachment: () => ({ mutate: vi.fn(), isPending: false }),
   useUploadEventHeaderImage: () => ({ mutate: vi.fn(), isPending: false }),
@@ -133,12 +135,13 @@ describe('EventDetail helper names', () => {
     expect(await screen.findByTestId('helper-names')).toHaveTextContent('Max M.');
   });
 
-  it('shows the organiser the name from the timeline in the registrant list', async () => {
+  it('shows the organiser the helpers and "Helfer hinzufügen" right away (SC-012)', async () => {
     setRole('veranstaltungsleiter');
     renderAt('/events/e1');
-    fireEvent.click(await screen.findByText(/eingetragen/));
-    expect(await screen.findByText('Max M.')).toBeInTheDocument();
+    expect(await screen.findByTestId('registrations')).toHaveTextContent('Max M.');
     expect(screen.queryByTestId('helper-names')).not.toBeInTheDocument();
+    expect(screen.queryByText(/eingetragen/)).not.toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /Helfer hinzufügen/ })).toHaveClass('primary');
   });
 
   it('searches helpers by name and hides those already in the shift', async () => {
@@ -153,17 +156,56 @@ describe('EventDetail helper names', () => {
   });
 });
 
-describe('EventDetail stat tiles', () => {
-  // The free-places count used --on-primary text on the white card, which
-  // vanished with a dark brand colour; the accented tile now carries the
-  // brand colour as its background.
-  it('puts the free-places count on the brand colour when places are free', async () => {
+// Compact event view (V-008, V-011).
+describe('EventDetail compact view', () => {
+  afterEach(() => {
+    attachmentsData = [];
+    vi.restoreAllMocks();
+  });
+
+  it('shows no summary tiles and no empty attachments section', async () => {
+    setRole('veranstaltungsleiter');
+    renderAt('/events/e1');
+    await screen.findByText('Sommerfest');
+    expect(screen.queryByText('Freie Plätze')).not.toBeInTheDocument();
+    expect(screen.queryByText('Schichten')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('attachments')).not.toBeInTheDocument();
+  });
+
+  it('lists existing attachments read-only in the view, editable on the edit page', async () => {
+    attachmentsData = [{ id: 'a1', eventId: 'e1', fileName: 'plan.pdf', url: '/uploads/plan.pdf', contentType: 'application/pdf', sizeBytes: 1, uploadedAt: '' }];
+    setRole('veranstaltungsleiter');
+    const { unmount } = renderAt('/events/e1');
+    expect(await screen.findByTestId('attachments')).toHaveTextContent('plan.pdf');
+    expect(screen.queryByTitle('Anhang entfernen')).not.toBeInTheDocument();
+    expect(screen.queryByText('Bild oder Datei anhängen')).not.toBeInTheDocument();
+    unmount();
+
+    renderAt('/events/e1/bearbeiten');
+    expect(await screen.findByText('Bild oder Datei anhängen')).toBeInTheDocument();
+    expect(screen.getByTitle('Anhang entfernen')).toBeInTheDocument();
+  });
+
+  it('collapses a long description to its first lines until expanded', async () => {
+    vi.spyOn(HTMLElement.prototype, 'scrollHeight', 'get').mockReturnValue(400);
     setRole('mitglied');
     renderAt('/events/e1');
-    const tile = await screen.findByTestId('ministat-Freie Plätze');
-    expect(tile).toHaveTextContent('4');
-    expect(tile.style.background).toBe('var(--primary)');
-    expect(screen.getByTestId('ministat-Schichten').style.background).toBe('');
+    const body = await screen.findByTestId('event-description');
+    expect(screen.getByRole('region', { name: 'Beschreibung' })).toBeInTheDocument();
+    expect(body.style.maxHeight).not.toBe('');
+
+    fireEvent.click(screen.getByRole('button', { name: /Mehr anzeigen/ }));
+    expect(body.style.maxHeight).toBe('');
+    fireEvent.click(screen.getByRole('button', { name: /Weniger anzeigen/ }));
+    expect(body.style.maxHeight).not.toBe('');
+  });
+
+  it('shows a short description in full without a toggle', async () => {
+    setRole('mitglied');
+    renderAt('/events/e1');
+    const body = await screen.findByTestId('event-description');
+    expect(body.style.maxHeight).toBe('');
+    expect(screen.queryByRole('button', { name: /Mehr anzeigen/ })).not.toBeInTheDocument();
   });
 });
 
@@ -172,12 +214,13 @@ describe('EventDetail stat tiles', () => {
 // different screen, but it used to key on the *full* pathname — including a
 // modal's own sub-route. That forced a full remount of EventDetail on every
 // click that opens a route-backed sheet, wiping local UI state the sheet
-// depends on. "Zeit bearbeiten" was the visible casualty: it lives inside
-// the registrant list's expand toggle (local state, not URL-derived), so
-// clicking it navigated to /events/:id/zeit/:signupId, which remounted the
-// list collapsed again — and the popup that navigation was supposed to open
-// never appeared. Reproduced here by wrapping EventDetail the same way
-// App.tsx does: a key derived from the first two path segments only.
+// depends on. "Zeit bearbeiten" was the visible casualty: it then lived
+// inside the registrant list's expand toggle (local state, not URL-derived),
+// so clicking it navigated to /events/:id/zeit/:signupId, which remounted
+// the list collapsed again — and the popup never appeared. The list is now
+// always visible, but the tests still guard against the remount. Reproduced
+// by wrapping EventDetail the same way App.tsx does: a key derived from the
+// first two path segments only.
 function AppShellLike() {
   const location = useLocation();
   const navKey = location.pathname.split('/').filter(Boolean).slice(0, 2).join('/') || 'home';
@@ -199,14 +242,13 @@ describe('EventDetail click-through under the app-level remount key', () => {
       </MemoryRouter>,
     );
 
-    fireEvent.click(await screen.findByText(/eingetragen/));
     fireEvent.click(await screen.findByTitle('Zeit bearbeiten'));
 
     // The time picker's "Übernehmen" save button only exists once it's open.
     expect(await screen.findByText('Übernehmen')).toBeInTheDocument();
   });
 
-  it('keeps the registrant list expanded after closing the time-edit sheet', async () => {
+  it('keeps the registrant list visible after closing the time-edit sheet', async () => {
     setRole('veranstaltungsleiter');
     render(
       <MemoryRouter initialEntries={['/events/e1']}>
@@ -216,14 +258,11 @@ describe('EventDetail click-through under the app-level remount key', () => {
       </MemoryRouter>,
     );
 
-    fireEvent.click(await screen.findByText(/eingetragen/));
     fireEvent.click(await screen.findByTitle('Zeit bearbeiten'));
     fireEvent.click(await screen.findByText('Abbrechen'));
 
-    // Closing the sheet navigates back to /events/e1. If that remounts the
-    // shift row (the old, full-pathname remount key), the registrant list's
-    // local expand state is lost and collapses — even though the user never
-    // asked for that.
+    // Closing the sheet navigates back to /events/e1; the registrant list
+    // must still be there.
     expect(screen.queryByText('Übernehmen')).not.toBeInTheDocument();
     expect(await screen.findByTitle('Zeit bearbeiten')).toBeInTheDocument();
   });
