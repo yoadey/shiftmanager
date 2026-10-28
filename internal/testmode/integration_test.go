@@ -231,6 +231,66 @@ func TestListMembers(t *testing.T) {
 	assert.Contains(t, firstNames, "Max")
 }
 
+func TestListMembers_PaginationAndStatus(t *testing.T) {
+	s := startServer(t)
+	tok := token(t, s, "vorstand", db.AdminID.String(), "admin@test.local")
+
+	list := func(query string) ([]map[string]any, string) {
+		t.Helper()
+		resp := get(t, s, "/api/v1/members"+query, tok)
+		require.Equal(t, http.StatusOK, resp.StatusCode, query)
+		total := resp.Header.Get("X-Total-Count")
+		var members []map[string]any
+		decode(t, resp, &members)
+		return members, total
+	}
+
+	page, total := list("?limit=1&offset=1")
+	require.Len(t, page, 1)
+	assert.Equal(t, "2", total, "total ignores limit/offset")
+	assert.Equal(t, "Admin", page[0]["firstName"], "sorted by last name: Mustermann, then Vorstand")
+
+	matches, total := list("?search=max%20muster")
+	require.Len(t, matches, 1, "search matches the full name")
+	assert.Equal(t, "1", total)
+
+	_, total = list("?status=pending")
+	assert.Equal(t, "0", total)
+
+	resp := del(t, s, "/api/v1/members/"+db.MemberID.String(), tok)
+	require.Less(t, resp.StatusCode, 300)
+	resp.Body.Close()
+
+	_, total = list("?status=left")
+	assert.Equal(t, "1", total)
+	_, total = list("?status=active")
+	assert.Equal(t, "1", total)
+	_, total = list("?status=approved")
+	assert.Equal(t, "2", total)
+	_, total = list("?status=pending")
+	assert.Equal(t, "0", total, "a deactivated member is not a pending registration")
+
+	for _, q := range []string{"?status=bogus", "?limit=-1", "?offset=-5", "?limit=all"} {
+		bad := get(t, s, "/api/v1/members"+q, tok)
+		assert.Equal(t, http.StatusBadRequest, bad.StatusCode, q)
+		bad.Body.Close()
+	}
+}
+
+// Pending self-registrations are visible to the board only (ML-013).
+func TestListMembers_PendingHiddenFromNonBoard(t *testing.T) {
+	s := startServer(t)
+	tok := token(t, s, "mitglied", db.MemberID.String(), "max@test.local")
+
+	resp := get(t, s, "/api/v1/members?status=pending", tok)
+	assert.Equal(t, http.StatusForbidden, resp.StatusCode)
+	resp.Body.Close()
+
+	resp = get(t, s, "/api/v1/members", tok)
+	require.Equal(t, http.StatusOK, resp.StatusCode)
+	resp.Body.Close()
+}
+
 func TestGetMember(t *testing.T) {
 	s := startServer(t)
 	tok := token(t, s, "vorstand", db.AdminID.String(), "admin@test.local")

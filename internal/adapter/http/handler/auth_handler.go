@@ -2,6 +2,7 @@ package handler
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"net/url"
@@ -59,6 +60,7 @@ type memberStore interface {
 	Create(r *http.Request, m *domain.Member) error
 	Update(r *http.Request, m *domain.Member) error
 	LinkOIDC(r *http.Request, link *domain.OIDCLink) error
+	GetOIDCLinks(r *http.Request, memberID uuid.UUID) ([]*domain.OIDCLink, error)
 }
 
 type auditWriter interface {
@@ -158,7 +160,7 @@ func (h *AuthHandler) Callback(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	claims, err := svc.VerifyIDToken(r.Context(), tokens.IDToken)
+	claims, err := svc.VerifyIDToken(r.Context(), tokens)
 	if err != nil {
 		h.redirectError(w, r, "token_invalid")
 		return
@@ -170,10 +172,43 @@ func (h *AuthHandler) Callback(w http.ResponseWriter, r *http.Request) {
 	// Resolve the member: match by OIDC subject (oidc_links), then fall back to
 	// e-mail. The members list is maintained independently of the IdP (ML-004),
 	// so a known member's first login is matched by their e-mail address.
-	member, _ := h.members.GetByOIDCSubject(r, claims.Provider, claims.Subject)
+	// Only "not found" may fall through to registration: treating a failed
+	// lookup as an unknown identity would create a duplicate account (active,
+	// with the IdP role, when a role expression is configured).
+	member, err := h.members.GetByOIDCSubject(r, claims.Provider, claims.Subject)
+	if err != nil && !errors.Is(err, domain.ErrMemberNotFound) {
+		h.redirectError(w, r, "server_error")
+		return
+	}
 	matchedBySubject := member != nil
-	if member == nil {
-		member, _ = h.members.GetByEmail(r, claims.Email)
+	// Without an e-mail claim there is nothing to match on: an empty lookup
+	// would hit any other account registered without an address and link
+	// this identity to it. Normalise like provisionMember stores it.
+	if email := domain.NormalizeEmail(claims.Email); member == nil && email != "" {
+		member, err = h.members.GetByEmail(r, email)
+		if err != nil && !errors.Is(err, domain.ErrMemberNotFound) {
+			h.redirectError(w, r, "server_error")
+			return
+		}
+	}
+
+	// An IdP role may only admit a pending account that this very login
+	// identity registered: matched by provider+subject, created with this
+	// subject, and with no other OIDC identity linked to it. A pending record
+	// that merely shares the e-mail address may have been registered by
+	// someone else via another provider (one that does not verify e-mails,
+	// or whose subjects collide with this issuer's); activating it would hand
+	// that registrant an active account. Such records keep waiting for a
+	// board member.
+	ownsPending := member != nil && matchedBySubject && member.IsPendingApproval() &&
+		member.OIDCSubject != nil && *member.OIDCSubject == claims.Subject &&
+		h.onlyLinkedIdentity(r, member.ID, claims)
+
+	// A role only takes effect for new or owned pending members (and the
+	// bootstrap admin rule wins over it), so only those logins pay for the
+	// UserInfo fallback when the id_token yielded no role.
+	if claims.Role == "" && !isBootstrapAdmin && (member == nil || ownsPending) {
+		claims.Role = svc.UserInfoRole(r.Context(), tokens, claims.Subject)
 	}
 
 	justRegistered := false
@@ -181,7 +216,16 @@ func (h *AuthHandler) Callback(w http.ResponseWriter, r *http.Request) {
 	case member == nil:
 		// Unknown identity: auto-register a new member. Per policy they remain
 		// INACTIVE (pending admin activation) — except the configured bootstrap
-		// admin, who is created as an active administrator.
+		// admin, who is created as an active administrator, and identities the
+		// provider's role expression assigns a role, who are created active
+		// with that role.
+		if domain.NormalizeEmail(claims.Email) == "" {
+			// The e-mail is a mandatory member field (ML-002) and the key for
+			// matching members across providers; without it no account can
+			// be registered.
+			h.redirectError(w, r, "email_missing")
+			return
+		}
 		member, err = h.provisionMember(r, claims, isBootstrapAdmin)
 		if err != nil {
 			h.redirectError(w, r, "server_error")
@@ -205,9 +249,19 @@ func (h *AuthHandler) Callback(w http.ResponseWriter, r *http.Request) {
 		if isBootstrapAdmin && (member.Role != domain.RoleAdmin || !member.IsActive) {
 			before := *member
 			member.Role = domain.RoleAdmin
-			member.IsActive = true
+			member.Activate()
 			changed = true
 			_ = h.audit.WriteAudit(r, &member.ID, "member.bootstrap_admin", "member", member.ID.String(), before, *member)
+		} else if claims.Role != "" && ownsPending {
+			// Registered earlier without a role (e.g. before the role was
+			// granted at the IdP): admit them now. Deactivated members (with a
+			// leave date) and active members' roles are left alone — those are
+			// managed in the app.
+			before := *member
+			member.Role = claims.Role
+			member.Activate()
+			changed = true
+			_ = h.audit.WriteAudit(r, &member.ID, "member.oidc_role_activate", "member", member.ID.String(), before, *member)
 		}
 		if changed {
 			if err := h.members.Update(r, member); err != nil {
@@ -239,18 +293,24 @@ func (h *AuthHandler) Callback(w http.ResponseWriter, r *http.Request) {
 
 // provisionMember creates a member record for a first-time OIDC user. Regular
 // users are created inactive (pending admin activation); the configured
-// bootstrap admin is created as an active administrator.
+// bootstrap admin is created as an active administrator, and users whose
+// claims map to a role are created active with that role.
 func (h *AuthHandler) provisionMember(r *http.Request, claims *port.OIDCClaims, bootstrapAdmin bool) (*domain.Member, error) {
 	first, last := splitName(claims.Name, claims.Email)
 	member := &domain.Member{
-		ID:          uuid.New(),
-		FirstName:   first,
-		LastName:    last,
-		Email:       claims.Email,
+		ID:        uuid.New(),
+		FirstName: first,
+		LastName:  last,
+		// Stored lower-cased like CreateMember does: GetByEmail lower-cases
+		// its argument, so a mixed-case address would never match again.
+		Email:       domain.NormalizeEmail(claims.Email),
 		JoinedAt:    time.Now().UTC(),
-		IsActive:    bootstrapAdmin,
+		IsActive:    bootstrapAdmin || claims.Role != "",
 		Role:        domain.RoleMitglied,
 		OIDCSubject: &claims.Subject,
+	}
+	if claims.Role != "" {
+		member.Role = claims.Role
 	}
 	if bootstrapAdmin {
 		member.Role = domain.RoleAdmin
@@ -263,11 +323,24 @@ func (h *AuthHandler) provisionMember(r *http.Request, claims *port.OIDCClaims, 
 	h.linkOIDC(r, member.ID, claims)
 
 	action := "member.autoregister"
-	if bootstrapAdmin {
+	switch {
+	case bootstrapAdmin:
 		action = "member.bootstrap_admin"
+	case claims.Role != "":
+		action = "member.oidc_role_provision"
 	}
 	_ = h.audit.WriteAudit(r, &member.ID, action, "member", member.ID.String(), nil, *member)
 	return member, nil
+}
+
+// onlyLinkedIdentity reports whether the member's sole OIDC link is the
+// given provider+subject. Lookup errors count as "no".
+func (h *AuthHandler) onlyLinkedIdentity(r *http.Request, memberID uuid.UUID, claims *port.OIDCClaims) bool {
+	links, err := h.members.GetOIDCLinks(r, memberID)
+	if err != nil || len(links) != 1 {
+		return false
+	}
+	return links[0].Provider == claims.Provider && links[0].Subject == claims.Subject
 }
 
 // linkOIDC records an oidc_links row, ignoring errors (the e-mail fallback

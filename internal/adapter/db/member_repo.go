@@ -46,7 +46,9 @@ func (r *MemberRepo) GetByID(ctx context.Context, id uuid.UUID) (*domain.Member,
 
 func (r *MemberRepo) GetByEmail(ctx context.Context, email string) (*domain.Member, error) {
 	var model MemberModel
-	err := r.db.WithContext(ctx).Where("email = ?", strings.ToLower(email)).First(&model).Error
+	// Compare case-insensitively on both sides: rows self-registered before
+	// addresses were normalised may still carry mixed case.
+	err := r.db.WithContext(ctx).Where("lower(email) = ?", strings.ToLower(strings.TrimSpace(email))).First(&model).Error
 	if err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
 			return nil, domain.ErrMemberNotFound
@@ -72,17 +74,11 @@ func (r *MemberRepo) GetByOIDCSubject(ctx context.Context, provider, subject str
 }
 
 func (r *MemberRepo) List(ctx context.Context, filter port.MemberFilter) ([]*domain.Member, error) {
-	q := r.db.WithContext(ctx).Model(&MemberModel{})
+	q := applyMemberFilter(r.db.WithContext(ctx).Model(&MemberModel{}), filter)
 
-	if filter.IsActive != nil {
-		q = q.Where("is_active = ?", *filter.IsActive)
-	}
-	if s := strings.TrimSpace(filter.Search); s != "" {
-		like := "%" + strings.ToLower(s) + "%"
-		q = q.Where("lower(first_name) LIKE ? OR lower(last_name) LIKE ? OR lower(email) LIKE ?", like, like, like)
-	}
-
-	q = q.Order("last_name, first_name")
+	// id breaks ties between equal names so OFFSET pages never overlap or
+	// skip rows (PostgreSQL does not keep the order of equal sort keys stable).
+	q = q.Order("last_name, first_name, id")
 
 	if filter.Limit > 0 {
 		q = q.Limit(filter.Limit)
@@ -109,15 +105,17 @@ func (r *MemberRepo) Update(ctx context.Context, m *domain.Member) error {
 		Model(&MemberModel{}).
 		Where("id = ?", model.ID).
 		Updates(map[string]interface{}{
-			"first_name":       model.FirstName,
-			"last_name":        model.LastName,
-			"email":            model.Email,
-			"role":             model.Role,
-			"is_active":        model.IsActive,
-			"joined_at":        model.JoinedAt,
-			"left_at":           model.LeftAt,
-			"reminder_opt_out":  model.ReminderOptOut,
-			"notify_new_events": model.NotifyNewEvents,
+			"first_name":            model.FirstName,
+			"last_name":             model.LastName,
+			"email":                 model.Email,
+			"role":                  model.Role,
+			"is_active":             model.IsActive,
+			"joined_at":             model.JoinedAt,
+			"individual_goal_hours": model.IndividualGoalHours,
+			"oidc_subject":          model.OIDCSubject,
+			"left_at":               model.LeftAt,
+			"reminder_opt_out":      model.ReminderOptOut,
+			"notify_new_events":     model.NotifyNewEvents,
 		})
 	if result.Error != nil {
 		return result.Error
@@ -178,6 +176,40 @@ func (r *MemberRepo) Count(ctx context.Context) (int, error) {
 		return 0, err
 	}
 	return int(n), nil
+}
+
+// CountFiltered counts the members matching filter, ignoring Limit/Offset.
+func (r *MemberRepo) CountFiltered(ctx context.Context, filter port.MemberFilter) (int, error) {
+	var n int64
+	if err := applyMemberFilter(r.db.WithContext(ctx).Model(&MemberModel{}), filter).Count(&n).Error; err != nil {
+		return 0, err
+	}
+	return int(n), nil
+}
+
+var likeEscaper = strings.NewReplacer(`\`, `\\`, `%`, `\%`, `_`, `\_`)
+
+// applyMemberFilter adds the WHERE conditions shared by List and CountFiltered.
+func applyMemberFilter(q *gorm.DB, filter port.MemberFilter) *gorm.DB {
+	if filter.IsActive != nil {
+		q = q.Where("is_active = ?", *filter.IsActive)
+	}
+	switch filter.Status {
+	case port.MemberStatusActive:
+		q = q.Where("is_active = ?", true)
+	case port.MemberStatusPending:
+		q = q.Where("is_active = ? AND left_at IS NULL", false)
+	case port.MemberStatusLeft:
+		q = q.Where("is_active = ? AND left_at IS NOT NULL", false)
+	case port.MemberStatusApproved:
+		q = q.Where("(is_active = ? OR left_at IS NOT NULL)", true)
+	}
+	if s := strings.TrimSpace(filter.Search); s != "" {
+		// Escape LIKE wildcards so "%" or "_" in a search match literally.
+		like := "%" + likeEscaper.Replace(strings.ToLower(s)) + "%"
+		q = q.Where(`(lower(first_name) LIKE ? ESCAPE '\' OR lower(last_name) LIKE ? ESCAPE '\' OR lower(first_name || ' ' || last_name) LIKE ? ESCAPE '\' OR lower(email) LIKE ? ESCAPE '\')`, like, like, like, like)
+	}
+	return q
 }
 
 func (r *MemberRepo) CountActive(ctx context.Context) (int, error) {

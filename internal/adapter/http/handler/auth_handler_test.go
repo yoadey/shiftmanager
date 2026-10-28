@@ -2,6 +2,7 @@ package handler
 
 import (
 	"context"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -17,14 +18,21 @@ import (
 // --- fakes -----------------------------------------------------------------
 
 type fakeOIDC struct {
-	claims *port.OIDCClaims
+	claims        *port.OIDCClaims
+	userInfoRole  string
+	userInfoCalls int
+}
+
+func (f *fakeOIDC) UserInfoRole(_ context.Context, _ *port.OIDCTokens, _ string) string {
+	f.userInfoCalls++
+	return f.userInfoRole
 }
 
 func (f *fakeOIDC) GetAuthURL(state string) string { return "https://idp.example/auth?state=" + state }
 func (f *fakeOIDC) Exchange(_ context.Context, _ string) (*port.OIDCTokens, error) {
 	return &port.OIDCTokens{IDToken: "id-token"}, nil
 }
-func (f *fakeOIDC) VerifyIDToken(_ context.Context, _ string) (*port.OIDCClaims, error) {
+func (f *fakeOIDC) VerifyIDToken(_ context.Context, _ *port.OIDCTokens) (*port.OIDCClaims, error) {
 	return f.claims, nil
 }
 
@@ -34,6 +42,8 @@ type fakeMemberStore struct {
 	created   []*domain.Member
 	updated   []*domain.Member
 	links     []*domain.OIDCLink
+	// lookupErr, when set, is returned by GetByOIDCSubject (a failing DB).
+	lookupErr error
 }
 
 func newFakeStore() *fakeMemberStore {
@@ -60,6 +70,9 @@ func (s *fakeMemberStore) GetByID(_ *http.Request, id uuid.UUID) (*domain.Member
 	return nil, domain.ErrMemberNotFound
 }
 func (s *fakeMemberStore) GetByOIDCSubject(_ *http.Request, _, subject string) (*domain.Member, error) {
+	if s.lookupErr != nil {
+		return nil, s.lookupErr
+	}
 	if m, ok := s.bySubject[subject]; ok {
 		return m, nil
 	}
@@ -77,6 +90,15 @@ func (s *fakeMemberStore) Update(_ *http.Request, m *domain.Member) error {
 func (s *fakeMemberStore) LinkOIDC(_ *http.Request, link *domain.OIDCLink) error {
 	s.links = append(s.links, link)
 	return nil
+}
+func (s *fakeMemberStore) GetOIDCLinks(_ *http.Request, memberID uuid.UUID) ([]*domain.OIDCLink, error) {
+	var out []*domain.OIDCLink
+	for _, l := range s.links {
+		if l.MemberID == memberID {
+			out = append(out, l)
+		}
+	}
+	return out, nil
 }
 
 type fakeAudit struct{ actions []string }
@@ -167,6 +189,193 @@ func TestCallback_UnknownUser_AutoRegisteredInactive(t *testing.T) {
 	}
 }
 
+func TestCallback_LookupError_DoesNotRegisterDuplicate(t *testing.T) {
+	store := newFakeStore()
+	store.lookupErr = errors.New("connection reset")
+	claims := &port.OIDCClaims{Subject: "sub-e1", Email: "known@club.de", Name: "Known User", Provider: "kc", Role: domain.RoleMitglied}
+	h, _ := newHandler(store, claims, "")
+
+	frag := callback(t, h)
+
+	if frag != "error=server_error" {
+		t.Errorf("want server_error on a failed lookup, got %q", frag)
+	}
+	if len(store.created) != 0 {
+		t.Errorf("a failed lookup must not register a new member, got %d", len(store.created))
+	}
+}
+
+func TestCallback_UnknownUser_WithOIDCRole_CreatedActive(t *testing.T) {
+	store := newFakeStore()
+	claims := &port.OIDCClaims{Subject: "sub-r1", Email: "vl@club.de", Name: "Vera Leiter", Provider: "kc", Role: domain.RoleVeranstaltungsleiter}
+	h, audit := newHandler(store, claims, "")
+
+	frag := callback(t, h)
+
+	if !strings.HasPrefix(frag, "token=") {
+		t.Fatalf("member with OIDC role should be logged in, got %q", frag)
+	}
+	if len(store.created) != 1 {
+		t.Fatalf("expected 1 created member, got %d", len(store.created))
+	}
+	m := store.created[0]
+	if !m.IsActive || m.Role != domain.RoleVeranstaltungsleiter {
+		t.Errorf("want active veranstaltungsleiter, got active=%v role=%q", m.IsActive, m.Role)
+	}
+	if len(audit.actions) == 0 || audit.actions[0] != "member.oidc_role_provision" {
+		t.Errorf("expected oidc_role_provision audit, got %v", audit.actions)
+	}
+}
+
+func TestCallback_PendingMember_WithOIDCRole_Activated(t *testing.T) {
+	store := newFakeStore()
+	sub := "sub-r2"
+	pending := &domain.Member{ID: uuid.New(), Email: "wait@club.de", Role: domain.RoleMitglied, IsActive: false, OIDCSubject: &sub}
+	store.bySubject["sub-r2"] = pending
+	store.links = append(store.links, &domain.OIDCLink{MemberID: pending.ID, Provider: "kc", Subject: sub})
+	claims := &port.OIDCClaims{Subject: "sub-r2", Email: "wait@club.de", Provider: "kc", Role: domain.RoleMitglied}
+	h, _ := newHandler(store, claims, "")
+
+	frag := callback(t, h)
+
+	if !strings.HasPrefix(frag, "token=") {
+		t.Fatalf("pending member with OIDC role should be admitted, got %q", frag)
+	}
+	if !pending.IsActive {
+		t.Error("pending member should be activated")
+	}
+	if len(store.updated) == 0 {
+		t.Error("activation should persist via Update")
+	}
+}
+
+// A pending record registered by someone else (another provider, same
+// e-mail) must not be activated by the role of whoever logs in with that
+// e-mail — neither on the e-mail match nor once their subject is linked.
+func TestCallback_ForeignPendingRecord_NotActivatedByOIDCRole(t *testing.T) {
+	store := newFakeStore()
+	attackerSub := "attacker-sub"
+	foreign := &domain.Member{ID: uuid.New(), Email: "victim@club.de", Role: domain.RoleMitglied, IsActive: false, OIDCSubject: &attackerSub}
+	store.byEmail["victim@club.de"] = foreign
+	store.links = append(store.links, &domain.OIDCLink{MemberID: foreign.ID, Provider: "other-idp", Subject: attackerSub})
+	claims := &port.OIDCClaims{Subject: "victim-sub", Email: "victim@club.de", Provider: "kc", Role: domain.RoleVorstand}
+	h, _ := newHandler(store, claims, "")
+	h.oidc["default"].(*fakeOIDC).userInfoRole = domain.RoleVorstand
+
+	if frag := callback(t, h); frag != "error=inactive" {
+		t.Fatalf("e-mail match: want error=inactive, got %q", frag)
+	}
+	// Second login: the victim's subject is linked now.
+	store.bySubject["victim-sub"] = foreign
+	if frag := callback(t, h); frag != "error=inactive" {
+		t.Fatalf("subject match: want error=inactive, got %q", frag)
+	}
+	if foreign.IsActive || foreign.Role != domain.RoleMitglied {
+		t.Errorf("foreign pending record must stay pending, got active=%v role=%q", foreign.IsActive, foreign.Role)
+	}
+}
+
+// Subjects are only unique per issuer: another provider issuing the same
+// "sub" must not be able to claim (and activate) a pending record.
+func TestCallback_PendingRecord_SameSubjectOtherIssuer_NotActivated(t *testing.T) {
+	store := newFakeStore()
+	sub := "alice"
+	pending := &domain.Member{ID: uuid.New(), Email: "alice@club.de", Role: domain.RoleMitglied, IsActive: false, OIDCSubject: &sub}
+	store.byEmail["alice@club.de"] = pending
+	store.links = append(store.links, &domain.OIDCLink{MemberID: pending.ID, Provider: "issuer-a", Subject: sub})
+	claims := &port.OIDCClaims{Subject: sub, Email: "alice@club.de", Provider: "kc", Role: domain.RoleAdmin}
+	h, _ := newHandler(store, claims, "")
+
+	if frag := callback(t, h); frag != "error=inactive" {
+		t.Fatalf("e-mail match: want error=inactive, got %q", frag)
+	}
+	store.bySubject[sub] = pending // (kc, alice) is linked now
+	if frag := callback(t, h); frag != "error=inactive" {
+		t.Fatalf("subject match from another issuer: want error=inactive, got %q", frag)
+	}
+	if pending.IsActive {
+		t.Error("pending record must not be activated by another issuer's identity")
+	}
+}
+
+func TestCallback_LeftMember_WithOIDCRole_StaysInactive(t *testing.T) {
+	store := newFakeStore()
+	left := time.Now().Add(-24 * time.Hour)
+	former := &domain.Member{ID: uuid.New(), Email: "gone@club.de", Role: domain.RoleMitglied, IsActive: false, LeftAt: &left}
+	store.bySubject["sub-r3"] = former
+	claims := &port.OIDCClaims{Subject: "sub-r3", Email: "gone@club.de", Provider: "kc", Role: domain.RoleAdmin}
+	h, _ := newHandler(store, claims, "")
+
+	frag := callback(t, h)
+
+	if frag != "error=inactive" {
+		t.Fatalf("deactivated member must not be re-admitted by the IdP role, got %q", frag)
+	}
+	if former.IsActive || former.Role != domain.RoleMitglied {
+		t.Errorf("deactivated member must stay unchanged, got active=%v role=%q", former.IsActive, former.Role)
+	}
+}
+
+func TestCallback_ActiveMember_RoleNotOverwrittenByOIDC(t *testing.T) {
+	store := newFakeStore()
+	existing := &domain.Member{ID: uuid.New(), Email: "board@club.de", Role: domain.RoleVorstand, IsActive: true}
+	store.bySubject["sub-r4"] = existing
+	claims := &port.OIDCClaims{Subject: "sub-r4", Email: "board@club.de", Provider: "kc", Role: domain.RoleMitglied}
+	h, _ := newHandler(store, claims, "")
+
+	if frag := callback(t, h); !strings.HasPrefix(frag, "token=") {
+		t.Fatalf("want token, got %q", frag)
+	}
+	if existing.Role != domain.RoleVorstand {
+		t.Errorf("in-app role must win for active members, got %q", existing.Role)
+	}
+}
+
+func TestCallback_UnknownUser_RoleFromUserInfo(t *testing.T) {
+	store := newFakeStore()
+	claims := &port.OIDCClaims{Subject: "sub-u1", Email: "ui@club.de", Provider: "kc"}
+	h, _ := newHandler(store, claims, "")
+	idp := h.oidc["default"].(*fakeOIDC)
+	idp.userInfoRole = domain.RoleVorstand
+
+	if frag := callback(t, h); !strings.HasPrefix(frag, "token=") {
+		t.Fatalf("want token, got %q", frag)
+	}
+	if len(store.created) != 1 || !store.created[0].IsActive || store.created[0].Role != domain.RoleVorstand {
+		t.Fatalf("want active vorstand from UserInfo, got %+v", store.created)
+	}
+}
+
+// The UserInfo round-trip is skipped when its role could not take effect.
+func TestCallback_ActiveMember_SkipsUserInfo(t *testing.T) {
+	store := newFakeStore()
+	store.bySubject["sub-u2"] = &domain.Member{ID: uuid.New(), Email: "a@club.de", Role: domain.RoleMitglied, IsActive: true}
+	claims := &port.OIDCClaims{Subject: "sub-u2", Email: "a@club.de", Provider: "kc"}
+	h, _ := newHandler(store, claims, "")
+	idp := h.oidc["default"].(*fakeOIDC)
+	idp.userInfoRole = domain.RoleAdmin
+
+	if frag := callback(t, h); !strings.HasPrefix(frag, "token=") {
+		t.Fatalf("want token, got %q", frag)
+	}
+	if idp.userInfoCalls != 0 {
+		t.Errorf("UserInfo queried %d times for an active member", idp.userInfoCalls)
+	}
+}
+
+func TestCallback_UnknownUser_WithoutEmail_NotRegistered(t *testing.T) {
+	store := newFakeStore()
+	claims := &port.OIDCClaims{Subject: "sub-ne", Email: "  ", Provider: "kc", Role: domain.RoleMitglied}
+	h, _ := newHandler(store, claims, "")
+
+	if frag := callback(t, h); frag != "error=email_missing" {
+		t.Fatalf("want error=email_missing, got %q", frag)
+	}
+	if len(store.created) != 0 {
+		t.Errorf("must not register a member without e-mail, got %d", len(store.created))
+	}
+}
+
 func TestCallback_BootstrapAdmin_Unknown_CreatedActiveAdmin(t *testing.T) {
 	store := newFakeStore()
 	claims := &port.OIDCClaims{Subject: "sub-2", Email: "boss@club.de", Name: "Chef", Provider: "kc"}
@@ -217,6 +426,29 @@ func TestCallback_ExistingActive_MatchedByEmail_LinksSubject(t *testing.T) {
 	}
 	if len(store.links) != 1 {
 		t.Errorf("subject should be linked on first email match, got %d links", len(store.links))
+	}
+}
+
+func TestCallback_NoEmailClaim_NotMatchedToOtherEmaillessAccount(t *testing.T) {
+	store := newFakeStore()
+	// An earlier identity without an e-mail claim, admitted via its IdP role.
+	other := &domain.Member{ID: uuid.New(), Email: "", Role: domain.RoleAdmin, IsActive: true}
+	store.byEmail[""] = other
+	claims := &port.OIDCClaims{Subject: "sub-noemail", Provider: "kc"}
+	h, _ := newHandler(store, claims, "")
+
+	frag := callback(t, h)
+
+	for _, l := range store.links {
+		if l.MemberID == other.ID {
+			t.Fatalf("identity without e-mail must not be linked to another e-mail-less account")
+		}
+	}
+	if len(store.created) != 0 {
+		t.Fatalf("no member may be registered without an e-mail, got %d created", len(store.created))
+	}
+	if frag != "error=email_missing" {
+		t.Errorf("expected error=email_missing, got %q", frag)
 	}
 }
 

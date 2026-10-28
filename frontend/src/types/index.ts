@@ -56,6 +56,7 @@ export interface Member {
   since: string;   // ← joinedAt
   goal: number | null;   // ← individualGoalHours
   active?: boolean;      // ← isActive
+  left?: string | null;  // ← leftAt (set once a member is deactivated)
   reminderOptOut?: boolean;
   notifyNewEvents?: boolean;
 }

@@ -28,7 +28,7 @@ func NewMemberUsecase(members port.MemberRepository, audit port.AuditRepository)
 
 // CreateMember validates and persists a new member.
 func (uc *MemberUsecase) CreateMember(ctx context.Context, actorID uuid.UUID, input CreateMemberInput) (*domain.Member, error) {
-	input.Email = strings.ToLower(strings.TrimSpace(input.Email))
+	input.Email = domain.NormalizeEmail(input.Email)
 	if input.Email == "" {
 		return nil, fmt.Errorf("email is required")
 	}
@@ -66,9 +66,24 @@ func (uc *MemberUsecase) CreateMember(ctx context.Context, actorID uuid.UUID, in
 	return m, nil
 }
 
-// ListMembers returns members matching the filter.
-func (uc *MemberUsecase) ListMembers(ctx context.Context, filter port.MemberFilter) ([]*domain.Member, error) {
-	return uc.members.List(ctx, filter)
+// ListMembers returns the page of members matching the filter together with
+// the total number of matches (for pagination).
+func (uc *MemberUsecase) ListMembers(ctx context.Context, filter port.MemberFilter) ([]*domain.Member, int, error) {
+	members, err := uc.members.List(ctx, filter)
+	if err != nil {
+		return nil, 0, err
+	}
+	// The page itself proves the total when it is the last one: it ended
+	// before the limit (or there is no limit) and it is not empty or starts at
+	// the very beginning. Only otherwise is a separate COUNT needed.
+	if (filter.Limit <= 0 || len(members) < filter.Limit) && (len(members) > 0 || filter.Offset <= 0) {
+		return members, max(filter.Offset, 0) + len(members), nil
+	}
+	total, err := uc.members.CountFiltered(ctx, filter)
+	if err != nil {
+		return nil, 0, err
+	}
+	return members, total, nil
 }
 
 // GetMember returns a single member by ID.
@@ -91,7 +106,7 @@ func (uc *MemberUsecase) UpdateMember(ctx context.Context, actorID uuid.UUID, id
 		m.LastName = strings.TrimSpace(input.LastName)
 	}
 	if input.Email != "" {
-		input.Email = strings.ToLower(strings.TrimSpace(input.Email))
+		input.Email = domain.NormalizeEmail(input.Email)
 		if input.Email != m.Email {
 			if existing, err := uc.members.GetByEmail(ctx, input.Email); err == nil && existing != nil {
 				return nil, domain.ErrMemberEmailConflict
@@ -106,9 +121,14 @@ func (uc *MemberUsecase) UpdateMember(ctx context.Context, actorID uuid.UUID, id
 		m.Role = input.Role
 	}
 	if input.IsActive != nil {
-		m.IsActive = *input.IsActive
+		// Deactivating records the leave date so a deactivated member is not
+		// mistaken for a registration pending approval (a stale date on an
+		// active member is replaced, too). A member who already left keeps
+		// the original leave date.
 		if *input.IsActive {
-			m.LeftAt = nil
+			m.Activate()
+		} else if m.IsActive || m.LeftAt == nil {
+			m.Deactivate(time.Now().UTC())
 		}
 	}
 
@@ -122,13 +142,15 @@ func (uc *MemberUsecase) UpdateMember(ctx context.Context, actorID uuid.UUID, id
 	return m, nil
 }
 
-// DeactivateMember soft-deletes a member by marking them inactive.
+// DeactivateMember soft-deletes a member by marking them inactive. It also
+// rejects a registration pending approval: the account then counts as left
+// and no longer shows up as waiting for activation.
 func (uc *MemberUsecase) DeactivateMember(ctx context.Context, actorID uuid.UUID, id uuid.UUID) error {
 	m, err := uc.members.GetByID(ctx, id)
 	if err != nil {
 		return err
 	}
-	if !m.IsActive {
+	if !m.IsActive && !m.IsPendingApproval() {
 		return domain.ErrMemberInactive
 	}
 

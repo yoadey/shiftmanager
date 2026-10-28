@@ -1092,7 +1092,7 @@ export function EventDetail() {
   const timelineQ = useEventTimeline(id);
   const { data: settings } = useSettings();
   // Member names are only needed in the board view (otherwise spare the request).
-  const { data: members } = useMembers();
+  const { data: members } = useMembers(isBoard);
   const memberMap: Record<string, Member> = (members ?? []).reduce(
     (acc, m) => { acc[m.id] = m; return acc; },
     {} as Record<string, Member>,

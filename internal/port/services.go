@@ -32,8 +32,17 @@ type OIDCService interface {
 	GetAuthURL(state string) string
 	// Exchange converts an authorization code into an ID token and access token.
 	Exchange(ctx context.Context, code string) (*OIDCTokens, error)
-	// VerifyIDToken validates the id_token and returns the claims.
-	VerifyIDToken(ctx context.Context, rawIDToken string) (*OIDCClaims, error)
+	// VerifyIDToken validates the id_token in tokens and returns the claims.
+	// Claims.Role holds the role the provider's role expression finds in the
+	// id_token claims.
+	VerifyIDToken(ctx context.Context, tokens *OIDCTokens) (*OIDCClaims, error)
+	// UserInfoRole evaluates the provider's role expression against the
+	// UserInfo response (queried with the access token in tokens), trusting
+	// it only when its subject matches. It returns "" when no expression is
+	// configured, the request fails or no known role results. Callers use it
+	// as the fallback when the id_token yielded no role, and only when the
+	// role would actually be applied, sparing other logins the round-trip.
+	UserInfoRole(ctx context.Context, tokens *OIDCTokens, subject string) string
 }
 
 // OIDCTokens holds the tokens returned after a successful OIDC exchange.
@@ -50,6 +59,10 @@ type OIDCClaims struct {
 	Email    string
 	Name     string
 	Provider string
+	// Role is the application role resolved from the provider's role
+	// expression (OIDC_ROLE_ATTRIBUTE_PATH), or "" when none is configured
+	// or the expression yields no known role.
+	Role string
 }
 
 // CacheService defines a simple get/set/delete cache contract.

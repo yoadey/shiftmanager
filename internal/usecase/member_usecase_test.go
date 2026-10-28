@@ -4,6 +4,7 @@ import (
 	"context"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
@@ -145,7 +146,85 @@ func TestListMembers_FilterActive(t *testing.T) {
 	members.add(&domain.Member{ID: uuid.New(), Email: "active@b.de", IsActive: true})
 	members.add(&domain.Member{ID: uuid.New(), Email: "inactive@b.de", IsActive: false})
 	active := true
-	list, err := uc.ListMembers(context.Background(), port.MemberFilter{IsActive: &active})
+	list, total, err := uc.ListMembers(context.Background(), port.MemberFilter{IsActive: &active})
 	require.NoError(t, err)
 	assert.Len(t, list, 1)
+	assert.Equal(t, 1, total)
+}
+
+func TestListMembers_FilterPending(t *testing.T) {
+	uc, members, _ := newMemberUC()
+	left := time.Now().Add(-time.Hour)
+	members.add(&domain.Member{ID: uuid.New(), Email: "active@b.de", IsActive: true})
+	members.add(&domain.Member{ID: uuid.New(), Email: "pending@b.de", IsActive: false})
+	members.add(&domain.Member{ID: uuid.New(), Email: "left@b.de", IsActive: false, LeftAt: &left})
+
+	list, total, err := uc.ListMembers(context.Background(), port.MemberFilter{Status: port.MemberStatusPending})
+	require.NoError(t, err)
+	require.Len(t, list, 1)
+	assert.Equal(t, "pending@b.de", list[0].Email)
+	assert.Equal(t, 1, total)
+
+	_, total, err = uc.ListMembers(context.Background(), port.MemberFilter{Status: port.MemberStatusApproved})
+	require.NoError(t, err)
+	assert.Equal(t, 2, total)
+}
+
+func TestUpdateMember_DeactivateRecordsLeftAt(t *testing.T) {
+	uc, members, _ := newMemberUC()
+	id := uuid.New()
+	members.add(&domain.Member{ID: id, Email: "a@b.de", IsActive: true})
+	inactive := false
+	m, err := uc.UpdateMember(context.Background(), uuid.New(), id, UpdateMemberInput{IsActive: &inactive})
+	require.NoError(t, err)
+	assert.False(t, m.IsActive)
+	assert.NotNil(t, m.LeftAt, "deactivated member must not look like a pending registration")
+	assert.False(t, m.IsPendingApproval())
+}
+
+func TestDeactivateMember_RejectsPendingRegistration(t *testing.T) {
+	uc, members, _ := newMemberUC()
+	id := uuid.New()
+	members.add(&domain.Member{ID: id, Email: "new@b.de", IsActive: false})
+	require.NoError(t, uc.DeactivateMember(context.Background(), uuid.New(), id))
+	m, _ := members.GetByID(context.Background(), id)
+	assert.NotNil(t, m.LeftAt)
+	assert.False(t, m.IsPendingApproval())
+
+	// A member who already left cannot be deactivated again.
+	assert.ErrorIs(t, uc.DeactivateMember(context.Background(), uuid.New(), id), domain.ErrMemberInactive)
+}
+
+func TestUpdateMember_DeactivateActiveMemberReplacesStaleLeftAt(t *testing.T) {
+	uc, members, _ := newMemberUC()
+	id := uuid.New()
+	stale := time.Date(2020, 1, 1, 0, 0, 0, 0, time.UTC)
+	members.add(&domain.Member{ID: id, Email: "a@b.de", IsActive: true, LeftAt: &stale})
+	inactive := false
+	m, err := uc.UpdateMember(context.Background(), uuid.New(), id, UpdateMemberInput{IsActive: &inactive})
+	require.NoError(t, err)
+	require.NotNil(t, m.LeftAt)
+	assert.True(t, m.LeftAt.After(stale), "deactivation must record today, not a stale leave date")
+}
+
+func TestListMembers_TotalAcrossPages(t *testing.T) {
+	uc, members, _ := newMemberUC()
+	for _, last := range []string{"A", "B", "C", "D", "E"} {
+		members.add(&domain.Member{ID: uuid.New(), LastName: last, Email: last + "@b.de", IsActive: true})
+	}
+	cases := []struct {
+		limit, offset, wantLen, wantTotal int
+	}{
+		{2, 0, 2, 5}, // full page: needs COUNT
+		{2, 4, 1, 5}, // short last page proves the total
+		{5, 0, 5, 5}, // exactly full: COUNT
+		{2, 6, 0, 5}, // beyond the end: COUNT
+		{0, 0, 5, 5}, // unpaginated
+	}
+	for _, c := range cases {
+		list, total, err := uc.ListMembers(context.Background(), port.MemberFilter{Limit: c.limit, Offset: c.offset})
+		require.NoError(t, err)
+		assert.Len(t, list, c.wantLen, "limit=%d offset=%d", c.limit, c.offset)
+		assert.Equal(t, c.wantTotal, total, "limit=%d offset=%d", c.limit, c.offset)
+	}
 }

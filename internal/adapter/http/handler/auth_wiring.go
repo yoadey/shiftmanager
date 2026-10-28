@@ -70,6 +70,10 @@ func (a memberGetterAdapter) LinkOIDC(r *http.Request, link *domain.OIDCLink) er
 	return a.repo.LinkOIDC(reqCtx(r), link)
 }
 
+func (a memberGetterAdapter) GetOIDCLinks(r *http.Request, memberID uuid.UUID) ([]*domain.OIDCLink, error) {
+	return a.repo.GetOIDCLinks(reqCtx(r), memberID)
+}
+
 // auditWriterAdapter adapts a port.AuditRepository to the handler's auditWriter.
 type auditWriterAdapter struct {
 	repo port.AuditRepository

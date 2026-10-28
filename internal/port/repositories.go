@@ -15,6 +15,9 @@ type MemberRepository interface {
 	GetByEmail(ctx context.Context, email string) (*domain.Member, error)
 	GetByOIDCSubject(ctx context.Context, provider, subject string) (*domain.Member, error)
 	List(ctx context.Context, filter MemberFilter) ([]*domain.Member, error)
+	// CountFiltered returns how many members match the filter, ignoring its
+	// Limit and Offset (the total behind a paginated List).
+	CountFiltered(ctx context.Context, filter MemberFilter) (int, error)
 	Update(ctx context.Context, m *domain.Member) error
 	Deactivate(ctx context.Context, id uuid.UUID, leftAt time.Time) error
 	LinkOIDC(ctx context.Context, link *domain.OIDCLink) error
@@ -33,9 +36,35 @@ type MemberRepository interface {
 // MemberFilter holds optional filters when listing members.
 type MemberFilter struct {
 	IsActive *bool
-	Search   string // matches first/last name or email
+	Status   MemberStatus // "" = no status restriction
+	Search   string       // matches first/last name or email
 	Limit    int
 	Offset   int
+}
+
+// MemberStatus narrows a member listing by account state.
+type MemberStatus string
+
+const (
+	// MemberStatusActive: active members.
+	MemberStatusActive MemberStatus = "active"
+	// MemberStatusPending: self-registered via OIDC, waiting for activation
+	// (inactive and never left — see domain.Member.IsPendingApproval).
+	MemberStatusPending MemberStatus = "pending"
+	// MemberStatusLeft: deactivated members (inactive with a leave date).
+	MemberStatusLeft MemberStatus = "left"
+	// MemberStatusApproved: everyone except pending registrations, i.e.
+	// active and deactivated members.
+	MemberStatusApproved MemberStatus = "approved"
+)
+
+// Valid reports whether s is one of the known statuses (or empty).
+func (s MemberStatus) Valid() bool {
+	switch s {
+	case "", MemberStatusActive, MemberStatusPending, MemberStatusLeft, MemberStatusApproved:
+		return true
+	}
+	return false
 }
 
 // EventRepository defines persistence operations for events.

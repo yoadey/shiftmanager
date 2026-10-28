@@ -8,6 +8,7 @@ import (
 	"github.com/go-chi/chi/v5"
 	"github.com/google/uuid"
 	"github.com/yoadey/shiftmanager/internal/adapter/http/middleware"
+	"github.com/yoadey/shiftmanager/internal/domain"
 	"github.com/yoadey/shiftmanager/internal/port"
 	"github.com/yoadey/shiftmanager/internal/usecase"
 )
@@ -22,25 +23,52 @@ func NewMemberHandler(uc *usecase.MemberUsecase) *MemberHandler {
 	return &MemberHandler{uc: uc}
 }
 
-// List returns a paginated list of members.
+// List returns a paginated list of members. Query parameters: limit (default
+// 50, 0 = all), offset, search, status (active|pending|left|approved).
+// The total number of matches is returned in the X-Total-Count header.
 // GET /api/v1/members
 func (h *MemberHandler) List(w http.ResponseWriter, r *http.Request) {
+	limit, limitOK := parseNonNegativeIntQuery(r, "limit", 50)
+	offset, offsetOK := parseNonNegativeIntQuery(r, "offset", 0)
+	if !limitOK || !offsetOK {
+		writeError(w, http.StatusBadRequest, "limit and offset must be non-negative integers")
+		return
+	}
 	filter := port.MemberFilter{
-		Limit:  parseIntQuery(r, "limit", 50),
-		Offset: parseIntQuery(r, "offset", 0),
+		Limit:  limit,
+		Offset: offset,
 		Search: r.URL.Query().Get("search"),
 	}
-
 	if active := r.URL.Query().Get("active"); active != "" {
 		b := active == "true"
 		filter.IsActive = &b
 	}
+	filter.Status = port.MemberStatus(r.URL.Query().Get("status"))
+	if !filter.Status.Valid() {
+		writeError(w, http.StatusBadRequest, "invalid status")
+		return
+	}
+	// Every authenticated user may read the member list (ML-010), but pending
+	// self-registrations are not members yet: only the board, who decides on
+	// them, sees them (ML-013).
+	if !domain.HasRole(middleware.GetUserRole(r.Context()), domain.RoleVorstand) {
+		switch filter.Status {
+		case port.MemberStatusPending:
+			writeError(w, http.StatusForbidden, "forbidden")
+			return
+		case "":
+			filter.Status = port.MemberStatusApproved
+		}
+	}
 
-	members, err := h.uc.ListMembers(r.Context(), filter)
+	members, total, err := h.uc.ListMembers(r.Context(), filter)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
+	// The body stays a plain array; the total behind the page travels in a
+	// header so paginating clients can render page controls.
+	w.Header().Set("X-Total-Count", strconv.Itoa(total))
 	writeJSON(w, http.StatusOK, members)
 }
 
@@ -91,6 +119,12 @@ func (h *MemberHandler) Get(w http.ResponseWriter, r *http.Request) {
 
 	m, err := h.uc.GetMember(r.Context(), id)
 	if err != nil {
+		writeError(w, http.StatusNotFound, "member not found")
+		return
+	}
+	// As in List: a pending self-registration is visible to the board only
+	// (ML-010), answered like a missing member so its existence isn't leaked.
+	if m.IsPendingApproval() && !domain.HasRole(middleware.GetUserRole(r.Context()), domain.RoleVorstand) {
 		writeError(w, http.StatusNotFound, "member not found")
 		return
 	}
@@ -217,6 +251,20 @@ func parseIntQuery(r *http.Request, key string, def int) int {
 		}
 	}
 	return def
+}
+
+// parseNonNegativeIntQuery reads an optional integer query parameter; ok is
+// false when it is present but not a non-negative integer.
+func parseNonNegativeIntQuery(r *http.Request, key string, def int) (int, bool) {
+	v := r.URL.Query().Get(key)
+	if v == "" {
+		return def, true
+	}
+	i, err := strconv.Atoi(v)
+	if err != nil || i < 0 {
+		return 0, false
+	}
+	return i, true
 }
 
 func writeError(w http.ResponseWriter, status int, msg string) {

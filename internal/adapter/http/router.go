@@ -68,7 +68,7 @@ func NewRouter(h Handlers, cfg RouterConfig) http.Handler {
 		AllowedOrigins:   allowedOrigins,
 		AllowedMethods:   []string{"GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"},
 		AllowedHeaders:   []string{"Accept", "Authorization", "Content-Type", "X-Request-Id"},
-		ExposedHeaders:   []string{"Content-Disposition"},
+		ExposedHeaders:   []string{"Content-Disposition", "X-Total-Count"},
 		AllowCredentials: true,
 		MaxAge:           300,
 	}))

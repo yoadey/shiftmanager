@@ -199,6 +199,11 @@ type OIDCProviderConfig struct {
 	ClientID     string
 	ClientSecret string
 	RedirectURL  string
+	// RoleAttributePath is an optional JMESPath expression (Grafana-style
+	// role_attribute_path) mapping the IdP's claims to an application role.
+	// When it yields a role, a new or pending member is activated with that
+	// role on login instead of waiting for manual activation.
+	RoleAttributePath string
 }
 
 // Providers returns the configured OIDC providers, in the order login
@@ -211,9 +216,9 @@ type OIDCProviderConfig struct {
 //
 // With OIDC_PROVIDERS set to a comma-separated list of short names (e.g.
 // "verein,google"), each name N is looked up as OIDC_<N>_ISSUER/_CLIENT_ID/
-// _CLIENT_SECRET/_LABEL (N upper-cased), falling back to OIDC_REDIRECT_URL
-// for _REDIRECT_URL (the callback endpoint registered with every IdP is
-// normally the same one) and to N itself for _LABEL. This reads the
+// _CLIENT_SECRET/_LABEL/_ROLE_ATTRIBUTE_PATH (N upper-cased), falling back
+// to OIDC_REDIRECT_URL for _REDIRECT_URL (the callback endpoint registered
+// with every IdP is normally the same one) and to N itself for _LABEL. This reads the
 // environment directly rather than from pre-loaded Config fields, since the
 // variable names are only known once OIDC_PROVIDERS itself is read — there
 // is no fixed field to load them into ahead of time.
@@ -226,6 +231,9 @@ func (c *Config) Providers() []OIDCProviderConfig {
 			ClientID:     c.OIDCClientID,
 			ClientSecret: c.OIDCClientSecret,
 			RedirectURL:  c.OIDCRedirectURL,
+			// Read here rather than in Load like the other OIDC_* fields:
+			// it only matters for building providers.
+			RoleAttributePath: getEnv("OIDC_ROLE_ATTRIBUTE_PATH", ""),
 		}}
 	}
 
@@ -251,6 +259,9 @@ func (c *Config) Providers() []OIDCProviderConfig {
 			ClientID:     getEnv(prefix+"CLIENT_ID", ""),
 			ClientSecret: getEnv(prefix+"CLIENT_SECRET", ""),
 			RedirectURL:  getEnv(prefix+"REDIRECT_URL", c.OIDCRedirectURL),
+			// No fallback to OIDC_ROLE_ATTRIBUTE_PATH: granting roles from
+			// a provider's claims must be an explicit per-provider choice.
+			RoleAttributePath: getEnv(prefix+"ROLE_ATTRIBUTE_PATH", ""),
 		})
 	}
 	return providers

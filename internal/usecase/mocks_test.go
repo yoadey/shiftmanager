@@ -3,6 +3,7 @@ package usecase
 import (
 	"context"
 	"fmt"
+	"sort"
 	"strings"
 	"time"
 
@@ -74,13 +75,57 @@ func (f *fakeMemberRepo) List(ctx context.Context, filter port.MemberFilter) ([]
 	}
 	var out []*domain.Member
 	for _, m := range f.members {
-		if filter.IsActive != nil && m.IsActive != *filter.IsActive {
+		if !fakeMemberMatches(m, filter) {
 			continue
 		}
 		cp := *m
 		out = append(out, &cp)
 	}
+	// Same order and paging as the GORM repo.
+	sort.Slice(out, func(i, j int) bool {
+		a, b := out[i], out[j]
+		if a.LastName != b.LastName {
+			return a.LastName < b.LastName
+		}
+		if a.FirstName != b.FirstName {
+			return a.FirstName < b.FirstName
+		}
+		return a.ID.String() < b.ID.String()
+	})
+	if filter.Offset > 0 {
+		out = out[min(filter.Offset, len(out)):]
+	}
+	if filter.Limit > 0 && len(out) > filter.Limit {
+		out = out[:filter.Limit]
+	}
 	return out, nil
+}
+
+func (f *fakeMemberRepo) CountFiltered(ctx context.Context, filter port.MemberFilter) (int, error) {
+	n := 0
+	for _, m := range f.members {
+		if fakeMemberMatches(m, filter) {
+			n++
+		}
+	}
+	return n, nil
+}
+
+func fakeMemberMatches(m *domain.Member, filter port.MemberFilter) bool {
+	if filter.IsActive != nil && m.IsActive != *filter.IsActive {
+		return false
+	}
+	switch filter.Status {
+	case port.MemberStatusActive:
+		return m.IsActive
+	case port.MemberStatusPending:
+		return m.IsPendingApproval()
+	case port.MemberStatusLeft:
+		return !m.IsActive && m.LeftAt != nil
+	case port.MemberStatusApproved:
+		return !m.IsPendingApproval()
+	}
+	return true
 }
 
 func (f *fakeMemberRepo) Update(ctx context.Context, m *domain.Member) error {

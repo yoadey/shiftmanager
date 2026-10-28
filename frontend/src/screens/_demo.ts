@@ -192,7 +192,9 @@ export const DEMO_STATE: DemoState = {
 
 export function fmtDate(iso: string, style?: string): string {
   if (!iso) return '';
-  const d = new Date(iso + 'T12:00:00');
+  // A full timestamp (e.g. joinedAt) is shown on its local calendar day; a
+  // bare YYYY-MM-DD is pinned to local noon so no time zone shifts its day.
+  const d = new Date(iso.includes('T') ? iso : iso + 'T12:00:00');
   if (Number.isNaN(d.getTime())) return '';
   if (style === 'weekday-long') return new Intl.DateTimeFormat('de-DE', { weekday: 'long', day: 'numeric', month: 'long' }).format(d);
   if (style === 'weekday') return new Intl.DateTimeFormat('de-DE', { weekday: 'short', day: 'numeric', month: 'long' }).format(d);

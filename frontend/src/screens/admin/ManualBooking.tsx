@@ -4,7 +4,7 @@ import { Button } from '@/components/ui/Button';
 import { Field, Input, Textarea, Select } from '@/components/forms/Field';
 import { useAppStore } from '@/store/app.store';
 import { useManualBooking } from '@/api/hours';
-import { useMembers } from '@/api/members';
+import { useMembers, isPendingApproval } from '@/api/members';
 import { routes } from '@/routes';
 import { useSmartBack } from '@/hooks/useSmartBack';
 
@@ -12,7 +12,10 @@ export function ManualBooking({ id }: { id?: string }) {
   const { showToast } = useAppStore();
   const back = useSmartBack(id ? routes.mitglied(id) : routes.uebersicht);
   const book = useManualBooking();
-  const { data: members } = useMembers();
+  const { data: allMembers } = useMembers();
+  // Registrations still waiting for activation are not members yet: keep them
+  // out of the picker (and its default) unless one was preselected.
+  const members = allMembers?.filter((m) => !isPendingApproval(m) || m.id === id);
   const [mid, setMid] = useState(id ?? '');
   const [date, setDate] = useState(new Date().toISOString().slice(0, 10));
   const [hours, setHours] = useState('2');

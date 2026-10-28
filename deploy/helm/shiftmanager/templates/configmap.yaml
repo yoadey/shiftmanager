@@ -18,6 +18,9 @@ data:
   OIDC_CLIENT_ID: {{ .Values.app.oidc.clientId | quote }}
   OIDC_REDIRECT_URL: {{ .Values.app.oidc.redirectUrl | quote }}
   LOGIN_REDIRECT_URL: {{ .Values.app.oidc.loginRedirectUrl | quote }}
+  {{- with .Values.app.oidc.roleAttributePath }}
+  OIDC_ROLE_ATTRIBUTE_PATH: {{ . | quote }}
+  {{- end }}
   SMTP_HOST: {{ .Values.app.smtp.host | quote }}
   SMTP_PORT: {{ .Values.app.smtp.port | quote }}
   SMTP_USER: {{ .Values.app.smtp.user | quote }}

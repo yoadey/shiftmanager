@@ -137,11 +137,17 @@ func run() error {
 			continue
 		}
 		svc, err := oidcadapter.New(rootCtx, oidcadapter.Config{
-			Issuer:       p.Issuer,
-			ClientID:     p.ClientID,
-			ClientSecret: p.ClientSecret,
-			RedirectURL:  p.RedirectURL,
+			Issuer:            p.Issuer,
+			ClientID:          p.ClientID,
+			ClientSecret:      p.ClientSecret,
+			RedirectURL:       p.RedirectURL,
+			RoleAttributePath: p.RoleAttributePath,
 		})
+		if errors.Is(err, oidcadapter.ErrInvalidRoleExpression) {
+			// A broken expression is a configuration error, not an outage:
+			// fail fast instead of silently disabling the provider.
+			return fmt.Errorf("oidc provider %q: %w", p.Name, err)
+		}
 		if err != nil {
 			log.Warn().Err(err).Str("provider", p.Name).Msg("OIDC provider init failed; login via this provider will be unavailable")
 			continue

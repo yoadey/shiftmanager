@@ -139,7 +139,7 @@ func (h *KioskHandler) SearchMembers(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	active := true
-	members, err := h.memberUC.ListMembers(r.Context(), port.MemberFilter{Search: q, IsActive: &active})
+	members, _, err := h.memberUC.ListMembers(r.Context(), port.MemberFilter{Search: q, IsActive: &active})
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return

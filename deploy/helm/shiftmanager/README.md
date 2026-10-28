@@ -104,6 +104,7 @@ kubectl create secret generic shiftmanager-secrets -n shiftmanager \
 | `app.jwtSecret` | `""` (**required**) | JWT signing secret (≥32 chars) |
 | `app.bootstrapAdminEmail` | `""` | First-admin bootstrap e-mail |
 | `app.oidc.*` | – | Issuer, clientId, clientSecret, redirectUrl, loginRedirectUrl |
+| `app.oidc.roleAttributePath` | `""` | JMESPath expression mapping IdP claims to an app role (see below) |
 | `app.smtp.*` | – | host/port/user/password/from |
 | `existingSecret` | `""` | Use an externally managed Secret |
 | `postgresql.enabled` | `true` | Bundle Bitnami PostgreSQL |
@@ -136,3 +137,54 @@ Bitnami has been restructuring its free image catalogue. If the bundled
 PostgreSQL/Redis pods fail to pull images, either pin working image coordinates
 (e.g. `--set postgresql.image.repository=bitnamilegacy/postgresql`) or, for
 production, prefer an external managed database and set `postgresql.enabled=false`.
+
+## Assigning roles from the IdP (`app.oidc.roleAttributePath`)
+
+By default every new OIDC user is registered **inactive** and waits until a
+board member activates them in the member list. With
+`app.oidc.roleAttributePath` you can let the IdP decide instead, the same way
+Grafana's `role_attribute_path` works: a [JMESPath](https://jmespath.org)
+expression is evaluated against the ID token claims (and, if it finds no role
+there, against the UserInfo response). If it yields one of `kiosk`,
+`mitglied`, `veranstaltungsleiter`, `vorstand` or `admin`, the user is admitted
+immediately with that role.
+
+```yaml
+app:
+  oidc:
+    # group-based (e.g. Authentik, Keycloak with a "groups" mapper)
+    roleAttributePath: >-
+      contains(groups || `[]`, 'sm-admin') && 'admin' ||
+      contains(groups || `[]`, 'vorstand') && 'vorstand' ||
+      contains(groups || `[]`, 'mitglieder') && 'mitglied'
+```
+
+```yaml
+app:
+  oidc:
+    # Keycloak client roles (add the client-roles mapper to the ID token or UserInfo)
+    roleAttributePath: "resource_access.shiftmanager.roles[0]"
+```
+
+Rules:
+
+- No match (expression yields `null`, an unknown name or fails) → the user is
+  registered inactive and waits for manual activation, exactly as without the
+  setting. End the expression with `|| 'mitglied'` to admit everybody — but
+  note that a function such as `contains()` applied to a claim the token does
+  not carry (many IdPs omit `groups` for users without groups) makes the
+  *whole* expression fail, so the fallback is never reached. Guard such
+  claims with a default, e.g.
+  ``contains(groups || `[]`, 'sm-admin') && 'admin' || 'mitglied'``.
+- A catch-all fallback (`|| 'mitglied'`) always yields a role from the ID
+  token, so the UserInfo response is then never consulted. If your IdP only
+  puts groups into UserInfo, leave the fallback out.
+- Members who are already active keep the role set in the app; the IdP role is
+  only used to admit new accounts and pending accounts registered by that same
+  login identity (a pending account that merely shares the e-mail address
+  keeps waiting for a board member).
+- Deactivated members are not re-admitted by the IdP.
+- Additional providers (`OIDC_PROVIDERS`) take their own
+  `OIDC_<NAME>_ROLE_ATTRIBUTE_PATH` via `app.extraEnv`; they do not inherit
+  this value.
+- An invalid expression stops the server at startup with an error.

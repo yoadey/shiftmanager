@@ -128,6 +128,29 @@ func (m *Member) Activate() {
 	m.LeftAt = nil
 }
 
+// IsPendingApproval reports whether the member registered themselves via OIDC
+// and still waits for a board member to activate the account. Deactivated
+// members are inactive too, but always carry a LeftAt date.
+func (m *Member) IsPendingApproval() bool {
+	return !m.IsActive && m.LeftAt == nil
+}
+
+// NormalizeEmail trims and lower-cases an address the way members are stored
+// (member e-mails are compared case-insensitively).
+func NormalizeEmail(email string) string {
+	return strings.ToLower(strings.TrimSpace(email))
+}
+
+// ParseRole matches s case-insensitively against the known roles and returns
+// the canonical role name, or "" when s names no role.
+func ParseRole(s string) string {
+	r := strings.ToLower(strings.TrimSpace(s))
+	if _, ok := RoleLevel[r]; ok {
+		return r
+	}
+	return ""
+}
+
 // Deactivate marks the member as inactive and records when they left.
 func (m *Member) Deactivate(at time.Time) {
 	m.IsActive = false

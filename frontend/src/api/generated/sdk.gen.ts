@@ -301,7 +301,7 @@ export const logout = <ThrowOnError extends boolean = false>(
   );
 
 /**
- * List all members
+ * List members (paginated, sorted by last/first name)
  */
 export const listMembers = <ThrowOnError extends boolean = false>(
   options?: Options<ListMembersData, ThrowOnError>,
