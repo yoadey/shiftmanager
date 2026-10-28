@@ -565,6 +565,88 @@ func TestEventAttachments_RequiresVeranstaltungsleiter(t *testing.T) {
 	assert.Equal(t, http.StatusForbidden, resp.StatusCode)
 }
 
+func TestEventHeaderImage_UploadAndClear(t *testing.T) {
+	s := startServer(t)
+	tok := token(t, s, "veranstaltungsleiter", db.AdminID.String(), "admin@test.local")
+
+	uploadResp := uploadFile(t, s, "/api/v1/events/"+db.EventID.String()+"/header-image", tok, "header.png", "image/png", []byte("fake-header-bytes"))
+	require.Equal(t, http.StatusOK, uploadResp.StatusCode)
+	var ev map[string]any
+	decode(t, uploadResp, &ev)
+	fileURL, ok := ev["headerImageUrl"].(string)
+	require.True(t, ok)
+	require.NotEmpty(t, fileURL)
+
+	// The event's GET response (nested under "event", GetWithTimeline) now
+	// carries the header image too.
+	getResp := get(t, s, "/api/v1/events/"+db.EventID.String(), tok)
+	require.Equal(t, http.StatusOK, getResp.StatusCode)
+	var got map[string]any
+	decode(t, getResp, &got)
+	gotEvent, ok := got["event"].(map[string]any)
+	require.True(t, ok)
+	assert.Equal(t, fileURL, gotEvent["headerImageUrl"])
+
+	// Same public-uploads exposure as attachments (V-008/T-013): downloadable
+	// without auth at its stored URL, re-based onto the real server address.
+	urlPath := fileURL[strings.LastIndex(fileURL, "/uploads/"):]
+	fileResp, err := http.Get(s.URL + urlPath) //nolint:noctx
+	require.NoError(t, err)
+	fileBody, err := io.ReadAll(fileResp.Body)
+	require.NoError(t, err)
+	fileResp.Body.Close()
+	assert.Equal(t, http.StatusOK, fileResp.StatusCode)
+	assert.Equal(t, "fake-header-bytes", string(fileBody))
+
+	// Uploading again replaces it, not adds a second one, and deletes the
+	// old file from storage instead of leaving it orphaned but still
+	// publicly downloadable at its old URL.
+	uploadResp2 := uploadFile(t, s, "/api/v1/events/"+db.EventID.String()+"/header-image", tok, "header2.png", "image/png", []byte("second-header"))
+	require.Equal(t, http.StatusOK, uploadResp2.StatusCode)
+	var ev2 map[string]any
+	decode(t, uploadResp2, &ev2)
+	assert.NotEqual(t, fileURL, ev2["headerImageUrl"])
+
+	oldFileResp, err := http.Get(s.URL + urlPath) //nolint:noctx
+	require.NoError(t, err)
+	oldFileResp.Body.Close()
+	assert.Equal(t, http.StatusNotFound, oldFileResp.StatusCode)
+
+	delResp := del(t, s, "/api/v1/events/"+db.EventID.String()+"/header-image", tok)
+	assert.Equal(t, http.StatusNoContent, delResp.StatusCode)
+
+	getResp2 := get(t, s, "/api/v1/events/"+db.EventID.String(), tok)
+	var cleared map[string]any
+	decode(t, getResp2, &cleared)
+	clearedEvent, ok := cleared["event"].(map[string]any)
+	require.True(t, ok)
+	assert.Empty(t, clearedEvent["headerImageUrl"])
+}
+
+func TestEventHeaderImage_RejectsSVGAndOversized(t *testing.T) {
+	s := startServer(t)
+	tok := token(t, s, "veranstaltungsleiter", db.AdminID.String(), "admin@test.local")
+
+	svgResp := uploadFile(t, s, "/api/v1/events/"+db.EventID.String()+"/header-image", tok, "header.svg", "image/svg+xml", []byte("<svg><script>alert(1)</script></svg>"))
+	assert.Equal(t, http.StatusUnsupportedMediaType, svgResp.StatusCode)
+
+	oversized := make([]byte, 6<<20) // 6MB > the 5MB header-image limit
+	bigResp := uploadFile(t, s, "/api/v1/events/"+db.EventID.String()+"/header-image", tok, "huge.png", "image/png", oversized)
+	assert.Equal(t, http.StatusRequestEntityTooLarge, bigResp.StatusCode)
+
+	// Unlike the general attachment endpoint, PDF isn't a header image either.
+	pdfResp := uploadFile(t, s, "/api/v1/events/"+db.EventID.String()+"/header-image", tok, "doc.pdf", "application/pdf", []byte("%PDF-"))
+	assert.Equal(t, http.StatusUnsupportedMediaType, pdfResp.StatusCode)
+}
+
+func TestEventHeaderImage_RequiresVeranstaltungsleiter(t *testing.T) {
+	s := startServer(t)
+	memberTok := token(t, s, "mitglied", db.MemberID.String(), "max@test.local")
+
+	resp := uploadFile(t, s, "/api/v1/events/"+db.EventID.String()+"/header-image", memberTok, "header.png", "image/png", []byte("x"))
+	assert.Equal(t, http.StatusForbidden, resp.StatusCode)
+}
+
 func TestUnauthorizedAccessDenied(t *testing.T) {
 	s := startServer(t)
 

@@ -198,17 +198,7 @@ export function MemberDashboard() {
           <div className="sm-eyebrow">{clubName}</div>
           <div className="sm-title">Hallo, {firstName}</div>
         </div>
-        <div style={{ display: 'flex', gap: 9 }}>
-          <button
-            onClick={() => navigate(routes.profil)}
-            className="pressable"
-            style={{ position: 'relative', width: 42, height: 42, borderRadius: '50%', border: '1px solid var(--line)', background: 'var(--surface)', display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', boxShadow: 'var(--shadow)' }}
-          >
-            <Icon name="bell" size={20} color="var(--ink)" />
-            <span style={{ position: 'absolute', top: 9, right: 10, width: 8, height: 8, borderRadius: '50%', background: 'var(--crit)', border: '1.5px solid var(--surface)' }} />
-          </button>
-          <Avatar memberId={uid} members={memberMap} size={42} />
-        </div>
+        <Avatar memberId={uid} members={memberMap} size={42} />
       </div>
 
       <div className="sm-pad">

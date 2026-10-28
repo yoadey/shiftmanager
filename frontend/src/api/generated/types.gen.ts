@@ -79,6 +79,9 @@ export type EventVisibility = "public" | "members" | "hidden";
 export type Event = {
   id: Uuid;
   name: string;
+  /**
+   * Markdown-formatted (V-009).
+   */
   description?: string;
   location?: string;
   category?: string;
@@ -89,6 +92,7 @@ export type Event = {
   recurrenceFrequency?: RecurrenceFrequency;
   recurrenceUntil?: string;
   recurrenceGroupId?: Uuid;
+  headerImageUrl?: string;
 };
 
 export type RecurrenceFrequency = "weekly" | "monthly";
@@ -100,6 +104,9 @@ export type EventRecurrenceRequest = {
 
 export type EventWrite = {
   name: string;
+  /**
+   * Markdown-formatted (V-009).
+   */
   description?: string;
   location?: string;
   category?: string;
@@ -1069,6 +1076,86 @@ export type UploadEventAttachmentResponses = {
 
 export type UploadEventAttachmentResponse =
   UploadEventAttachmentResponses[keyof UploadEventAttachmentResponses];
+
+export type DeleteEventHeaderImageData = {
+  body?: never;
+  path: {
+    id: Uuid;
+  };
+  query?: never;
+  url: "/events/{id}/header-image";
+};
+
+export type DeleteEventHeaderImageErrors = {
+  /**
+   * Missing or invalid JWT
+   */
+  401: ErrorResponse;
+  /**
+   * Insufficient role
+   */
+  403: ErrorResponse;
+  /**
+   * Resource not found
+   */
+  404: ErrorResponse;
+};
+
+export type DeleteEventHeaderImageError =
+  DeleteEventHeaderImageErrors[keyof DeleteEventHeaderImageErrors];
+
+export type DeleteEventHeaderImageResponses = {
+  /**
+   * Deleted
+   */
+  204: void;
+};
+
+export type DeleteEventHeaderImageResponse =
+  DeleteEventHeaderImageResponses[keyof DeleteEventHeaderImageResponses];
+
+export type UploadEventHeaderImageData = {
+  body: {
+    file: Blob | File;
+  };
+  path: {
+    id: Uuid;
+  };
+  query?: never;
+  url: "/events/{id}/header-image";
+};
+
+export type UploadEventHeaderImageErrors = {
+  /**
+   * Missing or invalid JWT
+   */
+  401: ErrorResponse;
+  /**
+   * Insufficient role
+   */
+  403: ErrorResponse;
+  /**
+   * Resource not found
+   */
+  404: ErrorResponse;
+  /**
+   * Unsupported file type
+   */
+  415: unknown;
+};
+
+export type UploadEventHeaderImageError =
+  UploadEventHeaderImageErrors[keyof UploadEventHeaderImageErrors];
+
+export type UploadEventHeaderImageResponses = {
+  /**
+   * Updated event
+   */
+  200: Event;
+};
+
+export type UploadEventHeaderImageResponse =
+  UploadEventHeaderImageResponses[keyof UploadEventHeaderImageResponses];
 
 export type GenerateEventRecurrenceData = {
   body: EventRecurrenceRequest;

@@ -104,6 +104,9 @@ export interface Event {
   days: ShiftDay[];
   // Set when the event is part of a recurring series (V-007).
   recurrenceFrequency?: import('@/api/generated/types.gen').RecurrenceFrequency;
+  // Single image shown at the top of the event detail page (V-010), separate
+  // from the general Attachments list (V-008). Empty/undefined = none set.
+  headerImageUrl?: string;
 }
 
 export interface EventTimeline {

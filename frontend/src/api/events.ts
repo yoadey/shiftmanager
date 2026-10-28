@@ -196,3 +196,37 @@ export function useDeleteEventAttachment(eventId: string) {
     onSuccess: () => qc.invalidateQueries({ queryKey: ['events', eventId, 'attachments'] }),
   });
 }
+
+// ── Header image (V-010) ──────────────────────────────────────────────────────
+// A single image shown at the top of the event detail page, kept separate
+// from the Attachments list above (V-008) — its own field on the event, not
+// an attachment entry.
+
+/** Uploads (or replaces) an event's header image via multipart FormData. */
+export function useUploadEventHeaderImage(eventId: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (file: File) => {
+      const form = new FormData();
+      form.append('file', file);
+      return apiClient
+        .post<RawEvent>(`/events/${eventId}/header-image`, form, { headers: { 'Content-Type': null } })
+        .then((r) => r.data);
+    },
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['events', eventId] });
+      qc.invalidateQueries({ queryKey: ['events'] });
+    },
+  });
+}
+
+export function useDeleteEventHeaderImage(eventId: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: () => apiDelete<void>(`/events/${eventId}/header-image`),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['events', eventId] });
+      qc.invalidateQueries({ queryKey: ['events'] });
+    },
+  });
+}

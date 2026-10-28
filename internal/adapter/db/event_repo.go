@@ -96,6 +96,7 @@ func (r *EventRepo) Update(ctx context.Context, e *domain.Event) error {
 			"recurrence_frequency": model.RecurrenceFrequency,
 			"recurrence_until":     model.RecurrenceUntil,
 			"recurrence_group_id":  model.RecurrenceGroupID,
+			"header_image_url":     model.HeaderImageURL,
 		})
 	if result.Error != nil {
 		return result.Error
@@ -167,6 +168,7 @@ func toEventModel(e *domain.Event) EventModel {
 		RecurrenceFrequency: string(e.RecurrenceFrequency),
 		RecurrenceUntil:     e.RecurrenceUntil,
 		RecurrenceGroupID:   groupID,
+		HeaderImageURL:      e.HeaderImageURL,
 	}
 }
 
@@ -191,6 +193,7 @@ func toEventDomain(m EventModel) *domain.Event {
 		RecurrenceFrequency: domain.RecurrenceFrequency(m.RecurrenceFrequency),
 		RecurrenceUntil:     m.RecurrenceUntil,
 		RecurrenceGroupID:   groupID,
+		HeaderImageURL:      m.HeaderImageURL,
 	}
 }
 

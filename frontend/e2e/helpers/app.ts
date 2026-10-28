@@ -15,6 +15,18 @@ export async function clickTab(page: Page, label: string) {
   await page.waitForTimeout(200);
 }
 
+/**
+ * Open the own profile via the sidebar profile card (desktop) — the
+ * primary way to reach /profil since it replaced the nav tab there
+ * (see openspec/specs/profil PR-005). No mobile viewport project exists
+ * yet (playwright.config.ts only runs Desktop Chrome), so this is the
+ * only path E2E needs today.
+ */
+export async function openProfileCard(page: Page) {
+  await page.locator('.dt-user').click();
+  await page.waitForTimeout(200);
+}
+
 /** Assert no top-level error boundary is visible. */
 export async function expectNoError(page: Page) {
   await expect(page.getByText('Ein Fehler ist aufgetreten.')).not.toBeVisible();

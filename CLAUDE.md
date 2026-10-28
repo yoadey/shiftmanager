@@ -143,6 +143,26 @@ All config is via environment variables (see README for the full table). Key var
 
 `TEST_MODE=true` (or `testmode.New()` in Go) disables rate limiting and exposes `/api/v1/dev/token` for issuing test JWTs with any role — never enabled in production.
 
+## Specification (OpenSpec) — mandatory workflow
+
+ShiftManager's functional specification lives under `openspec/`, managed with the [OpenSpec](https://github.com/Fission-AI/OpenSpec) CLI (`@fission-ai/openspec`) — not as free-form Markdown.
+
+**Using OpenSpec for every change is mandatory, not optional**, for every contributor (human or AI):
+
+- **Any change that alters or adds user-facing/system behavior** — new feature, changed business rule, modified API contract, UI behavior change — MUST start from an OpenSpec change under `openspec/changes/<change-name>/` (`proposal.md`, `design.md` when warranted, `tasks.md`, `specs/<capability>/spec.md` deltas) **before** code is written. Do not write the code first and document it afterwards.
+- Work through the change with `openspec validate <name> --strict` passing before implementation starts, then implement by following `tasks.md`, checking tasks off as they land.
+- Once implementation is complete and tasks are done, run `openspec archive <name>` to fold the delta into `openspec/specs/<capability>/spec.md` and move the change to `openspec/changes/archive/`. A pull request that changes behavior without a corresponding archived (or in-flight) OpenSpec change is incomplete.
+- **Exception:** pure refactors, tooling, dependency bumps, and other changes with zero user/system-behavior impact don't need a spec delta — but still go through a change with `skip_specs: true` in `.openspec.yaml` if raised as a formal change, or can be a plain commit when trivial. When in doubt, treat it as behavior-changing and write the spec.
+- In Claude Code, use the `/opsx:propose`, `/opsx:apply`, `/opsx:sync`, and `/opsx:archive` skills (installed under `.claude/skills/openspec-*` and `.claude/commands/opsx/`) to work through the propose → specs → design → tasks → apply → archive workflow instead of hand-writing change proposals or skipping straight to code.
+
+Structure:
+
+- `openspec/specs/<capability>/spec.md` — the current, already-implemented behavior, one file per capability (`auth`, `veranstaltungen`, `schichten`, `kiosk`, `branding`, `bedienkonzept`, …), each requirement tagged with its legacy ID from `project/requirements_extracted.txt` (e.g. `V-003`, `SC-010`) where one exists.
+- `openspec/changes/<change-name>/` — proposed, not-yet-implemented (or in-progress) work. Archived automatically into `openspec/specs/` once implemented (`openspec archive <name>`).
+- `openspec/config.yaml` — project context handed to the AI when drafting artifacts (tech stack, German-language convention, ID-prefix rules).
+
+Useful commands: `openspec list --specs`, `openspec list` (in-flight changes), `openspec show <capability> --type spec`, `openspec validate --all`.
+
 ## Devcontainer
 
 A `.devcontainer/` setup provides PostgreSQL and a Dex OIDC provider. E2E tests (Playwright) require the backend running (`make dev-backend`) and PostgreSQL available via the devcontainer compose service.

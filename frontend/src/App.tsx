@@ -83,9 +83,9 @@ function RequireRole({ allowed, children }: { allowed: boolean; children: ReactN
   return <>{children}</>;
 }
 
-// CreateEventFlow is a full-screen Sheet (variant="full"), so it needs no
-// backdrop screen behind it — routed on its own at /events/neu regardless of
-// which screen (AdminEvents or AdminDashboard) opened it.
+// CreateEventFlow is a real page (UX-001: >5 fields), routed on its own at
+// /events/neu regardless of which screen (AdminEvents or AdminDashboard)
+// opened it.
 function CreateEventFlowRoute() {
   const closeModal = useSmartBack(routes.events);
   return <CreateEventFlow onClose={closeModal} />;

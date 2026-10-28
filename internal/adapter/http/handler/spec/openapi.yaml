@@ -98,7 +98,7 @@ components:
       properties:
         id:                  { $ref: '#/components/schemas/UUID' }
         name:                { type: string }
-        description:         { type: string }
+        description:         { type: string, description: 'Markdown-formatted (V-009).' }
         location:            { type: string }
         category:            { type: string }
         status:              { $ref: '#/components/schemas/EventStatus' }
@@ -108,6 +108,7 @@ components:
         recurrenceFrequency: { $ref: '#/components/schemas/RecurrenceFrequency' }
         recurrenceUntil:     { type: string, format: date-time }
         recurrenceGroupId:   { $ref: '#/components/schemas/UUID' }
+        headerImageUrl:      { type: string, format: uri }
 
     RecurrenceFrequency:
       type: string
@@ -125,7 +126,7 @@ components:
       required: [name, status, visibility]
       properties:
         name:        { type: string }
-        description: { type: string }
+        description: { type: string, description: 'Markdown-formatted (V-009).' }
         location:    { type: string }
         category:    { type: string }
         status:      { $ref: '#/components/schemas/EventStatus' }
@@ -861,6 +862,47 @@ paths:
         "403": { $ref: '#/components/responses/Forbidden' }
         "404": { $ref: '#/components/responses/NotFound' }
         "415": { description: Unsupported file type }
+
+  /events/{id}/header-image:
+    parameters:
+      - { name: id, in: path, required: true, schema: { $ref: '#/components/schemas/UUID' } }
+    post:
+      operationId: uploadEventHeaderImage
+      tags: [events]
+      summary: Set an event's header image (Veranstaltungsleiter+, V-010)
+      description: >-
+        A single image shown at the top of the event detail page, separate
+        from the general attachments list (V-008). Replaces any previously
+        set header image. Image types only (no PDF), same allow-list as
+        attachments minus PDF.
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              required: [file]
+              properties:
+                file: { type: string, format: binary }
+      responses:
+        "200":
+          description: Updated event
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Event' }
+        "401": { $ref: '#/components/responses/Unauthorized' }
+        "403": { $ref: '#/components/responses/Forbidden' }
+        "404": { $ref: '#/components/responses/NotFound' }
+        "415": { description: Unsupported file type }
+    delete:
+      operationId: deleteEventHeaderImage
+      tags: [events]
+      summary: Remove an event's header image (Veranstaltungsleiter+, V-010)
+      responses:
+        "204": { description: Deleted }
+        "401": { $ref: '#/components/responses/Unauthorized' }
+        "403": { $ref: '#/components/responses/Forbidden' }
+        "404": { $ref: '#/components/responses/NotFound' }
 
   /events/{id}/recurrence:
     parameters:

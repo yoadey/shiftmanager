@@ -58,6 +58,11 @@ type Event struct {
 	RecurrenceFrequency RecurrenceFrequency `json:"recurrenceFrequency,omitempty"`
 	RecurrenceUntil     *time.Time          `json:"recurrenceUntil,omitempty"`
 	RecurrenceGroupID   *uuid.UUID          `json:"recurrenceGroupId,omitempty"`
+	// HeaderImageURL is a single image shown at the top of the event detail
+	// page (V-010), kept separate from the general-purpose Attachments list
+	// (V-008) so removing/replacing one never affects the other. Empty means
+	// no header image is set.
+	HeaderImageURL string `json:"headerImageUrl,omitempty"`
 }
 
 // IsMultiDay returns true when the event spans more than one calendar day.

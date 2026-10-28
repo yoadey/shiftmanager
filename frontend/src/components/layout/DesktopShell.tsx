@@ -5,6 +5,7 @@ import { Avatar } from '@/components/ui/Avatar';
 import { useAuthStore } from '@/store/auth.store';
 import { useBranding } from '@/api/settings';
 import { isSectionStart, type NavTab } from '@/utils/navTabs';
+import { routes } from '@/routes';
 
 const ROLE_LABELS: Record<string, string> = {
   mitglied: 'Mitglied',
@@ -51,6 +52,13 @@ export function DesktopShell({ tabs, children }: DesktopShellProps) {
     [me.id]: { first: me.first ?? me.name.split(' ')[0], last: me.last ?? me.name.split(' ')[1] ?? '' },
   };
 
+  // The profile card in the sidebar footer is the desktop entry point to
+  // /profil (see openspec/specs/profil PR-005) — the regular `profil` tab
+  // would be redundant here, so it's filtered out of the sidebar nav only;
+  // MobileShell still renders it from the same shared `tabs` list.
+  const navTabs = tabs.filter((t) => t.key !== 'profil');
+  const profileActive = location.pathname === routes.profil;
+
   return (
     <div className="stage desktop">
       <aside className="dt-sidebar">
@@ -69,9 +77,9 @@ export function DesktopShell({ tabs, children }: DesktopShellProps) {
         </div>
 
         <nav className="dt-nav">
-          {tabs.map(({ key, label, icon, section }, i) => (
+          {navTabs.map(({ key, label, icon, section }, i) => (
             <React.Fragment key={key}>
-              {isSectionStart(tabs, i) && (
+              {isSectionStart(navTabs, i) && (
                 <div className="dt-role-label" style={{ marginTop: i > 0 ? 14 : 0 }}>{section}</div>
               )}
               <button
@@ -86,7 +94,10 @@ export function DesktopShell({ tabs, children }: DesktopShellProps) {
         </nav>
 
         <div className="dt-side-foot">
-          <div className="dt-user">
+          <button
+            className={'dt-user' + (profileActive ? ' active' : '')}
+            onClick={() => navigate(routes.profil)}
+          >
             <Avatar
               memberId={me.id}
               members={memberMap}
@@ -98,7 +109,7 @@ export function DesktopShell({ tabs, children }: DesktopShellProps) {
               </div>
               <div className="dt-user-role">{roleLabel}</div>
             </div>
-          </div>
+          </button>
         </div>
       </aside>
 

@@ -773,6 +773,50 @@ func (uc *EventUsecase) AddAttachment(ctx context.Context, actorID uuid.UUID, ev
 	return a, nil
 }
 
+// SetHeaderImage stores a dedicated header image for an event, separate from
+// the general attachments list (V-010). The handler owns writing the file to
+// storage; this only persists the resulting URL. Returns the previous URL
+// (possibly empty, if none was set) so the handler can best-effort delete the
+// file it replaces, the same way ClearHeaderImage already does for removal.
+func (uc *EventUsecase) SetHeaderImage(ctx context.Context, actorID uuid.UUID, eventID uuid.UUID, url string) (ev *domain.Event, prevURL string, err error) {
+	e, err := uc.events.GetByID(ctx, eventID)
+	if err != nil {
+		return nil, "", err
+	}
+	prevURL = e.HeaderImageURL
+	e.HeaderImageURL = url
+	e.UpdatedAt = time.Now().UTC()
+	if err := uc.events.Update(ctx, e); err != nil {
+		return nil, "", fmt.Errorf("update event: %w", err)
+	}
+
+	aid := actorID
+	_ = uc.writeAudit(ctx, &aid, domain.AuditActionUpdate, domain.AuditEntityEvent, eventID.String(), map[string]string{"headerImageUrl": prevURL}, map[string]string{"headerImageUrl": url})
+
+	return e, prevURL, nil
+}
+
+// ClearHeaderImage removes an event's header image (V-010). Returns the
+// previous URL (possibly empty, if none was set) so the handler can
+// best-effort delete the underlying file.
+func (uc *EventUsecase) ClearHeaderImage(ctx context.Context, actorID uuid.UUID, eventID uuid.UUID) (prevURL string, err error) {
+	e, err := uc.events.GetByID(ctx, eventID)
+	if err != nil {
+		return "", err
+	}
+	prevURL = e.HeaderImageURL
+	e.HeaderImageURL = ""
+	e.UpdatedAt = time.Now().UTC()
+	if err := uc.events.Update(ctx, e); err != nil {
+		return "", fmt.Errorf("update event: %w", err)
+	}
+
+	aid := actorID
+	_ = uc.writeAudit(ctx, &aid, domain.AuditActionUpdate, domain.AuditEntityEvent, eventID.String(), nil, map[string]string{"headerImageCleared": prevURL})
+
+	return prevURL, nil
+}
+
 // ListAttachments returns the files attached to an event (V-008).
 func (uc *EventUsecase) ListAttachments(ctx context.Context, eventID uuid.UUID) ([]*domain.EventAttachment, error) {
 	if _, err := uc.events.GetByID(ctx, eventID); err != nil {

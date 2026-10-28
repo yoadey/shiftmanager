@@ -47,6 +47,7 @@ type EventModel struct {
 	RecurrenceFrequency string     `gorm:"column:recurrence_frequency;type:text"`
 	RecurrenceUntil     *time.Time `gorm:"column:recurrence_until"`
 	RecurrenceGroupID   *string    `gorm:"column:recurrence_group_id;type:text;index"`
+	HeaderImageURL      string     `gorm:"column:header_image_url;type:text"`
 }
 
 func (EventModel) TableName() string { return "events" }

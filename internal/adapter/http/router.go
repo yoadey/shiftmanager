@@ -202,6 +202,8 @@ func NewRouter(h Handlers, cfg RouterConfig) http.Handler {
 					w.Post("/{id}/recurrence", h.Event.GenerateRecurrence)
 					w.Post("/{id}/attachments", h.Event.UploadAttachment)
 					w.Delete("/{id}/attachments/{attachmentId}", h.Event.DeleteAttachment)
+					w.Post("/{id}/header-image", h.Event.UploadHeaderImage)
+					w.Delete("/{id}/header-image", h.Event.DeleteHeaderImage)
 					w.Post("/{eventId}/shifts", h.Shift.CreateShift)
 				})
 			})
