@@ -186,7 +186,9 @@ export function MemberDashboard() {
   const confirmed = hoursQ.data?.confirmed ?? 0;
   const reservedExtra = up.reduce((a, r) => a + r.dur, 0);
   const incl = confirmed + (hoursQ.data?.reserved ?? reservedExtra);
-  const goal = hoursQ.data?.goal || settings?.yearGoal || 20;
+  // An individual goal of 0 h is a real goal (exempt member); only fall back
+  // when there is no active club year behind the account.
+  const goal = hoursQ.data?.clubYearLabel ? hoursQ.data.goal : (settings?.yearGoal ?? 20);
   const remaining = Math.max(goal - incl, 0);
   // What the member would owe if they worked no further hours (G-011).
   const openFee = hoursQ.data?.openFeeCents ?? 0;

@@ -116,9 +116,12 @@ func TestEventRepoList_FreeSlots(t *testing.T) {
 	open := createTestEvent(t, r, "open", "Turnier", start)
 	addShift(open, 2, domain.RegistrationStateConfirmed)
 	addShift(open, 1, domain.RegistrationStateRegistered)
-	// A waiting-list reservation does not take one of the places.
-	waitlist := createTestEvent(t, r, "waitlist", "Turnier", start)
-	addShift(waitlist, 1, domain.RegistrationStateReserved)
+	// A reservation holds a place, as in the occupancy shown for the shift.
+	reserved := createTestEvent(t, r, "reserved", "Turnier", start)
+	addShift(reserved, 1, domain.RegistrationStateReserved)
+	// max 0 means unlimited: sign-up always succeeds.
+	unlimited := createTestEvent(t, r, "unlimited", "Turnier", start)
+	addShift(unlimited, 0, domain.RegistrationStateRegistered)
 	createTestEvent(t, r, "noshifts", "Turnier", start)
 
 	got, err := r.List(ctx, port.EventFilter{FreeSlots: true, Ascending: true})
@@ -129,8 +132,8 @@ func TestEventRepoList_FreeSlots(t *testing.T) {
 	for _, n := range eventNames(got) {
 		names[n] = true
 	}
-	if len(names) != 2 || !names["open"] || !names["waitlist"] {
-		t.Errorf("free slots = %v, want open and waitlist", eventNames(got))
+	if len(names) != 2 || !names["open"] || !names["unlimited"] {
+		t.Errorf("free slots = %v, want open and unlimited", eventNames(got))
 	}
 	n, err := r.CountFiltered(ctx, port.EventFilter{FreeSlots: true})
 	if err != nil {

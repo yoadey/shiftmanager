@@ -38,8 +38,12 @@ type MemberFilter struct {
 	IsActive *bool
 	Status   MemberStatus // "" = no status restriction
 	Search   string       // matches first/last name or email
-	Limit    int
-	Offset   int
+	// IDs, when non-nil, restricts the result to these members (batch load).
+	IDs []uuid.UUID
+	// ExcludeIDs drops these members before Limit/Offset apply.
+	ExcludeIDs []uuid.UUID
+	Limit      int
+	Offset     int
 }
 
 // MemberStatus narrows a member listing by account state.

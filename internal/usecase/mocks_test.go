@@ -3,6 +3,7 @@ package usecase
 import (
 	"context"
 	"fmt"
+	"slices"
 	"sort"
 	"strings"
 	"time"
@@ -113,6 +114,12 @@ func (f *fakeMemberRepo) CountFiltered(ctx context.Context, filter port.MemberFi
 
 func fakeMemberMatches(m *domain.Member, filter port.MemberFilter) bool {
 	if filter.IsActive != nil && m.IsActive != *filter.IsActive {
+		return false
+	}
+	if filter.IDs != nil && !slices.Contains(filter.IDs, m.ID) {
+		return false
+	}
+	if slices.Contains(filter.ExcludeIDs, m.ID) {
 		return false
 	}
 	switch filter.Status {

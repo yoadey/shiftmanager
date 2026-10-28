@@ -363,4 +363,11 @@ func TestGetMemberAccountFull_OpenFeeCents(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, 17.5, full.Goal)
 	assert.Equal(t, 0, *full.OpenFeeCents)
+
+	// Year-end billing skips inactive members, so they get no projection.
+	members.members[memberID].IndividualGoalHours = nil
+	members.members[memberID].IsActive = false
+	full, err = uc.GetMemberAccountFull(ctx, memberID)
+	require.NoError(t, err)
+	assert.Nil(t, full.OpenFeeCents)
 }

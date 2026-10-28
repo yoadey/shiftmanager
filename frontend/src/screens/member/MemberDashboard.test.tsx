@@ -35,6 +35,13 @@ describe('MemberDashboard', () => {
     expect(screen.getByTestId('open-fee')).toHaveTextContent(/Ohne weitere Stunden wären 32,50\s€ Abgeltung fällig\./);
   });
 
+  it('keeps an individual goal of 0 h instead of falling back to the year goal', () => {
+    account = { confirmed: 0, reserved: 0, goal: 0, clubYearLabel: '2026', entries: [] };
+    renderDashboard();
+    expect(screen.getByText('/ 0 h')).toBeInTheDocument();
+    expect(screen.getByText(/Jahresziel bereits erreicht/)).toBeInTheDocument();
+  });
+
   it('shows no fee once nothing is owed or no fee tiers exist', () => {
     account.openFeeCents = 0;
     const { unmount } = renderDashboard();

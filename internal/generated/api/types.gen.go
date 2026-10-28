@@ -665,7 +665,7 @@ type ListEventsParams struct {
 	// To Events starting on or before this day (inclusive)
 	To *openapi_types.Date `form:"to,omitempty" json:"to,omitempty"`
 
-	// FreeSlots Only events with at least one shift that still has a free place
+	// FreeSlots Only events with at least one shift that still has a free place (unlimited, or fewer registered/reserved/confirmed helpers than its maximum)
 	FreeSlots *bool `form:"freeSlots,omitempty" json:"freeSlots,omitempty"`
 
 	// Order Sort by start date
@@ -740,6 +740,9 @@ type ImportMembersMultipartBody struct {
 // LookupMembersParams defines parameters for LookupMembers.
 type LookupMembersParams struct {
 	Q string `form:"q" json:"q"`
+
+	// Exclude Member ids to leave out before the 20-result limit applies (e.g. helpers already on the shift); repeat the parameter per id, at most 500
+	Exclude *[]UUID `form:"exclude,omitempty" json:"exclude,omitempty"`
 }
 
 // GetAuditLogParams defines parameters for GetAuditLog.
@@ -2838,6 +2841,19 @@ func (siw *ServerInterfaceWrapper) LookupMembers(w http.ResponseWriter, r *http.
 			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "q"})
 		} else {
 			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "q", Err: err})
+		}
+		return
+	}
+
+	// ------------- Optional query parameter "exclude" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "exclude", r.URL.Query(), &params.Exclude, runtime.BindQueryParameterOptions{Type: "array", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "exclude"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "exclude", Err: err})
 		}
 		return
 	}

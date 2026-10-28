@@ -187,6 +187,14 @@ func (r *MemberRepo) CountFiltered(ctx context.Context, filter port.MemberFilter
 	return int(n), nil
 }
 
+func uuidStrings(ids []uuid.UUID) []string {
+	out := make([]string, len(ids))
+	for i, id := range ids {
+		out[i] = id.String()
+	}
+	return out
+}
+
 var likeEscaper = strings.NewReplacer(`\`, `\\`, `%`, `\%`, `_`, `\_`)
 
 // applyMemberFilter adds the WHERE conditions shared by List and CountFiltered.
@@ -203,6 +211,12 @@ func applyMemberFilter(q *gorm.DB, filter port.MemberFilter) *gorm.DB {
 		q = q.Where("is_active = ? AND left_at IS NOT NULL", false)
 	case port.MemberStatusApproved:
 		q = q.Where("(is_active = ? OR left_at IS NOT NULL)", true)
+	}
+	if filter.IDs != nil {
+		q = q.Where("id IN ?", uuidStrings(filter.IDs))
+	}
+	if len(filter.ExcludeIDs) > 0 {
+		q = q.Where("id NOT IN ?", uuidStrings(filter.ExcludeIDs))
 	}
 	if s := strings.TrimSpace(filter.Search); s != "" {
 		// Escape LIKE wildcards so "%" or "_" in a search match literally.

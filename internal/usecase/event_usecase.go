@@ -299,12 +299,9 @@ func (uc *EventUsecase) ListEvents(ctx context.Context, filter port.EventFilter)
 	if err != nil {
 		return nil, 0, err
 	}
-	// The page itself proves the total when it is the last one (see
-	// MemberUsecase.ListMembers); only otherwise is a separate COUNT needed.
-	if (filter.Limit <= 0 || len(events) < filter.Limit) && (len(events) > 0 || filter.Offset <= 0) {
-		return events, max(filter.Offset, 0) + len(events), nil
-	}
-	total, err := uc.events.CountFiltered(ctx, filter)
+	total, err := pageTotal(len(events), filter.Limit, filter.Offset, func() (int, error) {
+		return uc.events.CountFiltered(ctx, filter)
+	})
 	if err != nil {
 		return nil, 0, err
 	}
@@ -510,13 +507,29 @@ func (uc *EventUsecase) GetEventTimelineFor(ctx context.Context, eventID uuid.UU
 	// they need to manage it (SA-009).
 	organiser := domain.HasRole(viewer.Role, domain.RoleVeranstaltungsleiter)
 
-	members := make(map[uuid.UUID]*domain.Member)
-	memberName := func(id uuid.UUID) string {
-		m, ok := members[id]
-		if !ok {
-			m, _ = uc.members.GetByID(ctx, id)
-			members[id] = m
+	// Load every member on the timeline in one query rather than one per helper.
+	var ids []uuid.UUID
+	for _, d := range tl.Days {
+		for _, sh := range d.Shifts {
+			for _, r := range sh.Registrations {
+				if r.MemberID != nil {
+					ids = append(ids, *r.MemberID)
+				}
+			}
 		}
+	}
+	members := make(map[uuid.UUID]*domain.Member, len(ids))
+	if len(ids) > 0 {
+		list, err := uc.members.List(ctx, port.MemberFilter{IDs: ids})
+		if err != nil {
+			return nil, fmt.Errorf("load members: %w", err)
+		}
+		for _, m := range list {
+			members[m.ID] = m
+		}
+	}
+	memberName := func(id uuid.UUID) string {
+		m := members[id]
 		switch {
 		case m == nil:
 			return ""

@@ -307,10 +307,10 @@ function AddMemberSheet({
     const t = setTimeout(() => setQuery(search), 250);
     return () => clearTimeout(t);
   }, [search]);
-  const lookupQ = useMemberLookup(query);
-  const existingIds = new Set(shift.signups.map((s) => s.memberId));
+  const existingIds = shift.signups.map((s) => s.memberId).filter(Boolean);
+  const lookupQ = useMemberLookup(query, existingIds);
   const searching = search.trim().length >= 2;
-  const filtered = searching ? (lookupQ.data ?? []).filter((m) => !existingIds.has(m.id)) : [];
+  const filtered = searching ? (lookupQ.data ?? []) : [];
 
   const add = (memberId: string) => {
     addMember.mutate({ shiftId: shift.id, memberId, eventId }, {
@@ -1240,7 +1240,7 @@ export function EventDetail() {
         {days.map((day, i) => (
           <div className="tl-day" key={day.date}>
             <div className="tl-dayhead">
-              <span className="tl-daybadge">{days.length > 1 ? `Tag ${i + 1}` : 'Programm'}</span>
+              <span className="tl-daybadge">{days.length > 1 ? `Tag ${i + 1}` : 'Schichten'}</span>
               <span style={{ fontWeight: 700, fontSize: 13.5, color: 'var(--ink-2)' }}>{fmtDate(day.date, 'weekday-long')}</span>
             </div>
             <div className="tl-rail">

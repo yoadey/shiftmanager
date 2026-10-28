@@ -121,24 +121,38 @@ func (h *MemberHandler) Get(w http.ResponseWriter, r *http.Request) {
 }
 
 // memberLookupLimit caps the name search so it cannot page through the
-// whole member list.
-const memberLookupLimit = 20
+// whole member list; memberLookupMaxExclude bounds the exclude list.
+const (
+	memberLookupLimit      = 20
+	memberLookupMaxExclude = 500
+)
 
 // Lookup searches active members by name or e-mail and returns only their id
 // and full name, so organisers can assign helpers to shifts (ML-014, SC-010)
-// without access to the member list.
-// GET /api/v1/members/lookup?q=...
+// without access to the member list. Optional repeated `exclude` ids (the
+// helpers already on the shift) are left out before the limit applies.
+// GET /api/v1/members/lookup?q=...&exclude=<id>&exclude=<id>
 func (h *MemberHandler) Lookup(w http.ResponseWriter, r *http.Request) {
 	q := strings.TrimSpace(r.URL.Query().Get("q"))
 	if len([]rune(q)) < 2 {
 		writeError(w, http.StatusBadRequest, "query must be at least 2 characters")
 		return
 	}
-	members, _, err := h.uc.ListMembers(r.Context(), port.MemberFilter{
-		Search: q,
-		Status: port.MemberStatusActive,
-		Limit:  memberLookupLimit,
-	})
+	rawExclude := r.URL.Query()["exclude"]
+	if len(rawExclude) > memberLookupMaxExclude {
+		writeError(w, http.StatusBadRequest, "too many exclude ids")
+		return
+	}
+	exclude := make([]uuid.UUID, 0, len(rawExclude))
+	for _, raw := range rawExclude {
+		id, err := uuid.Parse(raw)
+		if err != nil {
+			writeError(w, http.StatusBadRequest, "invalid exclude id")
+			return
+		}
+		exclude = append(exclude, id)
+	}
+	members, err := h.uc.LookupMembers(r.Context(), q, exclude, memberLookupLimit)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return

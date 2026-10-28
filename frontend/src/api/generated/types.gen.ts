@@ -643,6 +643,10 @@ export type LookupMembersData = {
   path?: never;
   query: {
     q: string;
+    /**
+     * Member ids to leave out before the 20-result limit applies (e.g. helpers already on the shift); repeat the parameter per id, at most 500
+     */
+    exclude?: Array<Uuid>;
   };
   url: "/members/lookup";
 };
@@ -885,7 +889,7 @@ export type ListEventsData = {
      */
     to?: string;
     /**
-     * Only events with at least one shift that still has a free place
+     * Only events with at least one shift that still has a free place (unlimited, or fewer registered/reserved/confirmed helpers than its maximum)
      */
     freeSlots?: boolean;
     /**

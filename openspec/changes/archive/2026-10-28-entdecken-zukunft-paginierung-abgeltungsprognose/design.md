@@ -36,10 +36,12 @@ jeden angemeldeten Nutzer lesbar.
   freie Plätze; die Zeitleisten werden nur für die aktuelle Seite geladen.
   Gesamtzahl wie bei der Mitgliederliste im Header `X-Total-Count`, der
   Body bleibt ein Array (kompatibel zu bestehenden Clients).
-- **„Freie Plätze“ in SQL.** Eine Schicht hat einen freien Platz, wenn
-  `max_helpers` größer ist als die Zahl ihrer Anmeldungen im Zustand
-  `registered` oder `confirmed` – dieselbe Zählung wie die
-  Kapazitätsprüfung bei der Anmeldung (`CountActiveByShift`). Umgesetzt als
+- **„Freie Plätze“ in SQL.** Eine Schicht hat einen freien Platz, wenn sie
+  unbegrenzt ist (`max_helpers` 0) oder `max_helpers` größer ist als die
+  Zahl ihrer Anmeldungen im Zustand `registered`, `reserved` oder
+  `confirmed` – dieselbe Zählung wie die angezeigte Belegung
+  (`computeOccupancy`, Frontend `calcOccupancy`), damit der Filter keine
+  Veranstaltung liefert, deren Karte „besetzt“ zeigt. Umgesetzt als
   `EXISTS`-Unterabfrage, damit `LIMIT/OFFSET` und `COUNT` stimmen.
 - **Sortierung.** Neuer Parameter `order=asc|desc`; Default bleibt `desc`,
   damit die Verwaltungsansichten unverändert bleiben. `id` als zweiter

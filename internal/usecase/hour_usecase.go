@@ -611,9 +611,10 @@ func (uc *HourUsecase) GetMemberAccountFull(ctx context.Context, memberID uuid.U
 
 // openFeeCents projects the compensation fee due if the member works no
 // further hours (G-011), using the tiers billing would apply. Returns nil when
-// no fee tiers are configured (or they cannot be loaded).
+// no fee tiers are configured (or they cannot be loaded), and for inactive
+// members, whom year-end billing leaves out.
 func (uc *HourUsecase) openFeeCents(ctx context.Context, member *domain.Member, clubYearID uuid.UUID, target, confirmed float64) *int {
-	if uc.settings == nil {
+	if uc.settings == nil || !member.IsActive {
 		return nil
 	}
 	yearTiers, err := yearFeeTiers(ctx, uc.settings, clubYearID)

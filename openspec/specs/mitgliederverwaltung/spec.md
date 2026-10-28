@@ -230,7 +230,9 @@ Damit Veranstaltungsleiter Mitglieder einer Schicht zuordnen können
 (SC-010), MUST `GET /api/v1/members/lookup?q=` ab der Rolle
 Veranstaltungsleiter aktive, freigeschaltete Mitglieder nach Name oder
 E-Mail suchen und je Treffer ausschließlich ID und vollständigen Namen
-liefern, höchstens 20 Treffer. Suchbegriffe unter zwei Zeichen MUST mit
+liefern, höchstens 20 Treffer. Per `exclude` übergebene Mitglieder (z. B.
+die bereits in der Schicht eingetragenen) MUST das System vor dieser
+Begrenzung ausschließen. Suchbegriffe unter zwei Zeichen MUST mit
 400 abgelehnt werden; Mitgliedern ohne diese Rolle MUST das System mit
 403 antworten.
 

@@ -8,8 +8,9 @@ interface HourBarProps {
  * Two-segment progress bar: confirmed (solid) + reserved (striped) toward goal.
  */
 export function HourBar({ confirmed, reserved, goal }: HourBarProps) {
-  const c = Math.min(confirmed / goal, 1) * 100;
-  const r = Math.min(Math.max(reserved - confirmed, 0) / goal, 1 - c / 100) * 100;
+  // A goal of 0 h (exempt member) is met from the start: full bar, no NaN widths.
+  const c = goal > 0 ? Math.min(confirmed / goal, 1) * 100 : 100;
+  const r = goal > 0 ? Math.min(Math.max(reserved - confirmed, 0) / goal, 1 - c / 100) * 100 : 0;
   return (
     <div className="sm-track">
       <div className="seg-c" style={{ width: c + '%' }} />

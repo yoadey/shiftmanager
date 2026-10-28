@@ -57,11 +57,13 @@ vi.mock('@/api/shifts', () => ({
   useAddGuestToShift: () => ({ mutate: vi.fn() }),
 }));
 
-const lookupCalls: string[] = [];
+const lookupCalls: { q: string; exclude: string[] }[] = [];
 vi.mock('@/api/members', () => ({
-  useMemberLookup: (q: string) => {
-    lookupCalls.push(q);
-    return { data: q.length >= 2 ? [{ id: 'm1', name: 'Max Mustermann' }, { id: 'm2', name: 'Maria Musterfrau' }] : undefined, isFetching: false };
+  // Like the server: helpers in `exclude` never come back.
+  useMemberLookup: (q: string, exclude: string[] = []) => {
+    lookupCalls.push({ q, exclude });
+    const all = [{ id: 'm1', name: 'Max Mustermann' }, { id: 'm2', name: 'Maria Musterfrau' }];
+    return { data: q.length >= 2 ? all.filter((m) => !exclude.includes(m.id)) : undefined, isFetching: false };
   },
 }));
 
@@ -152,7 +154,7 @@ describe('EventDetail helper names', () => {
     fireEvent.change(screen.getByPlaceholderText('Name oder E-Mail…'), { target: { value: 'mus' } });
     expect(await screen.findByText('Maria Musterfrau')).toBeInTheDocument();
     expect(screen.queryByText('Max Mustermann')).not.toBeInTheDocument();
-    expect(lookupCalls).toContain('mus');
+    expect(lookupCalls).toContainEqual({ q: 'mus', exclude: ['m1'] });
   });
 });
 
@@ -168,8 +170,10 @@ describe('EventDetail compact view', () => {
     renderAt('/events/e1');
     await screen.findByText('Sommerfest');
     expect(screen.queryByText('Freie Plätze')).not.toBeInTheDocument();
-    expect(screen.queryByText('Schichten')).not.toBeInTheDocument();
+    expect(screen.queryByText('Tag')).not.toBeInTheDocument();
     expect(screen.queryByTestId('attachments')).not.toBeInTheDocument();
+    // The single-day badge above the shifts is labelled "Schichten" (not "Programm").
+    expect(screen.getByText('Schichten')).toHaveClass('tl-daybadge');
   });
 
   it('lists existing attachments read-only in the view, editable on the edit page', async () => {

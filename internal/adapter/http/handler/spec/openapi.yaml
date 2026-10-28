@@ -670,6 +670,12 @@ paths:
       summary: Search active members by name or e-mail for helper assignment (Veranstaltungsleiter+); returns id and full name only
       parameters:
         - { name: q, in: query, required: true, schema: { type: string, minLength: 2 } }
+        - name: exclude
+          in: query
+          description: Member ids to leave out before the 20-result limit applies (e.g. helpers already on the shift); repeat the parameter per id, at most 500
+          schema: { type: array, maxItems: 500, items: { $ref: '#/components/schemas/UUID' } }
+          style: form
+          explode: true
       responses:
         "200":
           description: Up to 20 matching members
@@ -784,7 +790,7 @@ paths:
         - { name: category, in: query, schema: { type: string } }
         - { name: from, in: query, description: "Events ending on or after this day", schema: { type: string, format: date } }
         - { name: to, in: query, description: "Events starting on or before this day (inclusive)", schema: { type: string, format: date } }
-        - { name: freeSlots, in: query, description: "Only events with at least one shift that still has a free place", schema: { type: boolean } }
+        - { name: freeSlots, in: query, description: "Only events with at least one shift that still has a free place (unlimited, or fewer registered/reserved/confirmed helpers than its maximum)", schema: { type: boolean } }
         - { name: order, in: query, description: "Sort by start date", schema: { type: string, enum: [asc, desc], default: desc } }
         - { name: limit, in: query, description: "Page size; 0 returns all matches", schema: { type: integer, minimum: 0, default: 50 } }
         - { name: offset, in: query, schema: { type: integer, minimum: 0, default: 0 } }

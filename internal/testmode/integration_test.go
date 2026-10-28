@@ -313,9 +313,17 @@ func TestMemberLookup(t *testing.T) {
 	require.Len(t, hits, 1)
 	assert.Equal(t, map[string]any{"id": db.MemberID.String(), "name": "Max Mustermann"}, hits[0])
 
-	resp = get(t, s, "/api/v1/members/lookup?q=m", leiter)
-	assert.Equal(t, http.StatusBadRequest, resp.StatusCode)
-	resp.Body.Close()
+	// Helpers already on the shift are left out before the limit applies.
+	resp = get(t, s, "/api/v1/members/lookup?q=muster&exclude="+db.MemberID.String(), leiter)
+	require.Equal(t, http.StatusOK, resp.StatusCode)
+	decode(t, resp, &hits)
+	assert.Empty(t, hits)
+
+	for _, q := range []string{"?q=m", "?q=muster&exclude=nope"} {
+		resp = get(t, s, "/api/v1/members/lookup"+q, leiter)
+		assert.Equal(t, http.StatusBadRequest, resp.StatusCode, q)
+		resp.Body.Close()
+	}
 
 	member := token(t, s, "mitglied", db.MemberID.String(), "max@test.local")
 	resp = get(t, s, "/api/v1/members/lookup?q=muster", member)
@@ -548,6 +556,8 @@ func TestListEvents_FiltersPaginationAndTotal(t *testing.T) {
 	assert.Equal(t, []string{"Sommerfest"}, got)
 
 	assert.Equal(t, http.StatusBadRequest, get(t, s, "/api/v1/events?order=up", tok).StatusCode)
+	assert.Equal(t, http.StatusBadRequest, get(t, s, "/api/v1/events?to=28.10.2026", tok).StatusCode)
+	assert.Equal(t, http.StatusBadRequest, get(t, s, "/api/v1/events?from=bogus", tok).StatusCode)
 	assert.Equal(t, http.StatusBadRequest, get(t, s, "/api/v1/events?limit=-1", tok).StatusCode)
 }
 

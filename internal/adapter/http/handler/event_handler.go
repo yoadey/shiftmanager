@@ -65,17 +65,21 @@ func (h *EventHandler) List(w http.ResponseWriter, r *http.Request) {
 	}
 	if from := q.Get("from"); from != "" {
 		t, err := time.Parse("2006-01-02", from)
-		if err == nil {
-			filter.FromDate = &t
+		if err != nil {
+			writeError(w, http.StatusBadRequest, "from must be a date (YYYY-MM-DD)")
+			return
 		}
+		filter.FromDate = &t
 	}
 	if to := q.Get("to"); to != "" {
 		t, err := time.Parse("2006-01-02", to)
-		if err == nil {
-			// Inclusive: everything starting on the "to" day counts.
-			end := t.AddDate(0, 0, 1)
-			filter.ToDate = &end
+		if err != nil {
+			writeError(w, http.StatusBadRequest, "to must be a date (YYYY-MM-DD)")
+			return
 		}
+		// Inclusive: everything starting on the "to" day counts.
+		end := t.AddDate(0, 0, 1)
+		filter.ToDate = &end
 	}
 
 	events, total, err := h.uc.ListEvents(r.Context(), filter)

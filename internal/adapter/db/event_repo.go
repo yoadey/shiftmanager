@@ -98,12 +98,13 @@ func applyEventFilter(q *gorm.DB, filter port.EventFilter) *gorm.DB {
 		q = q.Where("start_date < ?", *filter.ToDate)
 	}
 	if filter.FreeSlots {
-		// A shift has a free place while fewer helpers hold an active
-		// registration than it allows — the same count the capacity check
-		// on sign-up uses (RegistrationRepo.CountActiveByShift).
-		q = q.Where(`EXISTS (SELECT 1 FROM shifts s WHERE s.event_id = events.id AND s.max_helpers > (
-			SELECT COUNT(*) FROM registrations reg WHERE reg.shift_id = s.id AND reg.state IN ?))`,
-			[]string{string(domain.RegistrationStateRegistered), string(domain.RegistrationStateConfirmed)})
+		// A shift has a free place while it is unlimited (max 0) or holds
+		// fewer registered, reserved or confirmed helpers than it allows —
+		// the same count the occupancy shown for a shift uses
+		// (EventUsecase.computeOccupancy, frontend calcOccupancy).
+		q = q.Where(`EXISTS (SELECT 1 FROM shifts s WHERE s.event_id = events.id AND (s.max_helpers <= 0 OR s.max_helpers > (
+			SELECT COUNT(*) FROM registrations reg WHERE reg.shift_id = s.id AND reg.state IN ?)))`,
+			[]string{string(domain.RegistrationStateRegistered), string(domain.RegistrationStateReserved), string(domain.RegistrationStateConfirmed)})
 	}
 	return q
 }
