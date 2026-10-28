@@ -103,15 +103,17 @@ func (r *MemberRepo) Update(ctx context.Context, m *domain.Member) error {
 		Model(&MemberModel{}).
 		Where("id = ?", model.ID).
 		Updates(map[string]interface{}{
-			"first_name":       model.FirstName,
-			"last_name":        model.LastName,
-			"email":            model.Email,
-			"role":             model.Role,
-			"is_active":        model.IsActive,
-			"joined_at":        model.JoinedAt,
-			"left_at":           model.LeftAt,
-			"reminder_opt_out":  model.ReminderOptOut,
-			"notify_new_events": model.NotifyNewEvents,
+			"first_name":            model.FirstName,
+			"last_name":             model.LastName,
+			"email":                 model.Email,
+			"role":                  model.Role,
+			"is_active":             model.IsActive,
+			"joined_at":             model.JoinedAt,
+			"individual_goal_hours": model.IndividualGoalHours,
+			"oidc_subject":          model.OIDCSubject,
+			"left_at":               model.LeftAt,
+			"reminder_opt_out":      model.ReminderOptOut,
+			"notify_new_events":     model.NotifyNewEvents,
 		})
 	if result.Error != nil {
 		return result.Error
@@ -183,6 +185,8 @@ func (r *MemberRepo) CountFiltered(ctx context.Context, filter port.MemberFilter
 	return int(n), nil
 }
 
+var likeEscaper = strings.NewReplacer(`\`, `\\`, `%`, `\%`, `_`, `\_`)
+
 // applyMemberFilter adds the WHERE conditions shared by List and CountFiltered.
 func applyMemberFilter(q *gorm.DB, filter port.MemberFilter) *gorm.DB {
 	if filter.IsActive != nil {
@@ -199,8 +203,9 @@ func applyMemberFilter(q *gorm.DB, filter port.MemberFilter) *gorm.DB {
 		q = q.Where("(is_active = ? OR left_at IS NOT NULL)", true)
 	}
 	if s := strings.TrimSpace(filter.Search); s != "" {
-		like := "%" + strings.ToLower(s) + "%"
-		q = q.Where("(lower(first_name) LIKE ? OR lower(last_name) LIKE ? OR lower(first_name || ' ' || last_name) LIKE ? OR lower(email) LIKE ?)", like, like, like, like)
+		// Escape LIKE wildcards so "%" or "_" in a search match literally.
+		like := "%" + likeEscaper.Replace(strings.ToLower(s)) + "%"
+		q = q.Where(`(lower(first_name) LIKE ? ESCAPE '\' OR lower(last_name) LIKE ? ESCAPE '\' OR lower(first_name || ' ' || last_name) LIKE ? ESCAPE '\' OR lower(email) LIKE ? ESCAPE '\')`, like, like, like, like)
 	}
 	return q
 }

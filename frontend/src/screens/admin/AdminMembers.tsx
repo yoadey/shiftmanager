@@ -16,7 +16,7 @@ import { useEvents } from '@/api/events';
 import { useSettings } from '@/api/settings';
 import { LoadingState, ErrorState } from '@/components/ui/States';
 import { EmptyState } from '@/screens/member/MemberDashboard';
-import { fmtDate, hrs, localDay } from '@/screens/_demo';
+import { fmtDate, hrs } from '@/screens/_demo';
 import { PendingApprovalActions } from './PendingApprovalActions';
 import { routes } from '@/routes';
 import { useSmartBack } from '@/hooks/useSmartBack';
@@ -140,7 +140,7 @@ export function AdminMembers() {
   const onOpenImport = () => {
     setPreview(null);
     setPendingFile(null);
-    navigate(routes.mitgliederImport);
+    navigate({ pathname: routes.mitgliederImport, search: location.search });
   };
 
   const onConfirmImport = () => {
@@ -167,7 +167,7 @@ export function AdminMembers() {
     setNewLast('');
     setNewEmail('');
     setNewSince(new Date().toISOString().slice(0, 10));
-    navigate(routes.mitgliederNeu);
+    navigate({ pathname: routes.mitgliederNeu, search: location.search });
   };
 
   const onConfirmCreate = () => {
@@ -247,7 +247,7 @@ export function AdminMembers() {
                       <div style={{ minWidth: 0 }}>
                         <div style={{ fontWeight: 700, fontSize: 14.5 }}>{name}</div>
                         <div style={{ color: 'var(--muted)', fontSize: 12, fontWeight: 600, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                          {m.email} · registriert am {fmtDate(localDay(m.since), 'short')}
+                          {m.email} · registriert am {fmtDate(m.since, 'short')}
                         </div>
                       </div>
                     </div>

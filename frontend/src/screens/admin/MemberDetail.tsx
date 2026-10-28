@@ -16,7 +16,7 @@ import { useSettings, useMemberFeeTiers, useUpdateMemberFeeTiers } from '@/api/s
 import { useStats } from '@/api/stats';
 import { LoadingState, ErrorState } from '@/components/ui/States';
 import { Field, Input } from '@/components/forms/Field';
-import { fmtDate, hrs, localDay } from '@/screens/_demo';
+import { fmtDate, hrs } from '@/screens/_demo';
 import { Section } from '@/screens/member/MemberDashboard';
 import type { Member, MemberFeeTier } from '@/types';
 
@@ -284,7 +284,7 @@ export function MemberDetail() {
           <div style={{ flex: 1 }}>
             <div style={{ fontFamily: 'Bricolage Grotesque', fontWeight: 800, fontSize: 19 }}>{m.first} {m.last}</div>
             <div style={{ color: 'var(--muted)', fontSize: 12.5, fontWeight: 600 }}>{m.email}</div>
-            <div style={{ color: 'var(--muted)', fontSize: 12, fontWeight: 600 }}>seit {fmtDate(localDay(m.since), 'short')}</div>
+            <div style={{ color: 'var(--muted)', fontSize: 12, fontWeight: 600 }}>seit {fmtDate(m.since, 'short')}</div>
           </div>
           {pending && <Badge kind="warn">Nicht freigeschaltet</Badge>}
           {m.active === false && !pending && <Badge kind="neutral">Ausgetreten</Badge>}
@@ -312,7 +312,7 @@ export function MemberDetail() {
             <Icon name="user" size={20} color="var(--muted)" />
             <div style={{ flex: 1 }}>
               <div style={{ fontWeight: 800, fontSize: 14.5 }}>Mitglied ist ausgetreten</div>
-              <div style={{ color: 'var(--ink-2)', fontSize: 12.5, fontWeight: 600 }}>Deaktiviert am {fmtDate(localDay(m.left), 'short')}.</div>
+              <div style={{ color: 'var(--ink-2)', fontSize: 12.5, fontWeight: 600 }}>Deaktiviert am {fmtDate(m.left ?? '', 'short')}.</div>
             </div>
             <Button size="sm" variant="soft" loading={activate.isPending} onClick={onReactivate}>
               Reaktivieren

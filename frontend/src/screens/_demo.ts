@@ -192,23 +192,15 @@ export const DEMO_STATE: DemoState = {
 
 export function fmtDate(iso: string, style?: string): string {
   if (!iso) return '';
-  const d = new Date(iso + 'T12:00:00');
+  // A full timestamp (e.g. joinedAt) is shown on its local calendar day; a
+  // bare YYYY-MM-DD is pinned to local noon so no time zone shifts its day.
+  const d = new Date(iso.includes('T') ? iso : iso + 'T12:00:00');
   if (Number.isNaN(d.getTime())) return '';
   if (style === 'weekday-long') return new Intl.DateTimeFormat('de-DE', { weekday: 'long', day: 'numeric', month: 'long' }).format(d);
   if (style === 'weekday') return new Intl.DateTimeFormat('de-DE', { weekday: 'short', day: 'numeric', month: 'long' }).format(d);
   if (style === 'short') return new Intl.DateTimeFormat('de-DE', { day: '2-digit', month: '2-digit', year: 'numeric' }).format(d);
   if (style === 'daymon') return new Intl.DateTimeFormat('de-DE', { day: 'numeric', month: 'short' }).format(d);
   return new Intl.DateTimeFormat('de-DE', { day: 'numeric', month: 'long', year: 'numeric' }).format(d);
-}
-
-/** Local calendar day (YYYY-MM-DD) of an ISO timestamp, for fmtDate. Slicing
- * the string instead would yield the UTC day, one off around midnight. */
-export function localDay(iso: string | null | undefined): string {
-  if (!iso) return '';
-  const d = new Date(iso);
-  if (Number.isNaN(d.getTime())) return '';
-  const pad = (n: number) => String(n).padStart(2, '0');
-  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
 }
 
 export function durH(start: string, end: string): number {

@@ -276,10 +276,12 @@ func (h *AuthHandler) Callback(w http.ResponseWriter, r *http.Request) {
 func (h *AuthHandler) provisionMember(r *http.Request, claims *port.OIDCClaims, bootstrapAdmin bool) (*domain.Member, error) {
 	first, last := splitName(claims.Name, claims.Email)
 	member := &domain.Member{
-		ID:          uuid.New(),
-		FirstName:   first,
-		LastName:    last,
-		Email:       claims.Email,
+		ID:        uuid.New(),
+		FirstName: first,
+		LastName:  last,
+		// Stored lower-cased like CreateMember does: GetByEmail lower-cases
+		// its argument, so a mixed-case address would never match again.
+		Email:       strings.ToLower(strings.TrimSpace(claims.Email)),
 		JoinedAt:    time.Now().UTC(),
 		IsActive:    bootstrapAdmin || claims.Role != "",
 		Role:        domain.RoleMitglied,
