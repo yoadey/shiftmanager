@@ -16,7 +16,10 @@ export function PendingMembersBanner() {
   const { data: pending } = usePendingMembers(isVorstand);
 
   const count = pending?.length ?? 0;
-  if (!isVorstand || count === 0 || location.pathname === routes.mitglieder) return null;
+  // The create/import dialogs render on top of the member list, so they
+  // already show the pending section too.
+  const onMemberList = [routes.mitglieder, routes.mitgliederNeu, routes.mitgliederImport].includes(location.pathname);
+  if (!isVorstand || count === 0 || onMemberList) return null;
 
   return (
     <div style={{ padding: '12px 18px 0' }}>

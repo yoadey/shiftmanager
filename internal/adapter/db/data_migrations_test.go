@@ -61,7 +61,8 @@ func TestBackfillMemberLeftAt(t *testing.T) {
 	assertLeftAt(t, gdb, pending, false, "data migration must not re-run")
 }
 
-// The golang-migrate SQL file and the statement Migrate runs must not drift.
+// The golang-migrate SQL file must run the same UPDATE as Migrate and record
+// it under the same name, so neither path repeats what the other applied.
 func TestBackfillMemberLeftAt_MatchesSQLMigration(t *testing.T) {
 	raw, err := os.ReadFile("../../../migrations/010_backfill_member_left_at.up.sql")
 	if err != nil {
@@ -75,9 +76,44 @@ func TestBackfillMemberLeftAt_MatchesSQLMigration(t *testing.T) {
 	}
 	ws := regexp.MustCompile(`\s+`)
 	norm := func(s string) string { return strings.TrimSpace(ws.ReplaceAllString(s, " ")) }
-	if norm(strings.Join(lines, "\n")) != norm(backfillMemberLeftAtSQL) {
-		t.Error("migrations/010_backfill_member_left_at.up.sql differs from backfillMemberLeftAtSQL")
+	file := norm(strings.Join(lines, "\n"))
+	if !strings.Contains(file, norm(backfillMemberLeftAtSQL)) {
+		t.Error("migrations/010_backfill_member_left_at.up.sql does not contain backfillMemberLeftAtSQL")
 	}
+	if !strings.Contains(file, "INSERT INTO data_migrations (name, applied_at) VALUES ('010_backfill_member_left_at'") {
+		t.Error("migrations/010_backfill_member_left_at.up.sql does not record the run in data_migrations")
+	}
+}
+
+// Applied through the golang-migrate path first, the backfill must not run
+// again from Migrate.
+func TestBackfillMemberLeftAt_SkippedWhenRecordedBySQLPath(t *testing.T) {
+	gdb, err := Open("sqlite::memory:")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := Migrate(gdb); err != nil {
+		t.Fatal(err)
+	}
+	if err := gdb.Where("1 = 1").Delete(&DataMigrationModel{}).Error; err != nil {
+		t.Fatal(err)
+	}
+	// Recorded by migrations/010_*.sql (without a GORM-side run).
+	if err := gdb.Exec("INSERT INTO data_migrations (name, applied_at) VALUES ('010_backfill_member_left_at', CURRENT_TIMESTAMP)").Error; err != nil {
+		t.Fatal(err)
+	}
+	pending := addMember(t, gdb, false, nil)
+	addAudit(t, gdb, pending, "member.autoregister")
+	addAudit(t, gdb, pending, domain.AuditActionUpdate)
+
+	if err := Migrate(gdb); err != nil {
+		t.Fatal(err)
+	}
+	// Even the raw statement is a no-op once recorded.
+	if err := gdb.Exec(backfillMemberLeftAtSQL).Error; err != nil {
+		t.Fatal(err)
+	}
+	assertLeftAt(t, gdb, pending, false, "backfill recorded by the SQL path must not re-run")
 }
 
 func addMember(t *testing.T, gdb *gorm.DB, active bool, leftAt *time.Time) string {
@@ -114,4 +150,38 @@ func assertLeftAt(t *testing.T, gdb *gorm.DB, id string, want bool, msg string) 
 	if (m.LeftAt != nil) != want {
 		t.Errorf("%s: left_at = %v", msg, m.LeftAt)
 	}
+}
+
+// Executes the golang-migrate file itself: it backfills, records the run, and
+// Migrate then leaves later changes alone.
+func TestBackfillMemberLeftAt_SQLFileRunsOnce(t *testing.T) {
+	raw, err := os.ReadFile("../../../migrations/010_backfill_member_left_at.up.sql")
+	if err != nil {
+		t.Fatal(err)
+	}
+	gdb, err := Open("sqlite::memory:")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := Migrate(gdb); err != nil {
+		t.Fatal(err)
+	}
+	if err := gdb.Where("1 = 1").Delete(&DataMigrationModel{}).Error; err != nil {
+		t.Fatal(err)
+	}
+	legacy := addMember(t, gdb, false, nil)
+	pending := addMember(t, gdb, false, nil)
+	addAudit(t, gdb, pending, "member.autoregister")
+
+	if err := gdb.Exec(string(raw)).Error; err != nil {
+		t.Fatalf("run SQL file: %v", err)
+	}
+	assertLeftAt(t, gdb, legacy, true, "SQL file backfills legacy deactivation")
+	assertLeftAt(t, gdb, pending, false, "SQL file keeps pending registration")
+
+	addAudit(t, gdb, pending, domain.AuditActionUpdate)
+	if err := Migrate(gdb); err != nil {
+		t.Fatal(err)
+	}
+	assertLeftAt(t, gdb, pending, false, "Migrate must skip a backfill the SQL file applied")
 }

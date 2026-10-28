@@ -50,6 +50,15 @@ describe('PendingMembersBanner', () => {
     expect(container).toBeEmptyDOMElement();
   });
 
+  it('is hidden on the create/import dialogs, which render over the member list', () => {
+    asRole('admin');
+    for (const path of ['/mitglieder/neu', '/mitglieder/import']) {
+      const { container, unmount } = renderAt(path);
+      expect(container).toBeEmptyDOMElement();
+      unmount();
+    }
+  });
+
   it('is hidden when nobody is waiting', () => {
     asRole('admin');
     pending = [];

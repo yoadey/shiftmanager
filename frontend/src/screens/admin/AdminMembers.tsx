@@ -300,7 +300,7 @@ export function AdminMembers() {
         {membersQ.isLoading && <LoadingState />}
         {membersQ.isError && <ErrorState />}
         {!membersQ.isLoading && !membersQ.isError && members.length === 0 && (
-          <EmptyState icon="users" title="Keine Mitglieder" text={search ? 'Für diese Suche gibt es keine Treffer.' : 'Es sind noch keine Mitglieder angelegt.'} />
+          <EmptyState icon="users" title="Keine Mitglieder" text={search ? 'Für diese Suche gibt es keine Treffer.' : pending.length > 0 ? 'Es ist noch kein Mitglied freigeschaltet.' : 'Es sind noch keine Mitglieder angelegt.'} />
         )}
         {!membersQ.isLoading && !membersQ.isError && members.length > 0 && (
         <div className="sm-card" style={{ overflow: 'hidden' }}>

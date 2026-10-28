@@ -217,7 +217,7 @@ func (h *AuthHandler) Callback(w http.ResponseWriter, r *http.Request) {
 			// managed in the app.
 			before := *member
 			member.Role = claims.Role
-			member.IsActive = true
+			member.Activate()
 			changed = true
 			_ = h.audit.WriteAudit(r, &member.ID, "member.oidc_role_activate", "member", member.ID.String(), before, *member)
 		}

@@ -73,9 +73,11 @@ func (uc *MemberUsecase) ListMembers(ctx context.Context, filter port.MemberFilt
 	if err != nil {
 		return nil, 0, err
 	}
-	if filter.Limit <= 0 && filter.Offset <= 0 {
-		// Unpaginated: the result already is every match.
-		return members, len(members), nil
+	// The page itself proves the total when it is the last one: it ended
+	// before the limit (or there is no limit) and it is not empty or starts at
+	// the very beginning. Only otherwise is a separate COUNT needed.
+	if (filter.Limit <= 0 || len(members) < filter.Limit) && (len(members) > 0 || filter.Offset <= 0) {
+		return members, max(filter.Offset, 0) + len(members), nil
 	}
 	total, err := uc.members.CountFiltered(ctx, filter)
 	if err != nil {
@@ -119,14 +121,16 @@ func (uc *MemberUsecase) UpdateMember(ctx context.Context, actorID uuid.UUID, id
 		m.Role = input.Role
 	}
 	if input.IsActive != nil {
-		m.IsActive = *input.IsActive
-		if *input.IsActive {
-			m.LeftAt = nil
-		} else if m.LeftAt == nil {
+		switch {
+		case *input.IsActive:
+			m.Activate()
+		case m.LeftAt == nil:
 			// Record the leave date so a deactivated member is not mistaken
 			// for a registration pending approval.
-			now := time.Now().UTC()
-			m.LeftAt = &now
+			m.Deactivate(time.Now().UTC())
+		default:
+			// Already left: keep the original leave date.
+			m.IsActive = false
 		}
 	}
 

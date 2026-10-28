@@ -25,12 +25,15 @@ type dataMigration struct {
 	sql  string
 }
 
-// backfillMemberLeftAtSQL mirrors migrations/010_backfill_member_left_at.up.sql
-// (golang-migrate path); see there for the rationale. Kept portable so it
-// also runs on SQLite.
+// backfillMemberLeftAtSQL mirrors the UPDATE in
+// migrations/010_backfill_member_left_at.up.sql (golang-migrate path); see
+// there for the rationale. That file records the run in data_migrations under
+// the same name, so whichever path runs first, the other skips it. Kept
+// portable so it also runs on SQLite.
 const backfillMemberLeftAtSQL = `UPDATE members
 SET left_at = CURRENT_TIMESTAMP
-WHERE is_active = false
+WHERE NOT EXISTS (SELECT 1 FROM data_migrations WHERE name = '010_backfill_member_left_at')
+  AND is_active = false
   AND left_at IS NULL
   AND NOT (
     EXISTS (
