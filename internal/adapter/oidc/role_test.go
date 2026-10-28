@@ -51,3 +51,15 @@ func TestRoleMapper_InvalidExpression(t *testing.T) {
 		t.Fatalf("want ErrInvalidRoleExpression, got %v", err)
 	}
 }
+
+// contains() on a missing claim fails the whole expression; the documented
+// empty-array default keeps the fallback reachable.
+func TestRoleMapper_GuardedMissingClaimReachesFallback(t *testing.T) {
+	m, err := NewRoleMapper("contains(groups || `[]`, 'sm-admin') && 'admin' || 'mitglied'")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := m.Resolve(map[string]any{"sub": "x"}); got != "mitglied" {
+		t.Errorf("Resolve = %q, want mitglied", got)
+	}
+}

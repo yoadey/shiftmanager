@@ -194,3 +194,15 @@ func TestDeactivateMember_RejectsPendingRegistration(t *testing.T) {
 	// A member who already left cannot be deactivated again.
 	assert.ErrorIs(t, uc.DeactivateMember(context.Background(), uuid.New(), id), domain.ErrMemberInactive)
 }
+
+func TestUpdateMember_DeactivateActiveMemberReplacesStaleLeftAt(t *testing.T) {
+	uc, members, _ := newMemberUC()
+	id := uuid.New()
+	stale := time.Date(2020, 1, 1, 0, 0, 0, 0, time.UTC)
+	members.add(&domain.Member{ID: id, Email: "a@b.de", IsActive: true, LeftAt: &stale})
+	inactive := false
+	m, err := uc.UpdateMember(context.Background(), uuid.New(), id, UpdateMemberInput{IsActive: &inactive})
+	require.NoError(t, err)
+	require.NotNil(t, m.LeftAt)
+	assert.True(t, m.LeftAt.After(stale), "deactivation must record today, not a stale leave date")
+}

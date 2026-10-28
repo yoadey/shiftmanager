@@ -154,9 +154,9 @@ app:
   oidc:
     # group-based (e.g. Authentik, Keycloak with a "groups" mapper)
     roleAttributePath: >-
-      contains(groups[*], 'sm-admin') && 'admin' ||
-      contains(groups[*], 'vorstand') && 'vorstand' ||
-      contains(groups[*], 'mitglieder') && 'mitglied'
+      contains(groups || `[]`, 'sm-admin') && 'admin' ||
+      contains(groups || `[]`, 'vorstand') && 'vorstand' ||
+      contains(groups || `[]`, 'mitglieder') && 'mitglied'
 ```
 
 ```yaml
@@ -170,7 +170,12 @@ Rules:
 
 - No match (expression yields `null`, an unknown name or fails) → the user is
   registered inactive and waits for manual activation, exactly as without the
-  setting. End the expression with `|| 'mitglied'` to admit everybody.
+  setting. End the expression with `|| 'mitglied'` to admit everybody — but
+  note that a function such as `contains()` applied to a claim the token does
+  not carry (many IdPs omit `groups` for users without groups) makes the
+  *whole* expression fail, so the fallback is never reached. Guard such
+  claims with a default, e.g.
+  ``contains(groups || `[]`, 'sm-admin') && 'admin' || 'mitglied'``.
 - Members who are already active keep the role set in the app; the IdP role is
   only used to admit new or still-pending accounts.
 - Deactivated members are not re-admitted by the IdP.

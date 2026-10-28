@@ -16,7 +16,10 @@ var ErrInvalidRoleExpression = errors.New("invalid OIDC role attribute path")
 // RoleMapper evaluates a JMESPath expression against a provider's claims to
 // derive the application role, in the style of Grafana's role_attribute_path:
 //
-//	contains(groups[*], 'shiftmanager-admin') && 'admin' || contains(groups[*], 'vorstand') && 'vorstand' || 'mitglied'
+//	contains(groups || `[]`, 'shiftmanager-admin') && 'admin' || contains(groups || `[]`, 'vorstand') && 'vorstand' || 'mitglied'
+//
+// (Without the empty-array default, contains() on a missing groups claim is an
+// evaluation error that fails the whole expression, fallback included.)
 //
 // The expression must yield one of the role names (kiosk, mitglied,
 // veranstaltungsleiter, vorstand, admin; case-insensitive). Anything else —

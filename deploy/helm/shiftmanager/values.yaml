@@ -59,8 +59,9 @@ app:
     # wait for manual activation as usual. Roles of members who are already
     # active are managed in the app and not overwritten; deactivated members
     # are not re-admitted. Only use with an IdP you trust to assign roles.
-    # Examples:
-    #   contains(groups[*], 'sm-admin') && 'admin' || contains(groups[*], 'vorstand') && 'vorstand' || contains(groups[*], 'mitglieder') && 'mitglied'
+    # Default missing claims as in groups || `[]`: a function on an absent claim
+    # fails the whole expression. Examples:
+    #   contains(groups || `[]`, 'sm-admin') && 'admin' || contains(groups || `[]`, 'vorstand') && 'vorstand' || contains(groups || `[]`, 'mitglieder') && 'mitglied'
     #   resource_access.shiftmanager.roles[0]        (Keycloak client roles)
     roleAttributePath: ""
 

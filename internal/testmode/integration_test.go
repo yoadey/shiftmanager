@@ -270,7 +270,7 @@ func TestListMembers_PaginationAndStatus(t *testing.T) {
 	_, total = list("?status=pending")
 	assert.Equal(t, "0", total, "a deactivated member is not a pending registration")
 
-	for _, q := range []string{"?status=bogus", "?limit=-1", "?offset=-5"} {
+	for _, q := range []string{"?status=bogus", "?limit=-1", "?offset=-5", "?limit=all"} {
 		bad := get(t, s, "/api/v1/members"+q, tok)
 		assert.Equal(t, http.StatusBadRequest, bad.StatusCode, q)
 		bad.Body.Close()

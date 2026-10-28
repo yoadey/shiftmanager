@@ -207,7 +207,7 @@ func (h *AuthHandler) Callback(w http.ResponseWriter, r *http.Request) {
 		if isBootstrapAdmin && (member.Role != domain.RoleAdmin || !member.IsActive) {
 			before := *member
 			member.Role = domain.RoleAdmin
-			member.IsActive = true
+			member.Activate()
 			changed = true
 			_ = h.audit.WriteAudit(r, &member.ID, "member.bootstrap_admin", "member", member.ID.String(), before, *member)
 		} else if claims.Role != "" && member.IsPendingApproval() {

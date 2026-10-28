@@ -27,15 +27,16 @@ func NewMemberHandler(uc *usecase.MemberUsecase) *MemberHandler {
 // The total number of matches is returned in the X-Total-Count header.
 // GET /api/v1/members
 func (h *MemberHandler) List(w http.ResponseWriter, r *http.Request) {
-	filter := port.MemberFilter{
-		Limit:  parseIntQuery(r, "limit", 50),
-		Offset: parseIntQuery(r, "offset", 0),
-		Search: r.URL.Query().Get("search"),
-	}
-
-	if filter.Limit < 0 || filter.Offset < 0 {
-		writeError(w, http.StatusBadRequest, "limit and offset must not be negative")
+	limit, limitOK := parseNonNegativeIntQuery(r, "limit", 50)
+	offset, offsetOK := parseNonNegativeIntQuery(r, "offset", 0)
+	if !limitOK || !offsetOK {
+		writeError(w, http.StatusBadRequest, "limit and offset must be non-negative integers")
 		return
+	}
+	filter := port.MemberFilter{
+		Limit:  limit,
+		Offset: offset,
+		Search: r.URL.Query().Get("search"),
 	}
 	if active := r.URL.Query().Get("active"); active != "" {
 		b := active == "true"
@@ -231,6 +232,20 @@ func parseIntQuery(r *http.Request, key string, def int) int {
 		}
 	}
 	return def
+}
+
+// parseNonNegativeIntQuery reads an optional integer query parameter; ok is
+// false when it is present but not a non-negative integer.
+func parseNonNegativeIntQuery(r *http.Request, key string, def int) (int, bool) {
+	v := r.URL.Query().Get(key)
+	if v == "" {
+		return def, true
+	}
+	i, err := strconv.Atoi(v)
+	if err != nil || i < 0 {
+		return 0, false
+	}
+	return i, true
 }
 
 func writeError(w http.ResponseWriter, status int, msg string) {

@@ -74,7 +74,9 @@ func (r *MemberRepo) GetByOIDCSubject(ctx context.Context, provider, subject str
 func (r *MemberRepo) List(ctx context.Context, filter port.MemberFilter) ([]*domain.Member, error) {
 	q := applyMemberFilter(r.db.WithContext(ctx).Model(&MemberModel{}), filter)
 
-	q = q.Order("last_name, first_name")
+	// id breaks ties between equal names so OFFSET pages never overlap or
+	// skip rows (PostgreSQL does not keep the order of equal sort keys stable).
+	q = q.Order("last_name, first_name, id")
 
 	if filter.Limit > 0 {
 		q = q.Limit(filter.Limit)
