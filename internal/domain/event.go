@@ -134,8 +134,13 @@ type Registration struct {
 	Comment           string            `json:"comment"`
 	ReservedUntil     *time.Time        `json:"reservedUntil,omitempty"`
 	BookedHours       *float64          `json:"bookedHours,omitempty"`
-	ConfirmationToken *uuid.UUID        `json:"confirmationToken,omitempty"`
-	CreatedAt         time.Time         `json:"createdAt"`
+	// ConfirmationToken is only ever sent by e-mail and never serialised
+	// into an API response (DS-009).
+	ConfirmationToken *uuid.UUID `json:"-"`
+	CreatedAt         time.Time  `json:"createdAt"`
+	// DisplayName is the name to show for this registration to the current
+	// viewer; set when building a timeline, not persisted (SC-011).
+	DisplayName string `json:"displayName,omitempty"`
 }
 
 // IsExpired returns true when a reserved registration has passed its deadline.

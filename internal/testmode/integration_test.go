@@ -277,18 +277,176 @@ func TestListMembers_PaginationAndStatus(t *testing.T) {
 	}
 }
 
-// Pending self-registrations are visible to the board only (ML-013).
-func TestListMembers_PendingHiddenFromNonBoard(t *testing.T) {
+// Member data is for the board only; members see their own record (ML-010).
+func TestMemberData_BoardOnly(t *testing.T) {
 	s := startServer(t)
-	tok := token(t, s, "mitglied", db.MemberID.String(), "max@test.local")
+	member := token(t, s, "mitglied", db.MemberID.String(), "max@test.local")
+	leiter := token(t, s, "veranstaltungsleiter", uuid.NewString(), "leiter@test.local")
 
-	resp := get(t, s, "/api/v1/members?status=pending", tok)
+	for _, tok := range []string{member, leiter} {
+		for _, path := range []string{
+			"/api/v1/members",
+			"/api/v1/members?status=pending",
+			"/api/v1/members/export",
+			"/api/v1/members/" + db.AdminID.String(),
+		} {
+			resp := get(t, s, path, tok)
+			assert.Equal(t, http.StatusForbidden, resp.StatusCode, path)
+			resp.Body.Close()
+		}
+	}
+
+	resp := get(t, s, "/api/v1/members/"+db.MemberID.String(), member)
+	assert.Equal(t, http.StatusOK, resp.StatusCode, "own record")
+	resp.Body.Close()
+}
+
+// Organisers find helpers by name only (ML-014).
+func TestMemberLookup(t *testing.T) {
+	s := startServer(t)
+	leiter := token(t, s, "veranstaltungsleiter", uuid.NewString(), "leiter@test.local")
+
+	resp := get(t, s, "/api/v1/members/lookup?q=muster", leiter)
+	require.Equal(t, http.StatusOK, resp.StatusCode)
+	var hits []map[string]any
+	decode(t, resp, &hits)
+	require.Len(t, hits, 1)
+	assert.Equal(t, map[string]any{"id": db.MemberID.String(), "name": "Max Mustermann"}, hits[0])
+
+	resp = get(t, s, "/api/v1/members/lookup?q=m", leiter)
+	assert.Equal(t, http.StatusBadRequest, resp.StatusCode)
+	resp.Body.Close()
+
+	member := token(t, s, "mitglied", db.MemberID.String(), "max@test.local")
+	resp = get(t, s, "/api/v1/members/lookup?q=muster", member)
 	assert.Equal(t, http.StatusForbidden, resp.StatusCode)
 	resp.Body.Close()
+}
 
-	resp = get(t, s, "/api/v1/members", tok)
+// Other members' hour accounts are for the board only (SA-011).
+func TestHourAccounts_BoardOnly(t *testing.T) {
+	s := startServer(t)
+	member := token(t, s, "mitglied", db.MemberID.String(), "max@test.local")
+	leiter := token(t, s, "veranstaltungsleiter", uuid.NewString(), "leiter@test.local")
+	board := token(t, s, "vorstand", db.AdminID.String(), "admin@test.local")
+	year := db.ClubYearID.String()
+
+	for _, tok := range []string{member, leiter} {
+		for _, path := range []string{
+			"/api/v1/hours/" + db.AdminID.String(),
+			"/api/v1/hours/account?memberId=" + db.AdminID.String() + "&clubYearId=" + year,
+			"/api/v1/hours/summary?clubYearId=" + year,
+		} {
+			resp := get(t, s, path, tok)
+			assert.Equal(t, http.StatusForbidden, resp.StatusCode, path)
+			resp.Body.Close()
+		}
+	}
+
+	for _, c := range []struct{ tok, path string }{
+		{member, "/api/v1/hours/" + db.MemberID.String()},
+		{member, "/api/v1/hours/account?memberId=" + db.MemberID.String() + "&clubYearId=" + year},
+		{board, "/api/v1/hours/" + db.MemberID.String()},
+		{board, "/api/v1/hours/summary?clubYearId=" + year},
+	} {
+		resp := get(t, s, c.path, c.tok)
+		assert.Equal(t, http.StatusOK, resp.StatusCode, c.path)
+		resp.Body.Close()
+	}
+}
+
+// Members see only the names of other helpers on a shift (SC-011); the
+// confirmation token never leaves the server (DS-009).
+func TestTimeline_OnlyNamesOfOthers(t *testing.T) {
+	s := startServer(t)
+	shift := "/api/v1/shifts/" + db.Shift1ID.String()
+	member := token(t, s, "mitglied", db.MemberID.String(), "max@test.local")
+	resp := post(t, s, shift+"/register", member, `{"comment": "komme später"}`)
+	require.Equal(t, http.StatusCreated, resp.StatusCode)
+	var reg map[string]any
+	decode(t, resp, &reg)
+	assert.NotContains(t, reg, "confirmationToken")
+
+	leiter := token(t, s, "veranstaltungsleiter", db.AdminID.String(), "admin@test.local")
+	resp = post(t, s, shift+"/add-guest", leiter, `{"name": "Hans Gast", "email": "hans@example.org"}`)
+	require.Equal(t, http.StatusCreated, resp.StatusCode)
+	resp.Body.Close()
+
+	regsOf := func(path, tok string) []map[string]any {
+		t.Helper()
+		resp := get(t, s, path, tok)
+		require.Equal(t, http.StatusOK, resp.StatusCode, path)
+		var tl struct {
+			Days []struct {
+				Shifts []struct {
+					Shift         struct{ ID string }
+					Registrations []map[string]any
+				}
+			}
+		}
+		decode(t, resp, &tl)
+		for _, d := range tl.Days {
+			for _, sh := range d.Shifts {
+				if sh.Shift.ID == db.Shift1ID.String() {
+					return sh.Registrations
+				}
+			}
+		}
+		t.Fatalf("shift not in timeline %s", path)
+		return nil
+	}
+	byName := func(regs []map[string]any) map[string]map[string]any {
+		out := map[string]map[string]any{}
+		for _, r := range regs {
+			assert.NotContains(t, r, "confirmationToken")
+			out[r["displayName"].(string)] = r
+		}
+		return out
+	}
+	timeline := "/api/v1/events/" + db.EventID.String() + "/timeline"
+
+	// Another member: abbreviated names (NM-004 default), nothing else.
+	other := token(t, s, "mitglied", uuid.NewString(), "other@test.local")
+	seen := byName(regsOf(timeline, other))
+	require.Contains(t, seen, "Max M.")
+	require.Contains(t, seen, "Hans G.")
+	assert.Empty(t, seen["Max M."]["comment"])
+	assert.NotContains(t, seen["Hans G."], "guestEmail")
+
+	// Max sees his own registration in full.
+	seen = byName(regsOf(timeline, member))
+	assert.Equal(t, "komme später", seen["Max Mustermann"]["comment"])
+
+	// The organiser sees full names, comments and the guest's e-mail.
+	seen = byName(regsOf(timeline, leiter))
+	assert.Equal(t, "komme später", seen["Max Mustermann"]["comment"])
+	assert.Equal(t, "hans@example.org", seen["Hans Gast"]["guestEmail"])
+
+	// The anonymous kiosk gets names only.
+	seen = byName(regsOf("/api/v1/kiosk/events/"+db.EventID.String(), ""))
+	require.Contains(t, seen, "Max M.")
+	assert.Empty(t, seen["Max M."]["comment"])
+	assert.NotContains(t, seen["Hans G."], "guestEmail")
+}
+
+// The kiosk search answers only when enabled, with id and abbreviated name (K-002, K-003).
+func TestKioskMemberSearch(t *testing.T) {
+	s := startServer(t)
+	resp := get(t, s, "/api/v1/kiosk/members?q=max", "")
+	assert.Equal(t, http.StatusForbidden, resp.StatusCode, "search disabled by default")
+	resp.Body.Close()
+
+	board := token(t, s, "vorstand", db.AdminID.String(), "admin@test.local")
+	resp = put(t, s, "/api/v1/settings", board, `{"kioskSearch": true}`)
 	require.Equal(t, http.StatusOK, resp.StatusCode)
 	resp.Body.Close()
+
+	resp = get(t, s, "/api/v1/kiosk/members?q=max", "")
+	require.Equal(t, http.StatusOK, resp.StatusCode)
+	var hits []map[string]any
+	decode(t, resp, &hits)
+	require.Len(t, hits, 1)
+	assert.Equal(t, map[string]any{"id": db.MemberID.String(), "name": "Max M."}, hits[0])
 }
 
 func TestGetMember(t *testing.T) {
@@ -512,10 +670,9 @@ func TestGetMyHours_OpenFeeCents(t *testing.T) {
 	assert.Equal(t, float64(3250), account["openFeeCents"], "the board sees what a member owes")
 
 	other := token(t, s, "mitglied", uuid.NewString(), "other@test.local")
-	account = nil
-	decode(t, get(t, s, "/api/v1/hours/"+db.MemberID.String(), other), &account)
-	assert.NotContains(t, account, "openFeeCents", "other members must not see what someone owes")
-	assert.Equal(t, float64(5.5), account["confirmed"])
+	resp = get(t, s, "/api/v1/hours/"+db.MemberID.String(), other)
+	assert.Equal(t, http.StatusForbidden, resp.StatusCode, "other members must not see what someone owes")
+	resp.Body.Close()
 }
 
 func TestManualBooking(t *testing.T) {

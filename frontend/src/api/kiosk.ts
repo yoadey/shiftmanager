@@ -3,11 +3,10 @@ import { apiGet, apiPost } from './client';
 import type { Event, Member } from '@/types';
 import { flatToEvent, timelineToEvent, type RawEvent, type RawTimeline } from './mappers';
 
+/** The kiosk search returns only id and first name plus last initial (K-003). */
 interface RawKioskMember {
   id: string;
-  firstName?: string;
-  lastName?: string;
-  email?: string;
+  name?: string;
 }
 
 // ── Queries ────────────────────────────────────────────────────────────────
@@ -43,11 +42,13 @@ export function useKioskMemberSearch(query: string, enabled: boolean) {
     queryKey: ['kiosk', 'members', query],
     queryFn: async (): Promise<Member[]> => {
       const rows = await apiGet<RawKioskMember[]>(`/kiosk/members?q=${encodeURIComponent(query.trim())}`);
+      // The name already comes abbreviated ("Max M."); carry it as the first
+      // name so `${first} ${last}` renders it unchanged.
       return (Array.isArray(rows) ? rows : []).map((r) => ({
         id: r.id,
-        first: r.firstName ?? '',
-        last: r.lastName ?? '',
-        email: r.email ?? '',
+        first: r.name ?? '',
+        last: '',
+        email: '',
         since: '',
         goal: null,
       }));

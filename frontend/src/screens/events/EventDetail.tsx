@@ -1,4 +1,4 @@
-import { useRef, useState, lazy, Suspense } from 'react';
+import { useEffect, useRef, useState, lazy, Suspense } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { Icon } from '@/components/ui/Icon';
 import { Avatar } from '@/components/ui/Avatar';
@@ -39,14 +39,13 @@ import {
   useUploadEventHeaderImage,
   useDeleteEventHeaderImage,
 } from '@/api/events';
-import { useMembers } from '@/api/members';
+import { useMemberLookup } from '@/api/members';
 import { useSettings } from '@/api/settings';
 import { calcOccupancy } from '@/hooks/useOccupancy';
-import { useNameFormat } from '@/hooks/useNameFormat';
 import { useIsEventManager } from '@/hooks/useIsEventManager';
 import { LoadingState, ErrorState } from '@/components/ui/States';
 import { fmtDate, hrs, durH, catGradient } from '@/screens/_demo';
-import type { Event, Shift, Signup, Member, EventAttachment } from '@/types';
+import type { Event, Shift, Signup, EventAttachment } from '@/types';
 
 const dotColor: Record<string, string> = {
   ok: 'var(--ok)',
@@ -128,11 +127,10 @@ function TimePickerSheet({ hh, mm, dur, onSave, onClose }: {
 }
 
 function RegistrationRow({
-  s, shift, eventId, memberMap,
+  s, shift, eventId,
 }: {
-  s: Signup; shift: Shift; eventId: string; memberMap: Record<string, Member>;
+  s: Signup; shift: Shift; eventId: string;
 }) {
-  const formatName = useNameFormat();
   const { showToast } = useAppStore();
   const patch = usePatchRegistration();
   const forceDelete = useForceDeleteRegistration();
@@ -183,8 +181,8 @@ function RegistrationRow({
       { onError: () => showToast('Entfernen fehlgeschlagen.', 'crit') });
   };
 
-  const member = memberMap[s.memberId];
-  const displayName = s.guest ?? (member ? formatName(member, { viewerFull: true }) : '—');
+  // The timeline carries full names for organisers (SC-010).
+  const displayName = s.name ?? s.guest ?? '—';
   const bg = isNoShow
     ? 'color-mix(in srgb, var(--crit) 8%, var(--surface))'
     : isConfirmed
@@ -194,7 +192,7 @@ function RegistrationRow({
   return (
     <>
       <div style={{ display: 'flex', alignItems: 'center', gap: 5, padding: '6px 8px', borderRadius: 10, border: '1px solid var(--line)', background: bg }}>
-        <Avatar memberId={s.memberId} members={memberMap} size={24} />
+        <Avatar name={displayName} size={24} />
         <span style={{ fontSize: 12.5, fontWeight: 700, flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
           {displayName}
         </span>
@@ -242,12 +240,11 @@ function RegistrationRow({
 }
 
 function AddMemberSheet({
-  shift, eventId, members, onClose,
+  shift, eventId, onClose,
 }: {
-  shift: Shift; eventId: string; members: Member[]; onClose: () => void;
+  shift: Shift; eventId: string; onClose: () => void;
 }) {
   const { showToast } = useAppStore();
-  const formatName = useNameFormat();
   const addMember = useAddMemberToShift();
   const addGuest = useAddGuestToShift();
   const [mode, setMode] = useState<'member' | 'guest'>('member');
@@ -255,14 +252,17 @@ function AddMemberSheet({
   const [guestName, setGuestName] = useState('');
   const [guestEmail, setGuestEmail] = useState('');
 
+  // Organisers search by name only — they have no access to the member
+  // list (ML-014); the server returns active members, id and name.
+  const [query, setQuery] = useState('');
+  useEffect(() => {
+    const t = setTimeout(() => setQuery(search), 250);
+    return () => clearTimeout(t);
+  }, [search]);
+  const lookupQ = useMemberLookup(query);
   const existingIds = new Set(shift.signups.map((s) => s.memberId));
-  const filtered = members.filter((m) => {
-    if (existingIds.has(m.id)) return false;
-    if (m.active === false) return false;
-    const q = search.toLowerCase();
-    if (!q) return true;
-    return `${m.first} ${m.last}`.toLowerCase().includes(q) || m.email.toLowerCase().includes(q);
-  });
+  const searching = search.trim().length >= 2;
+  const filtered = searching ? (lookupQ.data ?? []).filter((m) => !existingIds.has(m.id)) : [];
 
   const add = (memberId: string) => {
     addMember.mutate({ shiftId: shift.id, memberId, eventId }, {
@@ -302,17 +302,18 @@ function AddMemberSheet({
           <div style={{ display: 'flex', flexDirection: 'column', gap: 6, marginTop: 4 }}>
             {filtered.length === 0 && (
               <span style={{ fontSize: 13, color: 'var(--muted)', fontWeight: 600, padding: '10px 0' }}>
-                {search ? 'Keine Mitglieder gefunden.' : 'Alle Mitglieder bereits eingetragen.'}
+                {!searching
+                  ? 'Mindestens zwei Buchstaben eingeben.'
+                  : lookupQ.isFetching || query !== search
+                    ? 'Suche…'
+                    : 'Keine Mitglieder gefunden.'}
               </span>
             )}
-            {filtered.slice(0, 50).map((m) => (
+            {filtered.map((m) => (
               <button key={m.id} onClick={() => add(m.id)} className="pressable"
                 style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '10px 12px', borderRadius: 12, border: '1px solid var(--line)', background: 'var(--surface)', cursor: 'pointer', fontFamily: 'inherit', textAlign: 'left', width: '100%' }}
               >
-                <div style={{ flex: 1, minWidth: 0 }}>
-                  <div style={{ fontWeight: 700, fontSize: 14 }}>{formatName(m, { viewerFull: true })}</div>
-                  <div style={{ fontSize: 12, color: 'var(--muted)', fontWeight: 600 }}>{m.email}</div>
-                </div>
+                <div style={{ flex: 1, minWidth: 0, fontWeight: 700, fontSize: 14 }}>{m.name}</div>
                 <Icon name="plus" size={16} stroke={2.4} color="var(--primary)" />
               </button>
             ))}
@@ -340,7 +341,7 @@ function AddMemberSheet({
   );
 }
 
-function ShiftRow({ sh, eventId, ev, onDeregister, memberMap }: { sh: Shift; eventId: string; ev: Event; onDeregister: () => void; memberMap: Record<string, Member> }) {
+function ShiftRow({ sh, eventId, ev, onDeregister }: { sh: Shift; eventId: string; ev: Event; onDeregister: () => void }) {
   const { user } = useAuthStore();
   // Organizer controls here (registrant list, add/remove helper) map to the
   // backend's shift-management endpoints, which are veranstaltungsleiter+.
@@ -348,6 +349,11 @@ function ShiftRow({ sh, eventId, ev, onDeregister, memberMap }: { sh: Shift; eve
   const uid = user?.id ?? '';
   const o = calcOccupancy(sh);
   const mine = sh.signups.find((s) => s.memberId === uid && (s.status === 'angemeldet' || s.status === 'reserviert'));
+  // Members see who else helps in this shift — names only, as the server
+  // resolved them for this viewer (SC-011).
+  const helperNames = sh.signups
+    .filter((s) => s.status === 'angemeldet' || s.status === 'bestätigt' || s.status === 'reserviert')
+    .map((s) => (s.memberId === uid ? 'Du' : s.name ?? 'Gast') + (s.status === 'reserviert' ? ' (reserviert)' : ''));
   const navigate = useNavigate();
   const params = useParams();
   const rest = params['*'] ?? '';
@@ -395,6 +401,13 @@ function ShiftRow({ sh, eventId, ev, onDeregister, memberMap }: { sh: Shift; eve
           </div>
         )}
 
+        {!isBoard && helperNames.length > 0 && (
+          <div data-testid="helper-names" style={{ marginTop: 9, display: 'flex', alignItems: 'flex-start', gap: 6, fontSize: 12.5, fontWeight: 600, color: 'var(--ink-2)' }}>
+            <Icon name="users" size={14} stroke={2.2} color="var(--muted)" />
+            <span>{helperNames.join(', ')}</span>
+          </div>
+        )}
+
         {mine && mine.comment && (
           <div style={{ marginTop: 9, fontSize: 12.5, color: 'var(--ink-2)', background: 'var(--surface-2)', padding: '8px 10px', borderRadius: 10, fontWeight: 600 }}>
             <b>Dein Hinweis:</b> {mine.comment}
@@ -419,7 +432,6 @@ function ShiftRow({ sh, eventId, ev, onDeregister, memberMap }: { sh: Shift; eve
                     s={s}
                     shift={sh}
                     eventId={eventId}
-                    memberMap={memberMap}
                   />
                 ))}
                 <Button variant="soft" size="sm" icon="plus" onClick={() => navigate(routes.eventHelfer(eventId, sh.id))}>Helfer hinzufügen</Button>
@@ -445,7 +457,6 @@ function ShiftRow({ sh, eventId, ev, onDeregister, memberMap }: { sh: Shift; eve
       <AddMemberSheet
         shift={sh}
         eventId={eventId}
-        members={Object.values(memberMap)}
         onClose={closeModal}
       />
     )}
@@ -1091,12 +1102,6 @@ export function EventDetail() {
   const eventQ = useEvent(id);
   const timelineQ = useEventTimeline(id);
   const { data: settings } = useSettings();
-  // Member names are only needed in the board view (otherwise spare the request).
-  const { data: members } = useMembers(isBoard);
-  const memberMap: Record<string, Member> = (members ?? []).reduce(
-    (acc, m) => { acc[m.id] = m; return acc; },
-    {} as Record<string, Member>,
-  );
 
   const deregisterDeadlineH = settings?.deregisterDeadlineH ?? 24;
 
@@ -1217,7 +1222,6 @@ export function EventDetail() {
                   sh={sh}
                   eventId={id}
                   ev={ev}
-                  memberMap={memberMap}
                   onDeregister={() => setConfirmOff(sh)}
                 />
               ))}

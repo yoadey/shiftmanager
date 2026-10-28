@@ -173,7 +173,12 @@ components:
         id:       { $ref: '#/components/schemas/UUID' }
         memberId: { $ref: '#/components/schemas/UUID' }
         state:    { type: string }
-        comment:  { type: string }
+        comment:  { type: string, description: "Empty on other people's signups below Veranstaltungsleiter" }
+        displayName:
+          type: string
+          description: >-
+            Name to show for this signup to the caller, per name mode (full for
+            Veranstaltungsleiter+ and for the caller's own signup).
 
     ShiftDay:
       type: object
@@ -262,6 +267,13 @@ components:
         eventName:   { type: string }
         shiftName:   { type: string }
 
+    MemberName:
+      type: object
+      required: [id, name]
+      properties:
+        id:   { $ref: '#/components/schemas/UUID' }
+        name: { type: string }
+
     MemberHourAccount:
       type: object
       required: [confirmed, reserved, goal, entries]
@@ -274,8 +286,7 @@ components:
           type: integer
           description: >-
             Compensation fee in euro cents due if the member works no further
-            hours this club year. Omitted when no fee tiers are configured, and
-            on another member's account unless the caller is Vorstand/Admin.
+            hours this club year. Omitted when no fee tiers are configured.
         entries:
           type: array
           items: { $ref: '#/components/schemas/HourEntry' }
@@ -560,7 +571,7 @@ paths:
     get:
       operationId: listMembers
       tags: [members]
-      summary: List members (paginated, sorted by last/first name)
+      summary: List members (paginated, sorted by last/first name; Vorstand+)
       parameters:
         - name: search
           in: query
@@ -642,7 +653,7 @@ paths:
     get:
       operationId: exportMembers
       tags: [members]
-      summary: Export members as CSV
+      summary: Export members as CSV (Vorstand+)
       responses:
         "200":
           description: CSV file
@@ -650,6 +661,24 @@ paths:
             text/csv:
               schema: { type: string, format: binary }
         "401": { $ref: '#/components/responses/Unauthorized' }
+        "403": { $ref: '#/components/responses/Forbidden' }
+
+  /members/lookup:
+    get:
+      operationId: lookupMembers
+      tags: [members]
+      summary: Search active members by name or e-mail for helper assignment (Veranstaltungsleiter+); returns id and full name only
+      parameters:
+        - { name: q, in: query, required: true, schema: { type: string, minLength: 2 } }
+      responses:
+        "200":
+          description: Up to 20 matching members
+          content:
+            application/json:
+              schema: { type: array, items: { $ref: '#/components/schemas/MemberName' } }
+        "400": { $ref: '#/components/responses/BadRequest' }
+        "401": { $ref: '#/components/responses/Unauthorized' }
+        "403": { $ref: '#/components/responses/Forbidden' }
 
   /members/me/preferences:
     put:
@@ -675,7 +704,7 @@ paths:
     get:
       operationId: getMember
       tags: [members]
-      summary: Get a single member
+      summary: Get a single member (own record, or any for Vorstand+)
       responses:
         "200":
           description: Member
@@ -683,6 +712,7 @@ paths:
             application/json:
               schema: { $ref: '#/components/schemas/Member' }
         "401": { $ref: '#/components/responses/Unauthorized' }
+        "403": { $ref: '#/components/responses/Forbidden' }
         "404": { $ref: '#/components/responses/NotFound' }
     put:
       operationId: updateMember
@@ -1111,7 +1141,7 @@ paths:
     get:
       operationId: getMemberAccount
       tags: [hours]
-      summary: Get a member's hour account by memberId+clubYearId query params
+      summary: Get a member's hour account by memberId+clubYearId query params (own account, or any for Vorstand+)
       parameters:
         - { name: memberId, in: query, required: true, schema: { $ref: '#/components/schemas/UUID' } }
         - { name: clubYearId, in: query, required: true, schema: { $ref: '#/components/schemas/UUID' } }
@@ -1122,6 +1152,7 @@ paths:
             application/json:
               schema: { $ref: '#/components/schemas/MemberHourAccount' }
         "401": { $ref: '#/components/responses/Unauthorized' }
+        "403": { $ref: '#/components/responses/Forbidden' }
 
   /hours/confirm:
     post:
@@ -1146,7 +1177,7 @@ paths:
     get:
       operationId: getYearSummary
       tags: [hours]
-      summary: Year-end hour summary for all members (Veranstaltungsleiter+)
+      summary: Year-end hour summary for all members (Vorstand+)
       parameters:
         - { name: clubYearId, in: query, required: true, schema: { $ref: '#/components/schemas/UUID' } }
       responses:
@@ -1183,7 +1214,7 @@ paths:
     get:
       operationId: getMemberHours
       tags: [hours]
-      summary: Get any member's hour account (active club year)
+      summary: Get a member's hour account for the active club year (own account, or any for Vorstand+)
       responses:
         "200":
           description: Hour account with entries
@@ -1191,6 +1222,7 @@ paths:
             application/json:
               schema: { $ref: '#/components/schemas/MemberHourAccount' }
         "401": { $ref: '#/components/responses/Unauthorized' }
+        "403": { $ref: '#/components/responses/Forbidden' }
 
   /hours/{id}:
     parameters:
@@ -1575,7 +1607,7 @@ paths:
     get:
       operationId: searchKioskMembers
       tags: [kiosk]
-      summary: Search active members by name (no auth, kioskSearch must be enabled)
+      summary: Search active members by name (no auth, kioskSearch must be enabled); returns id and first name plus last initial only
       security: []
       parameters:
         - { name: q, in: query, required: true, schema: { type: string, minLength: 2 } }
@@ -1584,9 +1616,9 @@ paths:
           description: Matching members
           content:
             application/json:
-              schema: { type: array, items: { $ref: '#/components/schemas/Member' } }
+              schema: { type: array, items: { $ref: '#/components/schemas/MemberName' } }
         "400": { $ref: '#/components/responses/BadRequest' }
-        "403": { description: Kiosk locked }
+        "403": { description: Kiosk locked or member search disabled }
 
   /kiosk/shifts/{id}/register:
     parameters:

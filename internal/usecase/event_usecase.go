@@ -20,6 +20,7 @@ type EventUsecase struct {
 	email         port.EmailService
 	members       port.MemberRepository
 	attachments   port.EventAttachmentRepository
+	settings      port.SettingsRepository // name mode for timeline names (SC-011)
 }
 
 // NewEventUsecase creates a new EventUsecase.
@@ -31,6 +32,7 @@ func NewEventUsecase(
 	emailSvc port.EmailService,
 	members port.MemberRepository,
 	attachments port.EventAttachmentRepository,
+	settings port.SettingsRepository,
 ) *EventUsecase {
 	return &EventUsecase{
 		events:        events,
@@ -40,6 +42,7 @@ func NewEventUsecase(
 		email:         emailSvc,
 		members:       members,
 		attachments:   attachments,
+		settings:      settings,
 	}
 }
 
@@ -478,6 +481,82 @@ func (uc *EventUsecase) GetEventTimeline(ctx context.Context, eventID uuid.UUID)
 	}
 
 	return &domain.EventTimeline{Event: *event, Days: days}, nil
+}
+
+// TimelineViewer identifies who looks at a timeline. The zero value is an
+// anonymous kiosk visitor.
+type TimelineViewer struct {
+	ID   uuid.UUID
+	Role string
+}
+
+// GetEventTimelineFor returns the timeline as viewer may see it (SC-011):
+// every registration carries the name to show, and below the
+// Veranstaltungsleiter role other people's registrations are reduced to that
+// name — no guest e-mail, comment, booked hours or reservation deadline.
+func (uc *EventUsecase) GetEventTimelineFor(ctx context.Context, eventID uuid.UUID, viewer TimelineViewer) (*domain.EventTimeline, error) {
+	tl, err := uc.GetEventTimeline(ctx, eventID)
+	if err != nil {
+		return nil, err
+	}
+
+	mode := domain.NameModeAbbrev // NM-004 default
+	if uc.settings != nil {
+		if v, err := uc.settings.GetSetting(ctx, domain.SettingKeyNameMode); err == nil && v != "" {
+			mode = domain.NameMode(v)
+		}
+	}
+	// Organisers see full names in the helper list (SC-010) and everything
+	// they need to manage it (SA-009).
+	organiser := domain.HasRole(viewer.Role, domain.RoleVeranstaltungsleiter)
+
+	members := make(map[uuid.UUID]*domain.Member)
+	memberName := func(id uuid.UUID) string {
+		m, ok := members[id]
+		if !ok {
+			m, _ = uc.members.GetByID(ctx, id)
+			members[id] = m
+		}
+		switch {
+		case m == nil:
+			return ""
+		case organiser:
+			return m.FullName()
+		default:
+			return m.DisplayNameFor(mode, viewer.ID, viewer.Role)
+		}
+	}
+
+	for i := range tl.Days {
+		for j := range tl.Days[i].Shifts {
+			regs := tl.Days[i].Shifts[j].Registrations
+			for k := range regs {
+				r := &regs[k]
+				switch {
+				case r.MemberID != nil:
+					r.DisplayName = memberName(*r.MemberID)
+				case r.GuestName != nil:
+					r.DisplayName = *r.GuestName
+					if !organiser && mode == domain.NameModeAbbrev {
+						r.DisplayName = domain.AbbreviateName(*r.GuestName)
+					}
+				case organiser && r.GuestEmail != nil:
+					r.DisplayName = *r.GuestEmail
+				default:
+					r.DisplayName = "Gast"
+				}
+
+				own := viewer.ID != uuid.Nil && r.MemberID != nil && *r.MemberID == viewer.ID
+				if !organiser && !own {
+					r.GuestEmail = nil
+					r.Comment = ""
+					r.BookedHours = nil
+					r.ReservedUntil = nil
+				}
+			}
+		}
+	}
+	return tl, nil
 }
 
 // computeOccupancy calculates occupancy stats for a shift.

@@ -145,7 +145,14 @@ export type Signup = {
   id: Uuid;
   memberId: Uuid;
   state: string;
+  /**
+   * Empty on other people's signups below Veranstaltungsleiter
+   */
   comment?: string;
+  /**
+   * Name to show for this signup to the caller, per name mode (full for Veranstaltungsleiter+ and for the caller's own signup).
+   */
+  displayName?: string;
 };
 
 export type ShiftDay = {
@@ -212,13 +219,18 @@ export type HourEntry = {
   shiftName?: string;
 };
 
+export type MemberName = {
+  id: Uuid;
+  name: string;
+};
+
 export type MemberHourAccount = {
   confirmed: number;
   reserved: number;
   goal: number;
   clubYearLabel?: string;
   /**
-   * Compensation fee in euro cents due if the member works no further hours this club year. Omitted when no fee tiers are configured, and on another member's account unless the caller is Vorstand/Admin.
+   * Compensation fee in euro cents due if the member works no further hours this club year. Omitted when no fee tiers are configured.
    */
   openFeeCents?: number;
   entries: Array<HourEntry>;
@@ -608,6 +620,10 @@ export type ExportMembersErrors = {
    * Missing or invalid JWT
    */
   401: ErrorResponse;
+  /**
+   * Insufficient role
+   */
+  403: ErrorResponse;
 };
 
 export type ExportMembersError = ExportMembersErrors[keyof ExportMembersErrors];
@@ -621,6 +637,42 @@ export type ExportMembersResponses = {
 
 export type ExportMembersResponse =
   ExportMembersResponses[keyof ExportMembersResponses];
+
+export type LookupMembersData = {
+  body?: never;
+  path?: never;
+  query: {
+    q: string;
+  };
+  url: "/members/lookup";
+};
+
+export type LookupMembersErrors = {
+  /**
+   * Invalid request
+   */
+  400: ErrorResponse;
+  /**
+   * Missing or invalid JWT
+   */
+  401: ErrorResponse;
+  /**
+   * Insufficient role
+   */
+  403: ErrorResponse;
+};
+
+export type LookupMembersError = LookupMembersErrors[keyof LookupMembersErrors];
+
+export type LookupMembersResponses = {
+  /**
+   * Up to 20 matching members
+   */
+  200: Array<MemberName>;
+};
+
+export type LookupMembersResponse =
+  LookupMembersResponses[keyof LookupMembersResponses];
 
 export type UpdateMyPreferencesData = {
   body: MemberPreferences;
@@ -696,6 +748,10 @@ export type GetMemberErrors = {
    * Missing or invalid JWT
    */
   401: ErrorResponse;
+  /**
+   * Insufficient role
+   */
+  403: ErrorResponse;
   /**
    * Resource not found
    */
@@ -1523,6 +1579,10 @@ export type GetMemberAccountErrors = {
    * Missing or invalid JWT
    */
   401: ErrorResponse;
+  /**
+   * Insufficient role
+   */
+  403: ErrorResponse;
 };
 
 export type GetMemberAccountError =
@@ -1648,6 +1708,10 @@ export type GetMemberHoursErrors = {
    * Missing or invalid JWT
    */
   401: ErrorResponse;
+  /**
+   * Insufficient role
+   */
+  403: ErrorResponse;
 };
 
 export type GetMemberHoursError =
@@ -2392,7 +2456,7 @@ export type SearchKioskMembersErrors = {
    */
   400: ErrorResponse;
   /**
-   * Kiosk locked
+   * Kiosk locked or member search disabled
    */
   403: unknown;
 };
@@ -2404,7 +2468,7 @@ export type SearchKioskMembersResponses = {
   /**
    * Matching members
    */
-  200: Array<Member>;
+  200: Array<MemberName>;
 };
 
 export type SearchKioskMembersResponse =

@@ -75,6 +75,7 @@ export interface Signup {
   comment?: string;
   hours?: number;
   guest?: string;
+  name?: string;    // name to show, resolved by the server for the viewer
 }
 
 // Shift uses short HH:MM strings for display; api/events.ts maps from ISO datetimes

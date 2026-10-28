@@ -20,7 +20,7 @@ func newEventUC() (*EventUsecase, *fakeEventRepo, *fakeShiftRepo, *fakeRegistrat
 	members := newFakeMemberRepo()
 	attachments := newFakeEventAttachmentRepo()
 	email := &fakeEmailService{}
-	return NewEventUsecase(events, shifts, regs, audit, email, members, attachments), events, shifts, regs, audit, members, attachments
+	return NewEventUsecase(events, shifts, regs, audit, email, members, attachments, newFakeSettingsRepo()), events, shifts, regs, audit, members, attachments
 }
 
 func TestCreateEvent(t *testing.T) {

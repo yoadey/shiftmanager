@@ -17,19 +17,30 @@ sein, außerhalb der Auth-Guard.
 ### Requirement: Konfigurierbare Mitgliedersuche (K-002)
 Der Admin MUST konfigurieren können, ob im Kiosk-Modus eine
 Mitgliedersuche erlaubt ist oder ausschließlich die E-Mail-Eingabe
-verwendet wird.
+verwendet wird. Ist die Suche deaktiviert, MUST
+`GET /api/v1/kiosk/members` mit 403 antworten.
 
 #### Scenario: Suche deaktiviert
 - **WHEN** die Mitgliedersuche deaktiviert ist
 - **THEN** bietet der Kiosk ausschließlich eine E-Mail-Eingabe an (siehe K-004)
 
+#### Scenario: Suchanfrage trotz deaktivierter Suche
+- **WHEN** die Mitgliedersuche deaktiviert ist und `GET /api/v1/kiosk/members?q=max` aufgerufen wird
+- **THEN** antwortet das System mit 403 und liefert keine Namen
+
 ### Requirement: Suchergebnis-Format (K-003)
 Ist die Suche aktiviert, MUST sie über Name oder Mitgliedsnummer erfolgen
-und nur Vorname plus abgekürzten Nachnamen anzeigen.
+und nur Vorname plus abgekürzten Nachnamen anzeigen. Die Antwort
+(`GET /api/v1/kiosk/members`) MUST je Treffer ausschließlich ID und
+diesen Namen enthalten.
 
 #### Scenario: Suchergebnis anzeigen
 - **WHEN** ein Kiosk-Nutzer nach einem Namen sucht
 - **THEN** zeigt das System Treffer nur mit Vorname und abgekürztem Nachnamen (NM-002-Format)
+
+#### Scenario: Keine weiteren Mitgliederdaten
+- **WHEN** `GET /api/v1/kiosk/members?q=max` aufgerufen wird
+- **THEN** enthält die Antwort je Treffer nur `id` und `name`, insbesondere keine E-Mail-Adresse
 
 ### Requirement: E-Mail-Eingabe bei deaktivierter Suche (K-004)
 Bei deaktivierter Suche MUST der Kiosk ausschließlich eine

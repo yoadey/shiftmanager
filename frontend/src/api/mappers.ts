@@ -51,6 +51,7 @@ interface RawRegistration {
   state?: string;
   comment?: string;
   bookedHours?: number | null;
+  displayName?: string;
 }
 
 interface RawShiftWithDetails {
@@ -106,6 +107,8 @@ function toSignup(r: RawRegistration): Signup {
     // guest registration only ever has an email (guestEmail) — prefer the
     // name when both would somehow be present.
     guest: r.guestName ?? r.guestEmail ?? undefined,
+    // Server-resolved name for the current viewer (name mode, SC-011).
+    name: r.displayName || undefined,
   };
 }
 

@@ -122,6 +122,23 @@ export function usePendingMembers(enabled = true) {
   });
 }
 
+export interface MemberName {
+  id: string;
+  name: string;
+}
+
+/** Name-only member search for assigning helpers (Veranstaltungsleiter+,
+ * ML-014); runs once the query has at least two characters. */
+export function useMemberLookup(query: string) {
+  const q = query.trim();
+  return useQuery({
+    queryKey: ['members', 'lookup', q],
+    queryFn: () => apiGet<MemberName[]>('/members/lookup', { params: { q } }),
+    enabled: q.length >= 2,
+    placeholderData: keepPreviousData,
+  });
+}
+
 export function useMember(id: string) {
   return useQuery({
     queryKey: ['members', id],

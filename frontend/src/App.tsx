@@ -125,7 +125,7 @@ export function ScreenRoutes() {
           helper, …) are still gated on isBoard inside EventDetail itself. */}
       <Route path="events/:id/*" element={<EventDetail />} />
 
-      <Route path="stunden-buchen" element={<RequireRole allowed={isEventManager}><ManualBookingRoute /></RequireRole>} />
+      <Route path="stunden-buchen" element={<RequireRole allowed={isVorstand}><ManualBookingRoute /></RequireRole>} />
 
       <Route path="mitglieder" element={<RequireRole allowed={isVorstand}><AdminMembers /></RequireRole>} />
       <Route path="mitglieder/neu" element={<RequireRole allowed={isVorstand}><AdminMembers /></RequireRole>} />

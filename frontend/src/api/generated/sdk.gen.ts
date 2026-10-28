@@ -150,6 +150,9 @@ import type {
   LogoutData,
   LogoutErrors,
   LogoutResponses,
+  LookupMembersData,
+  LookupMembersErrors,
+  LookupMembersResponses,
   ManualBookingData,
   ManualBookingErrors,
   ManualBookingResponses,
@@ -301,7 +304,7 @@ export const logout = <ThrowOnError extends boolean = false>(
   );
 
 /**
- * List members (paginated, sorted by last/first name)
+ * List members (paginated, sorted by last/first name; Vorstand+)
  */
 export const listMembers = <ThrowOnError extends boolean = false>(
   options?: Options<ListMembersData, ThrowOnError>,
@@ -358,7 +361,7 @@ export const importMembers = <ThrowOnError extends boolean = false>(
   });
 
 /**
- * Export members as CSV
+ * Export members as CSV (Vorstand+)
  */
 export const exportMembers = <ThrowOnError extends boolean = false>(
   options?: Options<ExportMembersData, ThrowOnError>,
@@ -370,6 +373,22 @@ export const exportMembers = <ThrowOnError extends boolean = false>(
   >({
     security: [{ scheme: "bearer", type: "http" }],
     url: "/members/export",
+    ...options,
+  });
+
+/**
+ * Search active members by name or e-mail for helper assignment (Veranstaltungsleiter+); returns id and full name only
+ */
+export const lookupMembers = <ThrowOnError extends boolean = false>(
+  options: Options<LookupMembersData, ThrowOnError>,
+) =>
+  (options.client ?? client).get<
+    LookupMembersResponses,
+    LookupMembersErrors,
+    ThrowOnError
+  >({
+    security: [{ scheme: "bearer", type: "http" }],
+    url: "/members/lookup",
     ...options,
   });
 
@@ -410,7 +429,7 @@ export const deactivateMember = <ThrowOnError extends boolean = false>(
   });
 
 /**
- * Get a single member
+ * Get a single member (own record, or any for Vorstand+)
  */
 export const getMember = <ThrowOnError extends boolean = false>(
   options: Options<GetMemberData, ThrowOnError>,
@@ -840,7 +859,7 @@ export const getMyHours = <ThrowOnError extends boolean = false>(
   });
 
 /**
- * Get a member's hour account by memberId+clubYearId query params
+ * Get a member's hour account by memberId+clubYearId query params (own account, or any for Vorstand+)
  */
 export const getMemberAccount = <ThrowOnError extends boolean = false>(
   options: Options<GetMemberAccountData, ThrowOnError>,
@@ -876,7 +895,7 @@ export const confirmShiftHours = <ThrowOnError extends boolean = false>(
   });
 
 /**
- * Year-end hour summary for all members (Veranstaltungsleiter+)
+ * Year-end hour summary for all members (Vorstand+)
  */
 export const getYearSummary = <ThrowOnError extends boolean = false>(
   options: Options<GetYearSummaryData, ThrowOnError>,
@@ -912,7 +931,7 @@ export const manualBooking = <ThrowOnError extends boolean = false>(
   });
 
 /**
- * Get any member's hour account (active club year)
+ * Get a member's hour account for the active club year (own account, or any for Vorstand+)
  */
 export const getMemberHours = <ThrowOnError extends boolean = false>(
   options: Options<GetMemberHoursData, ThrowOnError>,
@@ -1312,7 +1331,7 @@ export const getKioskEventTimeline = <ThrowOnError extends boolean = false>(
   >({ url: "/kiosk/events/{id}", ...options });
 
 /**
- * Search active members by name (no auth, kioskSearch must be enabled)
+ * Search active members by name (no auth, kioskSearch must be enabled); returns id and first name plus last initial only
  */
 export const searchKioskMembers = <ThrowOnError extends boolean = false>(
   options: Options<SearchKioskMembersData, ThrowOnError>,

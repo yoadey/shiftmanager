@@ -87,7 +87,7 @@ export function KioskPage() {
 
   const submit = (member?: Member) => {
     if (!shift) return;
-    const who = member ? `${member.first} ${member.last}` : email.trim();
+    const who = member ? `${member.first} ${member.last}`.trim() : email.trim();
     register.mutate(
       member ? { shiftId: shift.id, memberId: member.id } : { shiftId: shift.id, email: email.trim() },
       {
@@ -209,7 +209,7 @@ export function KioskPage() {
                       onClick={() => submit(m)}
                       style={{ textAlign: 'left', cursor: 'pointer', border: '1px solid var(--line)', borderRadius: 'var(--radius-sm)', background: 'var(--surface)', padding: 16, display: 'flex', alignItems: 'center', gap: 12, fontFamily: 'inherit' }}
                     >
-                      <div style={{ flex: 1, fontWeight: 700, fontSize: 16 }}>{m.first} {m.last}</div>
+                      <div style={{ flex: 1, fontWeight: 700, fontSize: 16 }}>{`${m.first} ${m.last}`.trim()}</div>
                       <Icon name="arrowR" size={22} stroke={2.2} />
                     </button>
                   ))}

@@ -23,7 +23,7 @@ const fixtureEvent: Event = {
       shifts: [
         {
           id: 's1', name: 'Aufbau', start: '14:00', end: '18:00', min: 2, max: 5,
-          signups: [{ id: 'reg1', memberId: 'm1', status: 'angemeldet' }],
+          signups: [{ id: 'reg1', memberId: 'm1', status: 'angemeldet', name: 'Max M.' }],
         },
       ],
     },
@@ -55,8 +55,12 @@ vi.mock('@/api/shifts', () => ({
   useAddGuestToShift: () => ({ mutate: vi.fn() }),
 }));
 
+const lookupCalls: string[] = [];
 vi.mock('@/api/members', () => ({
-  useMembers: () => ({ data: [] }),
+  useMemberLookup: (q: string) => {
+    lookupCalls.push(q);
+    return { data: q.length >= 2 ? [{ id: 'm1', name: 'Max Mustermann' }, { id: 'm2', name: 'Maria Musterfrau' }] : undefined, isFetching: false };
+  },
 }));
 
 vi.mock('@/api/settings', () => ({
@@ -117,6 +121,35 @@ describe('EventDetail board-only sheets via direct URL', () => {
     // since this deep link needs it open — see ShiftRow's `open` state) and
     // the sheet's title.
     expect((await screen.findAllByText('Helfer hinzufügen')).length).toBe(2);
+  });
+});
+
+// Members see only the helpers' names per shift (SC-011); organisers search
+// helpers by name instead of loading the member list (ML-014).
+describe('EventDetail helper names', () => {
+  it('shows a plain member the names of the helpers in each shift', async () => {
+    setRole('mitglied');
+    renderAt('/events/e1');
+    expect(await screen.findByTestId('helper-names')).toHaveTextContent('Max M.');
+  });
+
+  it('shows the organiser the name from the timeline in the registrant list', async () => {
+    setRole('veranstaltungsleiter');
+    renderAt('/events/e1');
+    fireEvent.click(await screen.findByText(/eingetragen/));
+    expect(await screen.findByText('Max M.')).toBeInTheDocument();
+    expect(screen.queryByTestId('helper-names')).not.toBeInTheDocument();
+  });
+
+  it('searches helpers by name and hides those already in the shift', async () => {
+    setRole('veranstaltungsleiter');
+    lookupCalls.length = 0;
+    renderAt('/events/e1/helfer/s1');
+    expect(await screen.findByText('Mindestens zwei Buchstaben eingeben.')).toBeInTheDocument();
+    fireEvent.change(screen.getByPlaceholderText('Name oder E-Mail…'), { target: { value: 'mus' } });
+    expect(await screen.findByText('Maria Musterfrau')).toBeInTheDocument();
+    expect(screen.queryByText('Max Mustermann')).not.toBeInTheDocument();
+    expect(lookupCalls).toContain('mus');
   });
 });
 

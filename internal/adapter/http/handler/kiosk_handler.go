@@ -47,7 +47,8 @@ func (h *KioskHandler) PublicTimeline(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	timeline, err := h.eventUC.GetEventTimeline(r.Context(), id)
+	// Anonymous viewer: names only, per name mode (SC-011).
+	timeline, err := h.eventUC.GetEventTimelineFor(r.Context(), id, usecase.TimelineViewer{})
 	if err != nil {
 		writeError(w, http.StatusNotFound, "event not found")
 		return
@@ -133,6 +134,14 @@ func (h *KioskHandler) SearchMembers(w http.ResponseWriter, r *http.Request) {
 	if h.locked(w, r) {
 		return
 	}
+	// With the search switched off the kiosk only takes e-mail addresses
+	// (K-002, K-004); don't answer name queries behind the UI's back.
+	if h.settingsUC != nil {
+		if st, err := h.settingsUC.GetSettings(r.Context()); err != nil || !st.KioskSearch {
+			writeError(w, http.StatusForbidden, "kiosk member search is disabled")
+			return
+		}
+	}
 	q := strings.TrimSpace(r.URL.Query().Get("q"))
 	if len(q) < 2 {
 		writeError(w, http.StatusBadRequest, "query must be at least 2 characters")
@@ -144,7 +153,12 @@ func (h *KioskHandler) SearchMembers(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
-	writeJSON(w, http.StatusOK, members)
+	// The kiosk is unauthenticated: only id and first name plus initial (K-003).
+	out := make([]domain.MemberName, 0, len(members))
+	for _, m := range members {
+		out = append(out, domain.MemberName{ID: m.ID, Name: m.Abbreviate()})
+	}
+	writeJSON(w, http.StatusOK, out)
 }
 
 // Confirm validates a one-time confirmation token from a kiosk email.

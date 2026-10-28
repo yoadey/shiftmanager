@@ -156,8 +156,8 @@ func NewRouter(h Handlers, cfg RouterConfig) http.Handler {
 
 			// Members (board+ for write operations).
 			auth.Route("/members", func(m chi.Router) {
-				m.Get("/", h.Member.List)
-				m.Get("/export", h.Member.Export)
+				// Name-only search for assigning helpers to shifts (ML-014).
+				m.With(middleware.RequireRole(domain.RoleVeranstaltungsleiter)).Get("/lookup", h.Member.Lookup)
 				// Member self-service preferences (N-001).
 				if h.Privacy != nil {
 					m.Put("/me/preferences", h.Privacy.UpdatePreferences)
@@ -165,9 +165,12 @@ func NewRouter(h Handlers, cfg RouterConfig) http.Handler {
 					// (the handler enforces ownership / role).
 					m.Get("/{id}/export-data", h.Privacy.ExportData)
 				}
+				// Own record for everyone; other members for the board only (ML-010).
 				m.Get("/{id}", h.Member.Get)
 				m.Group(func(w chi.Router) {
 					w.Use(middleware.RequireRole(domain.RoleVorstand))
+					w.Get("/", h.Member.List)
+					w.Get("/export", h.Member.Export)
 					w.Post("/", h.Member.Create)
 					w.Post("/import", h.Member.Import)
 					w.Put("/{id}", h.Member.Update)
@@ -233,13 +236,11 @@ func NewRouter(h Handlers, cfg RouterConfig) http.Handler {
 			// Hours.
 			auth.Route("/hours", func(hr chi.Router) {
 				hr.Get("/me", h.Hour.GetMyAccount)
+				// Own account for everyone; other members' for the board only (SA-011).
 				hr.Get("/account", h.Hour.GetMemberAccount)
 				hr.Get("/club-years", h.Hour.ListClubYears)
-				hr.Group(func(w chi.Router) {
-					w.Use(middleware.RequireRole(domain.RoleVeranstaltungsleiter))
-					w.Post("/confirm", h.Hour.ConfirmShiftHours)
-					w.Get("/summary", h.Hour.GetYearSummary)
-				})
+				hr.With(middleware.RequireRole(domain.RoleVeranstaltungsleiter)).Post("/confirm", h.Hour.ConfirmShiftHours)
+				hr.With(middleware.RequireRole(domain.RoleVorstand)).Get("/summary", h.Hour.GetYearSummary)
 				hr.Group(func(w chi.Router) {
 					w.Use(middleware.RequireRole(domain.RoleVorstand))
 					w.Post("/club-years", h.Hour.CreateClubYear)

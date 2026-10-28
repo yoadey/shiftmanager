@@ -486,9 +486,15 @@ type MemberHourAccount struct {
 	Entries       []HourEntry `json:"entries"`
 	Goal          float32     `json:"goal"`
 
-	// OpenFeeCents Compensation fee in euro cents due if the member works no further hours this club year. Omitted when no fee tiers are configured, and on another member's account unless the caller is Vorstand/Admin.
+	// OpenFeeCents Compensation fee in euro cents due if the member works no further hours this club year. Omitted when no fee tiers are configured.
 	OpenFeeCents *int    `json:"openFeeCents,omitempty"`
 	Reserved     float32 `json:"reserved"`
+}
+
+// MemberName defines model for MemberName.
+type MemberName struct {
+	Id   UUID   `json:"id"`
+	Name string `json:"name"`
 }
 
 // MemberPreferences defines model for MemberPreferences.
@@ -587,10 +593,14 @@ type ShiftWrite struct {
 
 // Signup defines model for Signup.
 type Signup struct {
-	Comment  *string `json:"comment,omitempty"`
-	Id       UUID    `json:"id"`
-	MemberId UUID    `json:"memberId"`
-	State    string  `json:"state"`
+	// Comment Empty on other people's signups below Veranstaltungsleiter
+	Comment *string `json:"comment,omitempty"`
+
+	// DisplayName Name to show for this signup to the caller, per name mode (full for Veranstaltungsleiter+ and for the caller's own signup).
+	DisplayName *string `json:"displayName,omitempty"`
+	Id          UUID    `json:"id"`
+	MemberId    UUID    `json:"memberId"`
+	State       string  `json:"state"`
 }
 
 // SystemStats defines model for SystemStats.
@@ -725,6 +735,11 @@ type ListMembersParamsStatus string
 // ImportMembersMultipartBody defines parameters for ImportMembers.
 type ImportMembersMultipartBody struct {
 	File openapi_types.File `json:"file"`
+}
+
+// LookupMembersParams defines parameters for LookupMembers.
+type LookupMembersParams struct {
+	Q string `form:"q" json:"q"`
 }
 
 // GetAuditLogParams defines parameters for GetAuditLog.
@@ -913,7 +928,7 @@ type ServerInterface interface {
 	// Get just the shift timeline for an event
 	// (GET /events/{id}/timeline)
 	GetEventTimeline(w http.ResponseWriter, r *http.Request, id UUID)
-	// Get a member's hour account by memberId+clubYearId query params
+	// Get a member's hour account by memberId+clubYearId query params (own account, or any for Vorstand+)
 	// (GET /hours/account)
 	GetMemberAccount(w http.ResponseWriter, r *http.Request, params GetMemberAccountParams)
 	// Record confirmed hours after a shift (Veranstaltungsleiter+)
@@ -925,7 +940,7 @@ type ServerInterface interface {
 	// Get the authenticated member's hour account (active club year)
 	// (GET /hours/me)
 	GetMyHours(w http.ResponseWriter, r *http.Request)
-	// Year-end hour summary for all members (Veranstaltungsleiter+)
+	// Year-end hour summary for all members (Vorstand+)
 	// (GET /hours/summary)
 	GetYearSummary(w http.ResponseWriter, r *http.Request, params GetYearSummaryParams)
 	// Delete an hour entry (Vorstand+)
@@ -934,7 +949,7 @@ type ServerInterface interface {
 	// Correct an hour entry (Vorstand+)
 	// (PUT /hours/{id})
 	CorrectHourEntry(w http.ResponseWriter, r *http.Request, id UUID)
-	// Get any member's hour account (active club year)
+	// Get a member's hour account for the active club year (own account, or any for Vorstand+)
 	// (GET /hours/{memberId})
 	GetMemberHours(w http.ResponseWriter, r *http.Request, memberId UUID)
 	// Confirm a kiosk registration via email token (no auth)
@@ -946,31 +961,34 @@ type ServerInterface interface {
 	// Get published event timeline (no auth)
 	// (GET /kiosk/events/{id})
 	GetKioskEventTimeline(w http.ResponseWriter, r *http.Request, id UUID)
-	// Search active members by name (no auth, kioskSearch must be enabled)
+	// Search active members by name (no auth, kioskSearch must be enabled); returns id and first name plus last initial only
 	// (GET /kiosk/members)
 	SearchKioskMembers(w http.ResponseWriter, r *http.Request, params SearchKioskMembersParams)
 	// Register for a shift via kiosk (no auth); sends confirmation email
 	// (POST /kiosk/shifts/{id}/register)
 	KioskRegister(w http.ResponseWriter, r *http.Request, id UUID)
-	// List members (paginated, sorted by last/first name)
+	// List members (paginated, sorted by last/first name; Vorstand+)
 	// (GET /members)
 	ListMembers(w http.ResponseWriter, r *http.Request, params ListMembersParams)
 	// Create a member (Vorstand+)
 	// (POST /members)
 	CreateMember(w http.ResponseWriter, r *http.Request)
-	// Export members as CSV
+	// Export members as CSV (Vorstand+)
 	// (GET /members/export)
 	ExportMembers(w http.ResponseWriter, r *http.Request)
 	// Import members from CSV (Vorstand+)
 	// (POST /members/import)
 	ImportMembers(w http.ResponseWriter, r *http.Request)
+	// Search active members by name or e-mail for helper assignment (Veranstaltungsleiter+); returns id and full name only
+	// (GET /members/lookup)
+	LookupMembers(w http.ResponseWriter, r *http.Request, params LookupMembersParams)
 	// Update own reminder opt-out preference
 	// (PUT /members/me/preferences)
 	UpdateMyPreferences(w http.ResponseWriter, r *http.Request)
 	// Deactivate (soft-delete) a member (Vorstand+)
 	// (DELETE /members/{id})
 	DeactivateMember(w http.ResponseWriter, r *http.Request, id UUID)
-	// Get a single member
+	// Get a single member (own record, or any for Vorstand+)
 	// (GET /members/{id})
 	GetMember(w http.ResponseWriter, r *http.Request, id UUID)
 	// Update a member (Vorstand+)
@@ -1189,7 +1207,7 @@ func (_ Unimplemented) GetEventTimeline(w http.ResponseWriter, r *http.Request, 
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
-// Get a member's hour account by memberId+clubYearId query params
+// Get a member's hour account by memberId+clubYearId query params (own account, or any for Vorstand+)
 // (GET /hours/account)
 func (_ Unimplemented) GetMemberAccount(w http.ResponseWriter, r *http.Request, params GetMemberAccountParams) {
 	w.WriteHeader(http.StatusNotImplemented)
@@ -1213,7 +1231,7 @@ func (_ Unimplemented) GetMyHours(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
-// Year-end hour summary for all members (Veranstaltungsleiter+)
+// Year-end hour summary for all members (Vorstand+)
 // (GET /hours/summary)
 func (_ Unimplemented) GetYearSummary(w http.ResponseWriter, r *http.Request, params GetYearSummaryParams) {
 	w.WriteHeader(http.StatusNotImplemented)
@@ -1231,7 +1249,7 @@ func (_ Unimplemented) CorrectHourEntry(w http.ResponseWriter, r *http.Request, 
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
-// Get any member's hour account (active club year)
+// Get a member's hour account for the active club year (own account, or any for Vorstand+)
 // (GET /hours/{memberId})
 func (_ Unimplemented) GetMemberHours(w http.ResponseWriter, r *http.Request, memberId UUID) {
 	w.WriteHeader(http.StatusNotImplemented)
@@ -1255,7 +1273,7 @@ func (_ Unimplemented) GetKioskEventTimeline(w http.ResponseWriter, r *http.Requ
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
-// Search active members by name (no auth, kioskSearch must be enabled)
+// Search active members by name (no auth, kioskSearch must be enabled); returns id and first name plus last initial only
 // (GET /kiosk/members)
 func (_ Unimplemented) SearchKioskMembers(w http.ResponseWriter, r *http.Request, params SearchKioskMembersParams) {
 	w.WriteHeader(http.StatusNotImplemented)
@@ -1267,7 +1285,7 @@ func (_ Unimplemented) KioskRegister(w http.ResponseWriter, r *http.Request, id 
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
-// List members (paginated, sorted by last/first name)
+// List members (paginated, sorted by last/first name; Vorstand+)
 // (GET /members)
 func (_ Unimplemented) ListMembers(w http.ResponseWriter, r *http.Request, params ListMembersParams) {
 	w.WriteHeader(http.StatusNotImplemented)
@@ -1279,7 +1297,7 @@ func (_ Unimplemented) CreateMember(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
-// Export members as CSV
+// Export members as CSV (Vorstand+)
 // (GET /members/export)
 func (_ Unimplemented) ExportMembers(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNotImplemented)
@@ -1288,6 +1306,12 @@ func (_ Unimplemented) ExportMembers(w http.ResponseWriter, r *http.Request) {
 // Import members from CSV (Vorstand+)
 // (POST /members/import)
 func (_ Unimplemented) ImportMembers(w http.ResponseWriter, r *http.Request) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// Search active members by name or e-mail for helper assignment (Veranstaltungsleiter+); returns id and full name only
+// (GET /members/lookup)
+func (_ Unimplemented) LookupMembers(w http.ResponseWriter, r *http.Request, params LookupMembersParams) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
@@ -1303,7 +1327,7 @@ func (_ Unimplemented) DeactivateMember(w http.ResponseWriter, r *http.Request, 
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
-// Get a single member
+// Get a single member (own record, or any for Vorstand+)
 // (GET /members/{id})
 func (_ Unimplemented) GetMember(w http.ResponseWriter, r *http.Request, id UUID) {
 	w.WriteHeader(http.StatusNotImplemented)
@@ -2790,6 +2814,45 @@ func (siw *ServerInterfaceWrapper) ImportMembers(w http.ResponseWriter, r *http.
 	handler.ServeHTTP(w, r)
 }
 
+// LookupMembers operation middleware
+func (siw *ServerInterfaceWrapper) LookupMembers(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, BearerAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	// Parameter object where we will unmarshal all parameters from the context
+	var params LookupMembersParams
+
+	// ------------- Required query parameter "q" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, true, "q", r.URL.Query(), &params.Q, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "q"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "q", Err: err})
+		}
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.LookupMembers(w, r, params)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
 // UpdateMyPreferences operation middleware
 func (siw *ServerInterfaceWrapper) UpdateMyPreferences(w http.ResponseWriter, r *http.Request) {
 
@@ -3861,6 +3924,9 @@ func HandlerWithOptions(si ServerInterface, options ChiServerOptions) http.Handl
 	})
 	r.Group(func(r chi.Router) {
 		r.Post(options.BaseURL+"/members/import", wrapper.ImportMembers)
+	})
+	r.Group(func(r chi.Router) {
+		r.Get(options.BaseURL+"/members/lookup", wrapper.LookupMembers)
 	})
 	r.Group(func(r chi.Router) {
 		r.Put(options.BaseURL+"/members/me/preferences", wrapper.UpdateMyPreferences)

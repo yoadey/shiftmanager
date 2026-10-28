@@ -134,7 +134,10 @@ func (h *EventHandler) GetWithTimeline(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	timeline, err := h.uc.GetEventTimeline(r.Context(), id)
+	timeline, err := h.uc.GetEventTimelineFor(r.Context(), id, usecase.TimelineViewer{
+		ID:   middleware.GetUserID(r.Context()),
+		Role: middleware.GetUserRole(r.Context()),
+	})
 	if err != nil {
 		writeError(w, http.StatusNotFound, "event not found")
 		return
