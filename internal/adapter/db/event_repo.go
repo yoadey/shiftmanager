@@ -42,22 +42,15 @@ func (r *EventRepo) GetByID(ctx context.Context, id uuid.UUID) (*domain.Event, e
 }
 
 func (r *EventRepo) List(ctx context.Context, filter port.EventFilter) ([]*domain.Event, error) {
-	q := r.db.WithContext(ctx).Model(&EventModel{})
+	q := applyEventFilter(r.db.WithContext(ctx).Model(&EventModel{}), filter)
 
-	if filter.Status != nil {
-		q = q.Where("status = ?", string(*filter.Status))
+	// id breaks ties between equal start dates so OFFSET pages never overlap
+	// or skip rows (PostgreSQL does not keep the order of equal sort keys stable).
+	if filter.Ascending {
+		q = q.Order("start_date ASC, id ASC")
+	} else {
+		q = q.Order("start_date DESC, id DESC")
 	}
-	if filter.Visibility != nil {
-		q = q.Where("visibility = ?", string(*filter.Visibility))
-	}
-	if filter.FromDate != nil {
-		q = q.Where("end_date >= ?", *filter.FromDate)
-	}
-	if filter.ToDate != nil {
-		q = q.Where("start_date <= ?", *filter.ToDate)
-	}
-
-	q = q.Order("start_date DESC")
 
 	if filter.Limit > 0 {
 		q = q.Limit(filter.Limit)
@@ -76,6 +69,43 @@ func (r *EventRepo) List(ctx context.Context, filter port.EventFilter) ([]*domai
 		events = append(events, toEventDomain(m))
 	}
 	return events, nil
+}
+
+// CountFiltered counts the events matching filter, ignoring Limit/Offset.
+func (r *EventRepo) CountFiltered(ctx context.Context, filter port.EventFilter) (int, error) {
+	var n int64
+	if err := applyEventFilter(r.db.WithContext(ctx).Model(&EventModel{}), filter).Count(&n).Error; err != nil {
+		return 0, err
+	}
+	return int(n), nil
+}
+
+// applyEventFilter adds the WHERE conditions shared by List and CountFiltered.
+func applyEventFilter(q *gorm.DB, filter port.EventFilter) *gorm.DB {
+	if filter.Status != nil {
+		q = q.Where("status = ?", string(*filter.Status))
+	}
+	if filter.Visibility != nil {
+		q = q.Where("visibility = ?", string(*filter.Visibility))
+	}
+	if filter.Category != "" {
+		q = q.Where("category = ?", filter.Category)
+	}
+	if filter.FromDate != nil {
+		q = q.Where("end_date >= ?", *filter.FromDate)
+	}
+	if filter.ToDate != nil {
+		q = q.Where("start_date < ?", *filter.ToDate)
+	}
+	if filter.FreeSlots {
+		// A shift has a free place while fewer helpers hold an active
+		// registration than it allows — the same count the capacity check
+		// on sign-up uses (RegistrationRepo.CountActiveByShift).
+		q = q.Where(`EXISTS (SELECT 1 FROM shifts s WHERE s.event_id = events.id AND s.max_helpers > (
+			SELECT COUNT(*) FROM registrations reg WHERE reg.shift_id = s.id AND reg.state IN ?))`,
+			[]string{string(domain.RegistrationStateRegistered), string(domain.RegistrationStateConfirmed)})
+	}
+	return q
 }
 
 func (r *EventRepo) Update(ctx context.Context, e *domain.Event) error {

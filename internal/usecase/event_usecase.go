@@ -289,9 +289,23 @@ func (uc *EventUsecase) notifyNewEvent(ctx context.Context, e *domain.Event) {
 	}
 }
 
-// ListEvents returns events matching the filter.
-func (uc *EventUsecase) ListEvents(ctx context.Context, filter port.EventFilter) ([]*domain.Event, error) {
-	return uc.events.List(ctx, filter)
+// ListEvents returns the page of events matching the filter together with
+// the total number of matches (ignoring Limit/Offset).
+func (uc *EventUsecase) ListEvents(ctx context.Context, filter port.EventFilter) ([]*domain.Event, int, error) {
+	events, err := uc.events.List(ctx, filter)
+	if err != nil {
+		return nil, 0, err
+	}
+	// The page itself proves the total when it is the last one (see
+	// MemberUsecase.ListMembers); only otherwise is a separate COUNT needed.
+	if (filter.Limit <= 0 || len(events) < filter.Limit) && (len(events) > 0 || filter.Offset <= 0) {
+		return events, max(filter.Offset, 0) + len(events), nil
+	}
+	total, err := uc.events.CountFiltered(ctx, filter)
+	if err != nil {
+		return nil, 0, err
+	}
+	return events, total, nil
 }
 
 // GetEvent returns a single event by ID.

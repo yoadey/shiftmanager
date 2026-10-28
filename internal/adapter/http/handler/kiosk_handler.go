@@ -119,7 +119,7 @@ func (h *KioskHandler) ListEvents(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	published := "published"
-	events, err := h.eventUC.ListEvents(r.Context(), port.EventFilter{Status: (*domain.EventStatus)(&published)})
+	events, _, err := h.eventUC.ListEvents(r.Context(), port.EventFilter{Status: (*domain.EventStatus)(&published)})
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return

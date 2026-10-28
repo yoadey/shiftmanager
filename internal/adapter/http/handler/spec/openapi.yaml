@@ -269,6 +269,13 @@ components:
         confirmed: { type: number }
         reserved:  { type: number }
         goal:      { type: number }
+        clubYearLabel: { type: string }
+        openFeeCents:
+          type: integer
+          description: >-
+            Compensation fee in euro cents due if the member works no further
+            hours this club year. Omitted when no fee tiers are configured, and
+            on another member's account unless the caller is Vorstand/Admin.
         entries:
           type: array
           items: { $ref: '#/components/schemas/HourEntry' }
@@ -744,16 +751,24 @@ paths:
       parameters:
         - { name: status, in: query, schema: { $ref: '#/components/schemas/EventStatus' } }
         - { name: visibility, in: query, schema: { $ref: '#/components/schemas/EventVisibility' } }
-        - { name: from, in: query, schema: { type: string, format: date } }
-        - { name: to, in: query, schema: { type: string, format: date } }
-        - { name: limit, in: query, schema: { type: integer, default: 50 } }
-        - { name: offset, in: query, schema: { type: integer, default: 0 } }
+        - { name: category, in: query, schema: { type: string } }
+        - { name: from, in: query, description: "Events ending on or after this day", schema: { type: string, format: date } }
+        - { name: to, in: query, description: "Events starting on or before this day (inclusive)", schema: { type: string, format: date } }
+        - { name: freeSlots, in: query, description: "Only events with at least one shift that still has a free place", schema: { type: boolean } }
+        - { name: order, in: query, description: "Sort by start date", schema: { type: string, enum: [asc, desc], default: desc } }
+        - { name: limit, in: query, description: "Page size; 0 returns all matches", schema: { type: integer, minimum: 0, default: 50 } }
+        - { name: offset, in: query, schema: { type: integer, minimum: 0, default: 0 } }
       responses:
         "200":
           description: Events
+          headers:
+            X-Total-Count:
+              description: Number of events matching the filter, ignoring limit/offset.
+              schema: { type: integer }
           content:
             application/json:
               schema: { type: array, items: { $ref: '#/components/schemas/Event' } }
+        "400": { $ref: '#/components/responses/BadRequest' }
         "401": { $ref: '#/components/responses/Unauthorized' }
     post:
       operationId: createEvent

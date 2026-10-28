@@ -72,6 +72,8 @@ type EventRepository interface {
 	Create(ctx context.Context, e *domain.Event) error
 	GetByID(ctx context.Context, id uuid.UUID) (*domain.Event, error)
 	List(ctx context.Context, filter EventFilter) ([]*domain.Event, error)
+	// CountFiltered counts the events matching filter, ignoring Limit/Offset.
+	CountFiltered(ctx context.Context, filter EventFilter) (int, error)
 	Update(ctx context.Context, e *domain.Event) error
 	Delete(ctx context.Context, id uuid.UUID) error
 	UpdateStatus(ctx context.Context, id uuid.UUID, status domain.EventStatus) error
@@ -87,10 +89,18 @@ type EventRepository interface {
 type EventFilter struct {
 	Status     *domain.EventStatus
 	Visibility *domain.EventVisibility
-	FromDate   *time.Time
-	ToDate     *time.Time
-	Limit      int
-	Offset     int
+	Category   string
+	// FromDate keeps events that end at or after it.
+	FromDate *time.Time
+	// ToDate keeps events that start strictly before it (exclusive bound).
+	ToDate *time.Time
+	// FreeSlots keeps only events with at least one shift that still has a
+	// free place.
+	FreeSlots bool
+	// Ascending sorts by start date, earliest first; the default is newest first.
+	Ascending bool
+	Limit     int
+	Offset    int
 }
 
 // EventAttachmentRepository persists files attached to events (V-008).

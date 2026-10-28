@@ -216,6 +216,11 @@ export type MemberHourAccount = {
   confirmed: number;
   reserved: number;
   goal: number;
+  clubYearLabel?: string;
+  /**
+   * Compensation fee in euro cents due if the member works no further hours this club year. Omitted when no fee tiers are configured, and on another member's account unless the caller is Vorstand/Admin.
+   */
+  openFeeCents?: number;
   entries: Array<HourEntry>;
 };
 
@@ -814,8 +819,26 @@ export type ListEventsData = {
   query?: {
     status?: EventStatus;
     visibility?: EventVisibility;
+    category?: string;
+    /**
+     * Events ending on or after this day
+     */
     from?: string;
+    /**
+     * Events starting on or before this day (inclusive)
+     */
     to?: string;
+    /**
+     * Only events with at least one shift that still has a free place
+     */
+    freeSlots?: boolean;
+    /**
+     * Sort by start date
+     */
+    order?: "asc" | "desc";
+    /**
+     * Page size; 0 returns all matches
+     */
     limit?: number;
     offset?: number;
   };
@@ -823,6 +846,10 @@ export type ListEventsData = {
 };
 
 export type ListEventsErrors = {
+  /**
+   * Invalid request
+   */
+  400: ErrorResponse;
   /**
    * Missing or invalid JWT
    */

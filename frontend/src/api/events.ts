@@ -1,4 +1,4 @@
-import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import { useQuery, useMutation, useQueryClient, keepPreviousData } from '@tanstack/react-query';
 import { apiGet, apiPost, apiPut, apiDelete, apiClient } from './client';
 import type { Event, EventTimeline, EventAttachment, RecurrenceFrequency } from '@/types';
 import { flatToEvent, timelineToEvent, type RawEvent, type RawTimeline } from './mappers';
@@ -17,17 +17,62 @@ export function useEvents() {
     queryFn: async (): Promise<Event[]> => {
       const list = await apiGet<RawEvent[]>('/events');
       const rows = Array.isArray(list) ? list : [];
-      return Promise.all(
-        rows.map(async (e) => {
-          try {
-            const tl = await apiGet<RawTimeline>(`/events/${e.id}/timeline`);
-            return timelineToEvent(tl);
-          } catch {
-            return flatToEvent(e);
-          }
-        }),
-      );
+      return Promise.all(rows.map(withTimeline));
     },
+  });
+}
+
+/** Enrich a flat event with its timeline; on failure fall back to the flat event. */
+async function withTimeline(e: RawEvent): Promise<Event> {
+  try {
+    return timelineToEvent(await apiGet<RawTimeline>(`/events/${e.id}/timeline`));
+  } catch {
+    return flatToEvent(e);
+  }
+}
+
+export interface EventPageParams {
+  page: number;      // 0-based
+  pageSize: number;
+  from?: string;     // YYYY-MM-DD, events ending on or after this day
+  to?: string;       // YYYY-MM-DD, events starting on or before this day
+  category?: string;
+  freeSlots?: boolean;
+}
+
+export interface EventPage {
+  items: Event[];
+  total: number;
+}
+
+/**
+ * One page of published events, earliest first, filtered server-side; only
+ * the events on the page are enriched with their timeline. The total comes
+ * from X-Total-Count.
+ */
+export function useEventPage({ page, pageSize, from, to, category, freeSlots }: EventPageParams) {
+  return useQuery({
+    queryKey: ['events', 'page', { page, pageSize, from, to, category, freeSlots }],
+    queryFn: async (): Promise<EventPage> => {
+      const res = await apiClient.get<RawEvent[]>('/events', {
+        params: {
+          status: 'published',
+          order: 'asc',
+          limit: pageSize,
+          offset: page * pageSize,
+          from: from || undefined,
+          to: to || undefined,
+          category: category || undefined,
+          freeSlots: freeSlots || undefined,
+        },
+      });
+      const rows = Array.isArray(res.data) ? res.data : [];
+      const items = await Promise.all(rows.map(withTimeline));
+      const total = Number(res.headers['x-total-count']);
+      return { items, total: Number.isFinite(total) ? total : items.length };
+    },
+    // Keep the current page on screen while the next one loads.
+    placeholderData: keepPreviousData,
   });
 }
 

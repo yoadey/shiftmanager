@@ -161,6 +161,12 @@ func (h *HourHandler) GetMemberAccountByID(w http.ResponseWriter, r *http.Reques
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
+	// Any member may read hour accounts, but what someone else owes is for
+	// the board only (G-012).
+	if memberID != middleware.GetUserID(r.Context()) &&
+		!domain.HasRole(middleware.GetUserRole(r.Context()), domain.RoleVorstand) {
+		full.OpenFeeCents = nil
+	}
 	writeJSON(w, http.StatusOK, full)
 }
 

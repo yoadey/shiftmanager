@@ -1,8 +1,9 @@
-import { useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Icon } from '@/components/ui/Icon';
 import { Badge } from '@/components/ui/Badge';
-import { useEvents } from '@/api/events';
+import { Button } from '@/components/ui/Button';
+import { useEventPage } from '@/api/events';
 import { calcOccupancy } from '@/hooks/useOccupancy';
 import { LoadingState, ErrorState } from '@/components/ui/States';
 import { fmtDate, catGradient } from '@/screens/_demo';
@@ -59,13 +60,24 @@ interface FilterDef {
   label: string;
 }
 
+export const DISCOVER_PAGE_SIZE = 10;
+
+/** Today as YYYY-MM-DD in the viewer's local time zone. */
+function todayLocal(): string {
+  const d = new Date();
+  const pad = (n: number) => String(n).padStart(2, '0');
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+}
+
 export function MemberDiscover() {
   const navigate = useNavigate();
   const [filter, setFilter] = useState('alle');
-  const [dateFrom, setDateFrom] = useState('');
+  // Every visit starts from today, so past events stay hidden unless the
+  // member clears "Von" (D-005).
+  const [dateFrom, setDateFrom] = useState(todayLocal);
   const [dateTo, setDateTo] = useState('');
-  const eventsQ = useEvents();
-  const pub = (eventsQ.data ?? []).filter((e) => e.status === 'veröffentlicht' || e.status === 'published');
+  const [page, setPage] = useState(0);
+  const listTop = useRef<HTMLDivElement>(null);
 
   const filters: FilterDef[] = [
     { id: 'alle', label: 'Alle' },
@@ -75,22 +87,33 @@ export function MemberDiscover() {
     { id: 'Mitgliederwerbung', label: 'Werbung' },
   ];
 
-  const shown = pub.filter((ev) => {
-    if (filter !== 'alle') {
-      if (filter === 'frei' && !(ev.days ?? []).some((d) => d.shifts.some((s) => calcOccupancy(s).free > 0))) return false;
-      if (filter !== 'frei' && ev.category !== filter) return false;
-    }
-    if (dateFrom || dateTo) {
-      const days = ev.days ?? [];
-      const inRange = days.some((d) => {
-        if (dateFrom && d.date < dateFrom) return false;
-        if (dateTo && d.date > dateTo) return false;
-        return true;
-      });
-      if (!inRange) return false;
-    }
-    return true;
+  const eventsQ = useEventPage({
+    page,
+    pageSize: DISCOVER_PAGE_SIZE,
+    from: dateFrom,
+    to: dateTo,
+    category: filter !== 'alle' && filter !== 'frei' ? filter : undefined,
+    freeSlots: filter === 'frei',
   });
+  const shown = eventsQ.data?.items ?? [];
+  const total = eventsQ.data?.total ?? 0;
+  const pageCount = Math.max(1, Math.ceil(total / DISCOVER_PAGE_SIZE));
+
+  // Any filter change starts over at the first page.
+  const changeFilter = (set: (v: string) => void) => (v: string) => {
+    set(v);
+    setPage(0);
+  };
+  const goToPage = (p: number) => {
+    setPage(p);
+    listTop.current?.scrollIntoView?.({ block: 'start' });
+  };
+
+  // A page beyond the end (events were unpublished meanwhile) snaps back to
+  // the last existing page once the real page has loaded.
+  useEffect(() => {
+    if (eventsQ.data && !eventsQ.isPlaceholderData && page > 0 && page >= pageCount) setPage(pageCount - 1);
+  }, [eventsQ.data, eventsQ.isPlaceholderData, page, pageCount]);
 
   return (
     <div className="fade-in">
@@ -112,34 +135,34 @@ export function MemberDiscover() {
             <button
               key={f.id}
               className={'sm-chip' + (filter === f.id ? ' active' : '')}
-              onClick={() => setFilter(f.id)}
+              onClick={() => changeFilter(setFilter)(f.id)}
             >
               {f.id === 'frei' && <Icon name="filter" size={14} stroke={2.2} />}{f.label}
             </button>
           ))}
         </div>
         <div style={{ display: 'flex', gap: 8, marginTop: 10 }}>
-          <div style={{ flex: 1 }}>
+          <label style={{ flex: 1 }}>
             <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--muted)', marginBottom: 4 }}>Von</div>
             <input
               type="date"
               value={dateFrom}
-              onChange={(e) => setDateFrom(e.target.value)}
+              onChange={(e) => changeFilter(setDateFrom)(e.target.value)}
               style={{ width: '100%', padding: '8px 10px', border: '1px solid var(--line)', borderRadius: 10, fontFamily: 'inherit', fontSize: 13.5, fontWeight: 600, background: 'var(--surface)', color: 'var(--ink)', boxSizing: 'border-box' }}
             />
-          </div>
-          <div style={{ flex: 1 }}>
+          </label>
+          <label style={{ flex: 1 }}>
             <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--muted)', marginBottom: 4 }}>Bis</div>
             <input
               type="date"
               value={dateTo}
-              onChange={(e) => setDateTo(e.target.value)}
+              onChange={(e) => changeFilter(setDateTo)(e.target.value)}
               style={{ width: '100%', padding: '8px 10px', border: '1px solid var(--line)', borderRadius: 10, fontFamily: 'inherit', fontSize: 13.5, fontWeight: 600, background: 'var(--surface)', color: 'var(--ink)', boxSizing: 'border-box' }}
             />
-          </div>
+          </label>
         </div>
       </div>
-      <div className="sm-pad" style={{ paddingTop: 14 }}>
+      <div className="sm-pad" style={{ paddingTop: 14 }} ref={listTop}>
         {eventsQ.isLoading ? (
           <LoadingState />
         ) : eventsQ.isError ? (
@@ -150,6 +173,22 @@ export function MemberDiscover() {
           shown.map((ev) => (
             <EventCard key={ev.id} ev={ev} onClick={() => navigate(routes.event(ev.id))} />
           ))
+        )}
+        {!eventsQ.isError && pageCount > 1 && (
+          <nav aria-label="Seiten" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10, marginTop: 4 }}>
+            <Button size="sm" variant="ghost" disabled={page === 0} onClick={() => goToPage(page - 1)}>
+              <Icon name="chevL" size={14} stroke={2.4} /> Zurück
+            </Button>
+            <span style={{ color: 'var(--muted)', fontSize: 12.5, fontWeight: 700, textAlign: 'center' }}>
+              <span style={{ display: 'block' }}>Seite {page + 1} von {pageCount}</span>
+              <span style={{ display: 'block', fontWeight: 600, fontSize: 11.5 }}>
+                {page * DISCOVER_PAGE_SIZE + 1}–{Math.min((page + 1) * DISCOVER_PAGE_SIZE, total)} von {total}
+              </span>
+            </span>
+            <Button size="sm" variant="ghost" disabled={page >= pageCount - 1} onClick={() => goToPage(page + 1)}>
+              Weiter <Icon name="chevR" size={14} stroke={2.4} />
+            </Button>
+          </nav>
         )}
       </div>
     </div>

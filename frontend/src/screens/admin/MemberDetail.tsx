@@ -16,7 +16,7 @@ import { useSettings, useMemberFeeTiers, useUpdateMemberFeeTiers } from '@/api/s
 import { useStats } from '@/api/stats';
 import { LoadingState, ErrorState } from '@/components/ui/States';
 import { Field, Input } from '@/components/forms/Field';
-import { fmtDate, hrs } from '@/screens/_demo';
+import { fmtDate, hrs, eur } from '@/screens/_demo';
 import { Section } from '@/screens/member/MemberDashboard';
 import type { Member, MemberFeeTier } from '@/types';
 
@@ -329,6 +329,11 @@ export function MemberDetail() {
               <div className="occ-fill" style={{ width: Math.min(h / goal * 100, 100) + '%', background: h >= goal ? 'var(--ok)' : 'var(--primary)' }} />
             </div>
           </div>
+          {(hoursQ.data?.openFeeCents ?? 0) > 0 && (
+            <div data-testid="open-fee" style={{ marginTop: 9, color: 'var(--ink-2)', fontSize: 13, fontWeight: 600 }}>
+              Ohne weitere Stunden fällig: <b style={{ color: 'var(--ink)' }}>{eur((hoursQ.data?.openFeeCents ?? 0) / 100)}</b> Abgeltung
+            </div>
+          )}
           <div style={{ display: 'flex', gap: 9, marginTop: 13, flexWrap: 'wrap' }}>
             <Button variant="soft" size="sm" icon="plus" onClick={() => navigate(routes.stundenBuchen(id))}>Stunden buchen</Button>
             <Button variant="soft" size="sm" icon="edit" onClick={() => navigate(routes.mitgliedZiel(id))}>Ziel anpassen</Button>

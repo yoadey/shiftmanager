@@ -341,6 +341,58 @@ func TestListEvents(t *testing.T) {
 	assert.Equal(t, "published", events[0]["status"])
 }
 
+func TestListEvents_FiltersPaginationAndTotal(t *testing.T) {
+	s := startServer(t)
+	leiter := token(t, s, "veranstaltungsleiter", db.AdminID.String(), "admin@test.local")
+	resp := post(t, s, "/api/v1/events", leiter, `{"name": "Winterfest", "location": "Halle", "category": "Fest",
+		"startDate": "2026-12-20T10:00:00Z", "endDate": "2026-12-20T20:00:00Z", "visibility": "public"}`)
+	require.Equal(t, http.StatusCreated, resp.StatusCode)
+	var ev map[string]any
+	decode(t, resp, &ev)
+	require.Equal(t, http.StatusOK, post(t, s, "/api/v1/events/"+ev["id"].(string)+"/publish", leiter, "").StatusCode)
+
+	tok := token(t, s, "mitglied", db.MemberID.String(), "max@test.local")
+	names := func(path string) ([]string, string) {
+		t.Helper()
+		resp := get(t, s, path, tok)
+		require.Equal(t, http.StatusOK, resp.StatusCode)
+		total := resp.Header.Get("X-Total-Count")
+		var events []map[string]any
+		decode(t, resp, &events)
+		out := make([]string, len(events))
+		for i, e := range events {
+			out[i] = e["name"].(string)
+		}
+		return out, total
+	}
+
+	// The Sommerfest (4 July) is over by August.
+	got, total := names("/api/v1/events?status=published&from=2026-08-01&order=asc")
+	assert.Equal(t, []string{"Winterfest"}, got)
+	assert.Equal(t, "1", total)
+
+	// Paginated, earliest first, with the total behind the page.
+	got, total = names("/api/v1/events?status=published&order=asc&limit=1&offset=0")
+	assert.Equal(t, []string{"Sommerfest"}, got)
+	assert.Equal(t, "2", total)
+	got, _ = names("/api/v1/events?status=published&order=asc&limit=1&offset=1")
+	assert.Equal(t, []string{"Winterfest"}, got)
+
+	// "to" includes events starting later that day.
+	got, _ = names("/api/v1/events?to=2026-07-04")
+	assert.Equal(t, []string{"Sommerfest"}, got)
+
+	got, _ = names("/api/v1/events?category=Fest")
+	assert.Equal(t, []string{"Winterfest"}, got)
+
+	// Only the Sommerfest has shifts, and they still have free places.
+	got, _ = names("/api/v1/events?freeSlots=true")
+	assert.Equal(t, []string{"Sommerfest"}, got)
+
+	assert.Equal(t, http.StatusBadRequest, get(t, s, "/api/v1/events?order=up", tok).StatusCode)
+	assert.Equal(t, http.StatusBadRequest, get(t, s, "/api/v1/events?limit=-1", tok).StatusCode)
+}
+
 func TestGetEventTimeline(t *testing.T) {
 	s := startServer(t)
 	tok := token(t, s, "mitglied", db.MemberID.String(), "max@test.local")
@@ -438,6 +490,32 @@ func TestGetMyHours(t *testing.T) {
 	assert.Equal(t, float64(0), account["confirmed"])
 	entries, _ := account["entries"].([]any)
 	assert.Len(t, entries, 0)
+}
+
+func TestGetMyHours_OpenFeeCents(t *testing.T) {
+	s := startServer(t)
+	board := token(t, s, "vorstand", db.AdminID.String(), "admin@test.local")
+	resp := put(t, s, "/api/v1/settings/fee-tiers?clubYearId="+db.ClubYearID.String(), board,
+		`{"tiers": [{"position": 1, "amountCents": 1000}, {"position": 2, "amountCents": 1500}]}`)
+	require.Equal(t, http.StatusOK, resp.StatusCode)
+	resp = post(t, s, "/api/v1/hours/manual", board,
+		fmt.Sprintf(`{"memberId": "%s", "hours": 5.5, "desc": "Aufräumen"}`, db.MemberID.String()))
+	require.Equal(t, http.StatusCreated, resp.StatusCode)
+
+	// Goal 8 h, 5.5 h confirmed: 1 h × 10 € + 1.5 h × 15 €.
+	member := token(t, s, "mitglied", db.MemberID.String(), "max@test.local")
+	var account map[string]any
+	decode(t, get(t, s, "/api/v1/hours/me", member), &account)
+	assert.Equal(t, float64(3250), account["openFeeCents"])
+
+	decode(t, get(t, s, "/api/v1/hours/"+db.MemberID.String(), board), &account)
+	assert.Equal(t, float64(3250), account["openFeeCents"], "the board sees what a member owes")
+
+	other := token(t, s, "mitglied", uuid.NewString(), "other@test.local")
+	account = nil
+	decode(t, get(t, s, "/api/v1/hours/"+db.MemberID.String(), other), &account)
+	assert.NotContains(t, account, "openFeeCents", "other members must not see what someone owes")
+	assert.Equal(t, float64(5.5), account["confirmed"])
 }
 
 func TestManualBooking(t *testing.T) {

@@ -202,6 +202,24 @@ func (e RecurrenceFrequency) Valid() bool {
 	}
 }
 
+// Defines values for ListEventsParamsOrder.
+const (
+	Asc  ListEventsParamsOrder = "asc"
+	Desc ListEventsParamsOrder = "desc"
+)
+
+// Valid indicates whether the value is a known member of the ListEventsParamsOrder enum.
+func (e ListEventsParamsOrder) Valid() bool {
+	switch e {
+	case Asc:
+		return true
+	case Desc:
+		return true
+	default:
+		return false
+	}
+}
+
 // Defines values for ListMembersParamsStatus.
 const (
 	ListMembersParamsStatusActive   ListMembersParamsStatus = "active"
@@ -463,10 +481,14 @@ type MemberFeeTier struct {
 
 // MemberHourAccount defines model for MemberHourAccount.
 type MemberHourAccount struct {
-	Confirmed float32     `json:"confirmed"`
-	Entries   []HourEntry `json:"entries"`
-	Goal      float32     `json:"goal"`
-	Reserved  float32     `json:"reserved"`
+	ClubYearLabel *string     `json:"clubYearLabel,omitempty"`
+	Confirmed     float32     `json:"confirmed"`
+	Entries       []HourEntry `json:"entries"`
+	Goal          float32     `json:"goal"`
+
+	// OpenFeeCents Compensation fee in euro cents due if the member works no further hours this club year. Omitted when no fee tiers are configured, and on another member's account unless the caller is Vorstand/Admin.
+	OpenFeeCents *int    `json:"openFeeCents,omitempty"`
+	Reserved     float32 `json:"reserved"`
 }
 
 // MemberPreferences defines model for MemberPreferences.
@@ -623,13 +645,29 @@ type AuthLoginParams struct {
 
 // ListEventsParams defines parameters for ListEvents.
 type ListEventsParams struct {
-	Status     *EventStatus        `form:"status,omitempty" json:"status,omitempty"`
-	Visibility *EventVisibility    `form:"visibility,omitempty" json:"visibility,omitempty"`
-	From       *openapi_types.Date `form:"from,omitempty" json:"from,omitempty"`
-	To         *openapi_types.Date `form:"to,omitempty" json:"to,omitempty"`
-	Limit      *int                `form:"limit,omitempty" json:"limit,omitempty"`
-	Offset     *int                `form:"offset,omitempty" json:"offset,omitempty"`
+	Status     *EventStatus     `form:"status,omitempty" json:"status,omitempty"`
+	Visibility *EventVisibility `form:"visibility,omitempty" json:"visibility,omitempty"`
+	Category   *string          `form:"category,omitempty" json:"category,omitempty"`
+
+	// From Events ending on or after this day
+	From *openapi_types.Date `form:"from,omitempty" json:"from,omitempty"`
+
+	// To Events starting on or before this day (inclusive)
+	To *openapi_types.Date `form:"to,omitempty" json:"to,omitempty"`
+
+	// FreeSlots Only events with at least one shift that still has a free place
+	FreeSlots *bool `form:"freeSlots,omitempty" json:"freeSlots,omitempty"`
+
+	// Order Sort by start date
+	Order *ListEventsParamsOrder `form:"order,omitempty" json:"order,omitempty"`
+
+	// Limit Page size; 0 returns all matches
+	Limit  *int `form:"limit,omitempty" json:"limit,omitempty"`
+	Offset *int `form:"offset,omitempty" json:"offset,omitempty"`
 }
+
+// ListEventsParamsOrder defines parameters for ListEvents.
+type ListEventsParamsOrder string
 
 // UploadEventAttachmentMultipartBody defines parameters for UploadEventAttachment.
 type UploadEventAttachmentMultipartBody struct {
@@ -1714,6 +1752,19 @@ func (siw *ServerInterfaceWrapper) ListEvents(w http.ResponseWriter, r *http.Req
 		return
 	}
 
+	// ------------- Optional query parameter "category" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "category", r.URL.Query(), &params.Category, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "category"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "category", Err: err})
+		}
+		return
+	}
+
 	// ------------- Optional query parameter "from" -------------
 
 	err = runtime.BindQueryParameterWithOptions("form", true, false, "from", r.URL.Query(), &params.From, runtime.BindQueryParameterOptions{Type: "string", Format: "date"})
@@ -1736,6 +1787,32 @@ func (siw *ServerInterfaceWrapper) ListEvents(w http.ResponseWriter, r *http.Req
 			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "to"})
 		} else {
 			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "to", Err: err})
+		}
+		return
+	}
+
+	// ------------- Optional query parameter "freeSlots" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "freeSlots", r.URL.Query(), &params.FreeSlots, runtime.BindQueryParameterOptions{Type: "boolean", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "freeSlots"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "freeSlots", Err: err})
+		}
+		return
+	}
+
+	// ------------- Optional query parameter "order" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "order", r.URL.Query(), &params.Order, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "order"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "order", Err: err})
 		}
 		return
 	}

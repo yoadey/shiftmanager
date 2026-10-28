@@ -258,6 +258,10 @@ func (f *fakeEventRepo) List(ctx context.Context, filter port.EventFilter) ([]*d
 	return out, nil
 }
 
+func (f *fakeEventRepo) CountFiltered(ctx context.Context, filter port.EventFilter) (int, error) {
+	return len(f.events), nil
+}
+
 func (f *fakeEventRepo) Update(ctx context.Context, e *domain.Event) error {
 	if _, ok := f.events[e.ID]; !ok {
 		return domain.ErrEventNotFound

@@ -50,28 +50,9 @@ func (uc *BillingUsecase) ComputeYearBilling(ctx context.Context, actorID uuid.U
 		return nil, err
 	}
 
-	tiers, err := uc.settings.GetFeeTiers(ctx, clubYearID)
+	tierValues, err := yearFeeTiers(ctx, uc.settings, clubYearID)
 	if err != nil {
-		return nil, fmt.Errorf("load fee tiers: %w", err)
-	}
-
-	// Convert pointer slice to value slice.
-	tierValues := make([]domain.FeeTier, len(tiers))
-	for i, t := range tiers {
-		tierValues[i] = *t
-	}
-
-	// Fall back to the global feeSchedule setting when no per-year tiers are defined.
-	if len(tierValues) == 0 {
-		if raw, err := uc.settings.GetSetting(ctx, domain.SettingKeyFeeSchedule); err == nil && raw != "" {
-			schedule := parseFeeSchedule(raw)
-			for i, euros := range schedule {
-				tierValues = append(tierValues, domain.FeeTier{
-					Position:    i + 1,
-					AmountCents: int(euros * 100),
-				})
-			}
-		}
+		return nil, err
 	}
 
 	active := true
@@ -153,13 +134,7 @@ func (uc *BillingUsecase) ComputeYearBilling(ctx context.Context, actorID uuid.U
 
 		// G-004: a member's per-member fee tier override takes precedence over the
 		// club-year-wide tier list when present.
-		memberTiers := tierValues
-		if override, err := uc.settings.GetMemberFeeTiers(ctx, m.ID, clubYearID); err == nil && len(override) > 0 {
-			memberTiers = make([]domain.FeeTier, len(override))
-			for i, t := range override {
-				memberTiers[i] = *t
-			}
-		}
+		memberTiers := memberFeeTiers(ctx, uc.settings, m.ID, clubYearID, tierValues)
 
 		result := domain.ComputeBilling(*m, account, memberTiers)
 		report.Results = append(report.Results, result)
