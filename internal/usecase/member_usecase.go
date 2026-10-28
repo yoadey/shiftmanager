@@ -121,17 +121,14 @@ func (uc *MemberUsecase) UpdateMember(ctx context.Context, actorID uuid.UUID, id
 		m.Role = input.Role
 	}
 	if input.IsActive != nil {
-		switch {
-		case *input.IsActive:
+		// Deactivating records the leave date so a deactivated member is not
+		// mistaken for a registration pending approval (a stale date on an
+		// active member is replaced, too). A member who already left keeps
+		// the original leave date.
+		if *input.IsActive {
 			m.Activate()
-		case m.IsActive || m.LeftAt == nil:
-			// Record the leave date so a deactivated member is not mistaken
-			// for a registration pending approval (a stale date on an active
-			// member is replaced, too).
+		} else if m.IsActive || m.LeftAt == nil {
 			m.Deactivate(time.Now().UTC())
-		default:
-			// Already left: keep the original leave date.
-			m.IsActive = false
 		}
 	}
 

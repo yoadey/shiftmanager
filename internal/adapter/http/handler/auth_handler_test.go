@@ -394,6 +394,29 @@ func TestCallback_ExistingActive_MatchedByEmail_LinksSubject(t *testing.T) {
 	}
 }
 
+func TestCallback_NoEmailClaim_NotMatchedToOtherEmaillessAccount(t *testing.T) {
+	store := newFakeStore()
+	// An earlier identity without an e-mail claim, admitted via its IdP role.
+	other := &domain.Member{ID: uuid.New(), Email: "", Role: domain.RoleAdmin, IsActive: true}
+	store.byEmail[""] = other
+	claims := &port.OIDCClaims{Subject: "sub-noemail", Provider: "kc"}
+	h, _ := newHandler(store, claims, "")
+
+	frag := callback(t, h)
+
+	for _, l := range store.links {
+		if l.MemberID == other.ID {
+			t.Fatalf("identity without e-mail must not be linked to another e-mail-less account")
+		}
+	}
+	if len(store.created) != 1 {
+		t.Fatalf("expected a new (pending) registration, got %d created", len(store.created))
+	}
+	if frag != "error=registered" {
+		t.Errorf("expected pending registration, got %q", frag)
+	}
+}
+
 func TestCallback_MatchedBySubject_NoDuplicateLink(t *testing.T) {
 	store := newFakeStore()
 	existing := &domain.Member{ID: uuid.New(), Email: "sub@club.de", Role: domain.RoleVorstand, IsActive: true}

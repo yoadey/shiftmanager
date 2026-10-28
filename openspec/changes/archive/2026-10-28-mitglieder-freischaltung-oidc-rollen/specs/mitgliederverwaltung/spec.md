@@ -27,6 +27,20 @@ Austrittsdatum.
 - **WHEN** ein Vorstandsmitglied in der Detailansicht eines ausgetretenen Mitglieds „Reaktivieren“ wählt
 - **THEN** ist das Mitglied wieder aktiv und hat kein Austrittsdatum mehr
 
+### Requirement: Leseberechtigung der Mitgliederliste (ML-010)
+Die Mitgliederliste MUST für jeden authentifizierten Nutzer lesbar sein
+(z. B. für die Namensanzeige in Schichtlisten); Schreiboperationen sind
+Vorstand und Admin vorbehalten. Registrierungen, die auf Freischaltung
+warten (ML-011), MUST NOT Nutzern ohne Vorstandsrolle geliefert werden.
+
+#### Scenario: Lesezugriff durch einfaches Mitglied
+- **WHEN** ein authentifiziertes Mitglied ohne Vorstandsrolle `GET /api/v1/members` aufruft
+- **THEN** liefert das System die Liste ohne wartende Registrierungen
+
+#### Scenario: Wartende Registrierungen ohne Vorstandsrolle
+- **WHEN** ein authentifiziertes Mitglied ohne Vorstandsrolle `GET /api/v1/members?status=pending` aufruft
+- **THEN** lehnt das System die Anfrage mit 403 ab
+
 ## ADDED Requirements
 
 ### Requirement: Selbstregistrierung mit Freischaltung (ML-011)

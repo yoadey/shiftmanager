@@ -173,8 +173,11 @@ func (h *AuthHandler) Callback(w http.ResponseWriter, r *http.Request) {
 	// so a known member's first login is matched by their e-mail address.
 	member, _ := h.members.GetByOIDCSubject(r, claims.Provider, claims.Subject)
 	matchedBySubject := member != nil
-	if member == nil {
-		member, _ = h.members.GetByEmail(r, claims.Email)
+	// Without an e-mail claim there is nothing to match on: an empty lookup
+	// would hit any other account registered without an address and link
+	// this identity to it. Normalise like provisionMember stores it.
+	if email := strings.ToLower(strings.TrimSpace(claims.Email)); member == nil && email != "" {
+		member, _ = h.members.GetByEmail(r, email)
 	}
 
 	// An IdP role may only admit a pending account that this very login

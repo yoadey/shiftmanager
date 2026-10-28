@@ -8,6 +8,7 @@ import (
 	"github.com/go-chi/chi/v5"
 	"github.com/google/uuid"
 	"github.com/yoadey/shiftmanager/internal/adapter/http/middleware"
+	"github.com/yoadey/shiftmanager/internal/domain"
 	"github.com/yoadey/shiftmanager/internal/port"
 	"github.com/yoadey/shiftmanager/internal/usecase"
 )
@@ -46,6 +47,18 @@ func (h *MemberHandler) List(w http.ResponseWriter, r *http.Request) {
 	if !filter.Status.Valid() {
 		writeError(w, http.StatusBadRequest, "invalid status")
 		return
+	}
+	// Every authenticated user may read the member list (ML-010), but pending
+	// self-registrations are not members yet: only the board, who decides on
+	// them, sees them (ML-013).
+	if !domain.HasRole(middleware.GetUserRole(r.Context()), domain.RoleVorstand) {
+		switch filter.Status {
+		case port.MemberStatusPending:
+			writeError(w, http.StatusForbidden, "forbidden")
+			return
+		case "":
+			filter.Status = port.MemberStatusApproved
+		}
 	}
 
 	members, total, err := h.uc.ListMembers(r.Context(), filter)

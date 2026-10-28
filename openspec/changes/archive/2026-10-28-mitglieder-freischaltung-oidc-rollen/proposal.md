@@ -56,7 +56,8 @@ Mitglied direkt zulassen.
 - `mitgliederverwaltung`: neue Requirements für Selbstregistrierung mit
   Freischaltung (ML-011), paginierte Mitgliederliste (ML-012) und Hinweis
   auf wartende Registrierungen (ML-013); ML-001 präzisiert, dass eine
-  Deaktivierung das Austrittsdatum setzt.
+  Deaktivierung das Austrittsdatum setzt; ML-010 schließt wartende
+  Registrierungen für Nutzer ohne Vorstandsrolle aus.
 - `auth`: neues Requirement Rollenzuordnung über OIDC-Claims (A-006).
 
 ## Impact

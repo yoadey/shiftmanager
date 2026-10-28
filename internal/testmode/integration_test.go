@@ -277,6 +277,20 @@ func TestListMembers_PaginationAndStatus(t *testing.T) {
 	}
 }
 
+// Pending self-registrations are visible to the board only (ML-013).
+func TestListMembers_PendingHiddenFromNonBoard(t *testing.T) {
+	s := startServer(t)
+	tok := token(t, s, "mitglied", db.MemberID.String(), "max@test.local")
+
+	resp := get(t, s, "/api/v1/members?status=pending", tok)
+	assert.Equal(t, http.StatusForbidden, resp.StatusCode)
+	resp.Body.Close()
+
+	resp = get(t, s, "/api/v1/members", tok)
+	require.Equal(t, http.StatusOK, resp.StatusCode)
+	resp.Body.Close()
+}
+
 func TestGetMember(t *testing.T) {
 	s := startServer(t)
 	tok := token(t, s, "vorstand", db.AdminID.String(), "admin@test.local")

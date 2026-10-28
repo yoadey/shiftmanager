@@ -18,7 +18,9 @@ export function PendingMembersBanner() {
   const count = pending?.length ?? 0;
   // The create/import dialogs render on top of the member list, so they
   // already show the pending section too.
-  const onMemberList = [routes.mitglieder, routes.mitgliederNeu, routes.mitgliederImport].includes(location.pathname);
+  // React Router also matches these routes with a trailing slash.
+  const path = location.pathname.replace(/\/+$/, '') || '/';
+  const onMemberList = [routes.mitglieder, routes.mitgliederNeu, routes.mitgliederImport].includes(path);
   if (!isVorstand || count === 0 || onMemberList) return null;
 
   return (

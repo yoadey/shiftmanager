@@ -59,6 +59,12 @@ describe('PendingMembersBanner', () => {
     }
   });
 
+  it('is hidden on the member list with a trailing slash too', () => {
+    asRole('admin');
+    const { container } = renderAt('/mitglieder/');
+    expect(container).toBeEmptyDOMElement();
+  });
+
   it('is hidden when nobody is waiting', () => {
     asRole('admin');
     pending = [];
