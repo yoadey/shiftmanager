@@ -83,7 +83,7 @@ export function KioskLinks() {
               <Icon name="lock" size={16} color="var(--muted)" />
               <div style={{ flex: 1, minWidth: 0 }}>
                 <div style={{ fontWeight: 700, fontSize: 13.5 }}>{l.label || 'Kiosk-Link'}</div>
-                <div style={{ color: 'var(--muted)', fontSize: 12, fontWeight: 600 }}>gültig bis {fmtDate(l.expiresAt.slice(0, 10))}</div>
+                <div style={{ color: 'var(--muted)', fontSize: 12, fontWeight: 600 }}>gültig bis {fmtDate(l.expiresAt)}</div>
               </div>
               <Button size="sm" variant="ghost" onClick={() => setConfirmRevoke(l)}>Widerrufen</Button>
             </div>
@@ -101,7 +101,7 @@ export function KioskLinks() {
           <div style={{ padding: '4px 2px' }}>
             <h3 style={{ fontSize: 19, fontWeight: 800 }}>Kiosk-Link erstellt</h3>
             <p style={{ color: 'var(--ink-2)', fontSize: 14, fontWeight: 600, margin: '8px 0 12px', lineHeight: 1.45 }}>
-              Dieser Link wird nur jetzt angezeigt. Rufe ihn auf dem Kiosk-Gerät auf oder kopiere ihn dorthin. Gültig bis {fmtDate(created.expiresAt.slice(0, 10))}.
+              Dieser Link wird nur jetzt angezeigt. Rufe ihn auf dem Kiosk-Gerät auf oder kopiere ihn dorthin. Gültig bis {fmtDate(created.expiresAt)}.
             </p>
             <div data-testid="kiosk-link-url" style={{ padding: '10px 12px', borderRadius: 10, background: 'var(--surface-2)', border: '1px solid var(--line)', fontFamily: 'ui-monospace, monospace', fontSize: 12.5, wordBreak: 'break-all', userSelect: 'all' }}>
               {kioskLinkUrl(created.token)}

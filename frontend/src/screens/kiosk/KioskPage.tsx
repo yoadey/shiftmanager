@@ -285,7 +285,7 @@ export function KioskPage() {
               <div>
                 <label style={{ display: 'block' }}>
                   <div style={{ fontWeight: 700, fontSize: 16, marginBottom: 10 }}>Vor- und Nachname</div>
-                  <Input placeholder="z. B. Maximilian Mustermann" value={name} onChange={(e) => setName(e.target.value)} autoComplete="off" style={{ fontSize: 18, padding: '16px 16px' }} />
+                  <Input placeholder="z. B. Maximilian Mustermann" value={name} onChange={(e) => setName(e.target.value)} maxLength={100} autoComplete="off" style={{ fontSize: 18, padding: '16px 16px' }} />
                 </label>
                 <div style={{ display: 'flex', gap: 10, background: 'var(--surface-2)', borderRadius: 12, padding: 14, fontSize: 13.5, color: 'var(--ink-2)', fontWeight: 600, lineHeight: 1.5, margin: '16px 0' }}>
                   <Icon name="info" size={18} color="var(--info)" style={{ flexShrink: 0, marginTop: 1 }} />
@@ -299,7 +299,7 @@ export function KioskPage() {
               <div>
                 <label style={{ display: 'block' }}>
                   <div style={{ fontWeight: 700, fontSize: 16, marginBottom: 10 }}>Anzeigename</div>
-                  <Input placeholder="So erscheinst du in der Schicht" value={name} onChange={(e) => setName(e.target.value)} autoComplete="off" style={{ fontSize: 18, padding: '16px 16px' }} />
+                  <Input placeholder="So erscheinst du in der Schicht" value={name} onChange={(e) => setName(e.target.value)} maxLength={100} autoComplete="off" style={{ fontSize: 18, padding: '16px 16px' }} />
                 </label>
                 <label style={{ display: 'block', marginTop: 14 }}>
                   <div style={{ fontWeight: 700, fontSize: 16, marginBottom: 10 }}>E-Mail-Adresse</div>

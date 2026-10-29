@@ -420,10 +420,21 @@ func TestKioskRegister_MemberEmailTwiceAndMemberOnShift(t *testing.T) {
 	_, err := f.uc.KioskRegister(context.Background(), KioskRegisterInput{ShiftID: f.shift.ID, Name: "Maxi", Email: "max@example.org"})
 	require.NoError(t, err)
 
-	// A second pending entry for the same member is a duplicate.
-	_, err = f.uc.KioskRegister(context.Background(), KioskRegisterInput{ShiftID: f.shift.ID, Name: "Max M", Email: "max@example.org"})
-	assert.ErrorIs(t, err, domain.ErrAlreadyRegistered)
+	// A second pending entry for the same member adds nothing, and answers
+	// like any other e-mail entry (K-005).
+	dup, err := f.uc.KioskRegister(context.Background(), KioskRegisterInput{ShiftID: f.shift.ID, Name: "Max M", Email: "max@example.org"})
+	assert.NoError(t, err)
+	assert.Nil(t, dup)
 	assert.Len(t, f.email.sent, 1, "no second confirmation mail")
+
+	// An unknown address entered twice answers the same way, so repeating an
+	// address can't tell a member already on the shift from a guest.
+	_, err = f.uc.KioskRegister(context.Background(), KioskRegisterInput{ShiftID: f.shift.ID, Name: "Hans Gast", Email: "hans@example.org"})
+	require.NoError(t, err)
+	dup, err = f.uc.KioskRegister(context.Background(), KioskRegisterInput{ShiftID: f.shift.ID, Name: "Hans Gast", Email: "hans@example.org"})
+	assert.NoError(t, err)
+	assert.Nil(t, dup)
+	assert.Equal(t, 2, f.email.countKind("kiosk"), "one mail each to the member and the guest, none for the repeat")
 
 	// A member already on the shift: same neutral answer as an unknown address (K-005).
 	other := uuid.New()

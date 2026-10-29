@@ -1,4 +1,4 @@
-import { useQuery, useMutation } from '@tanstack/react-query';
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { apiGet, apiPost } from './client';
 import type { Event, Member } from '@/types';
 import { flatToEvent, timelineToEvent, type RawEvent, type RawTimeline } from './mappers';
@@ -91,9 +91,12 @@ export interface KioskRegisterPayload {
  * POST /kiosk/shifts/{id}/register (K-008).
  */
 export function useKioskRegister() {
+  const qc = useQueryClient();
   return useMutation({
     mutationFn: ({ shiftId, ...body }: KioskRegisterPayload) =>
       apiPost<{ message: string }>(`/kiosk/shifts/${shiftId}/register`, body),
+    // Refresh the free places before the next person picks a shift (K-008).
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['kiosk', 'events'] }),
   });
 }
 

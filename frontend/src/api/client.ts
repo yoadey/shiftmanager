@@ -11,16 +11,20 @@ const apiClient: AxiosInstance = axios.create({
 // A kiosk device is unlocked by a link with ?token=…; the token is kept in
 // this device's storage and sent with every kiosk request instead of a JWT.
 const KIOSK_TOKEN_KEY = 'sm_kiosk_token';
+// Kept in memory too: without usable storage (private mode, blocked site
+// data) the token adopted from the link still works until the next reload.
+let kioskTokenInMemory: string | null = null;
 
 export function getKioskToken(): string | null {
   try {
-    return localStorage.getItem(KIOSK_TOKEN_KEY);
+    return localStorage.getItem(KIOSK_TOKEN_KEY) ?? kioskTokenInMemory;
   } catch {
-    return null;
+    return kioskTokenInMemory;
   }
 }
 
 export function setKioskToken(token: string): void {
+  kioskTokenInMemory = token;
   try {
     localStorage.setItem(KIOSK_TOKEN_KEY, token);
   } catch {

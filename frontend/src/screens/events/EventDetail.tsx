@@ -205,6 +205,18 @@ function RegistrationRow({
       onError: () => showToast('Zuordnen fehlgeschlagen.', 'crit'),
     });
   };
+  // Assigning from the sheet runs here: the sheet unmounts when it closes,
+  // and callbacks passed to mutate() don't fire after their owner unmounts.
+  const onAssign = (memberId: string, name: string) => {
+    assign.mutate({ registrationId, memberId, eventId }, {
+      onSuccess: () => showToast(`${name} zugeordnet und per E-Mail informiert.`),
+      onError: (err) => showToast(
+        isAxiosError(err) && err.response?.status === 409 ? `${name} ist schon in dieser Schicht eingetragen.` : 'Zuordnen fehlgeschlagen.',
+        'crit',
+      ),
+    });
+    closeModal();
+  };
   const [deleteConfirm, setDeleteConfirm] = useState(false);
 
   const isConfirmed = s.status === 'bestätigt';
@@ -301,7 +313,14 @@ function RegistrationRow({
       {timeOpen && (
         <TimePickerSheet hh={hh} mm={mm} dur={dur} onSave={onTimeSave} onClose={closeModal} />
       )}
-      {assignOpen && <AssignSheet s={s} eventId={eventId} onClose={closeModal} />}
+      {assignOpen && (
+        <AssignSheet
+          s={s}
+          onShift={shift.signups.map((x) => x.memberId).filter(Boolean)}
+          onPick={onAssign}
+          onClose={closeModal}
+        />
+      )}
       {deleteConfirm && (
         <Sheet variant="dialog" onClose={() => setDeleteConfirm(false)}>
           <div style={{ textAlign: 'center', padding: '6px 4px 4px' }}>
@@ -326,33 +345,28 @@ function RegistrationRow({
 // Assigning a kiosk entry to a member (K-015): suggestions by name
 // similarity (also near misses), the member whose e-mail was entered first,
 // and a name search for anyone else.
-function AssignSheet({ s, eventId, onClose }: { s: Signup; eventId: string; onClose: () => void }) {
-  const { showToast } = useAppStore();
+function AssignSheet({
+  s, onShift, onPick, onClose,
+}: {
+  s: Signup;
+  /** Members already on the shift; assigning one of them would be refused. */
+  onShift: string[];
+  onPick: (memberId: string, name: string) => void;
+  onClose: () => void;
+}) {
   const registrationId = s.id ?? '';
   const suggestionsQ = useRegistrationSuggestions(registrationId);
-  const assign = useAssignRegistration();
   const [search, setSearch] = useState('');
   const [query, setQuery] = useState('');
   useEffect(() => {
     const t = setTimeout(() => setQuery(search), 250);
     return () => clearTimeout(t);
   }, [search]);
-  const lookupQ = useMemberLookup(query);
+  const lookupQ = useMemberLookup(query, onShift);
   const searching = search.trim().length >= 2;
 
-  const pick = (memberId: string, name: string) => {
-    assign.mutate({ registrationId, memberId, eventId }, {
-      onSuccess: () => showToast(`${name} zugeordnet und per E-Mail informiert.`),
-      onError: (err) => showToast(
-        isAxiosError(err) && err.response?.status === 409 ? `${name} ist schon in dieser Schicht eingetragen.` : 'Zuordnen fehlgeschlagen.',
-        'crit',
-      ),
-    });
-    onClose();
-  };
-
   const row = (id: string, name: string, extra?: React.ReactNode) => (
-    <button key={id} onClick={() => pick(id, name)} className="pressable"
+    <button key={id} onClick={() => onPick(id, name)} className="pressable"
       style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '10px 12px', borderRadius: 12, border: '1px solid var(--line)', background: 'var(--surface)', cursor: 'pointer', fontFamily: 'inherit', textAlign: 'left', width: '100%' }}
     >
       <div style={{ flex: 1, minWidth: 0, fontWeight: 700, fontSize: 14 }}>{name}</div>

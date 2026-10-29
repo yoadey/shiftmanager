@@ -139,7 +139,7 @@ func (uc *RegistrationUsecase) Register(ctx context.Context, actorID *uuid.UUID,
 	}
 	if input.PendingMemberID != nil {
 		if existing, err := uc.registrations.FindByMemberAndShift(ctx, *input.PendingMemberID, input.ShiftID); err == nil && existing != nil {
-			return nil, errPendingMemberOnShift
+			return nil, domain.ErrAlreadyRegistered
 		}
 		// The same member's e-mail entered twice: one pending entry is enough.
 		if regs, err := uc.registrations.FindByShiftID(ctx, input.ShiftID); err == nil {
@@ -318,12 +318,6 @@ const (
 // ErrInvalidKioskName is returned for a missing or overlong kiosk name.
 var ErrInvalidKioskName = fmt.Errorf("name must be %d to %d characters", minKioskNameLen, maxKioskNameLen)
 
-// errPendingMemberOnShift: the member whose e-mail was entered at the kiosk
-// is already registered for the shift. It wraps ErrAlreadyRegistered;
-// KioskRegister answers it like a new entry so the kiosk can't tell that the
-// address belongs to a member (K-005).
-var errPendingMemberOnShift = fmt.Errorf("%w (entered e-mail's member)", domain.ErrAlreadyRegistered)
-
 // KioskRegister registers someone from the kiosk. A typed name becomes an
 // entry for an organiser to assign; with an e-mail that belongs to an active
 // member, that member is asked to confirm instead. The result never reveals
@@ -345,8 +339,11 @@ func (uc *RegistrationUsecase) KioskRegister(ctx context.Context, in KioskRegist
 		}
 	}
 	reg, err := uc.Register(ctx, nil, input)
-	if errors.Is(err, errPendingMemberOnShift) {
-		// Nothing to add, but the same answer as for an unknown address (K-005).
+	if errors.Is(err, domain.ErrAlreadyRegistered) {
+		// Nothing to add. Every duplicate entered with an e-mail gets the
+		// same answer as a new entry: whether the address's member is already
+		// on the shift, already pending, or the address is an unknown guest's
+		// must not be told apart, not even by entering it twice (K-005).
 		return nil, nil
 	}
 	return reg, err
