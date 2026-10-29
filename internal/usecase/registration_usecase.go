@@ -262,8 +262,10 @@ func (uc *RegistrationUsecase) Deregister(ctx context.Context, actorID *uuid.UUI
 	return nil
 }
 
-// ConfirmByLink validates a one-time confirmation token and transitions the registration
-// to confirmed state.
+// ConfirmByLink validates a one-time confirmation token. The link confirms
+// the e-mail address (or, for a pending kiosk entry, the member's identity)
+// and makes a reservation binding; it never confirms attendance, which only
+// an organiser does (K-011).
 func (uc *RegistrationUsecase) ConfirmByLink(ctx context.Context, token uuid.UUID) (*domain.Registration, error) {
 	reg, err := uc.registrations.GetByToken(ctx, token)
 	if err != nil {
@@ -275,27 +277,31 @@ func (uc *RegistrationUsecase) ConfirmByLink(ctx context.Context, token uuid.UUI
 	}
 
 	// A kiosk entry with a member's e-mail: confirming means "that was me";
-	// it assigns the entry and leaves the attendance state alone (K-006).
-	// Checked before the idempotent shortcut: an organiser may already have
-	// confirmed the attendance, which must not swallow the assignment.
+	// it assigns the entry to that member (K-006).
 	if reg.PendingMemberID != nil {
-		return uc.assign(ctx, nil, reg, *reg.PendingMemberID, false)
+		return uc.assign(ctx, nil, reg, *reg.PendingMemberID, false, true)
 	}
 
-	if reg.State == domain.RegistrationStateConfirmed {
-		return reg, nil // idempotent
-	}
-
-	reg.State = domain.RegistrationStateConfirmed
+	before := *reg
+	bindReservation(reg)
 	reg.ConfirmationToken = nil // consume the token
 
 	if err := uc.registrations.Update(ctx, reg); err != nil {
 		return nil, fmt.Errorf("confirm registration: %w", err)
 	}
 
-	_ = uc.writeAudit(ctx, nil, domain.AuditActionConfirm, domain.AuditEntityRegistration, reg.ID.String(), nil, reg)
+	_ = uc.writeAudit(ctx, nil, domain.AuditActionConfirm, domain.AuditEntityRegistration, reg.ID.String(), before, reg)
 
 	return reg, nil
+}
+
+// bindReservation turns a reservation into a binding registration that no
+// longer expires (K-007, K-009); other states are left alone.
+func bindReservation(reg *domain.Registration) {
+	if reg.State == domain.RegistrationStateReserved {
+		reg.State = domain.RegistrationStateRegistered
+		reg.ReservedUntil = nil
+	}
 }
 
 // KioskRegisterInput is a self-service kiosk registration: a member picked
@@ -357,12 +363,13 @@ func (uc *RegistrationUsecase) AssignRegistration(ctx context.Context, actorID, 
 		return nil, err
 	}
 	aid := actorID
-	return uc.assign(ctx, &aid, reg, memberID, true)
+	return uc.assign(ctx, &aid, reg, memberID, true, false)
 }
 
 // assign links reg to memberID, clearing the kiosk/guest fields. notify sends
-// the member an e-mail (not needed when they confirmed themselves).
-func (uc *RegistrationUsecase) assign(ctx context.Context, actorID *uuid.UUID, reg *domain.Registration, memberID uuid.UUID, notify bool) (*domain.Registration, error) {
+// the member an e-mail (not needed when they confirmed themselves); bind makes
+// a reservation binding (only the member's own link confirmation does).
+func (uc *RegistrationUsecase) assign(ctx context.Context, actorID *uuid.UUID, reg *domain.Registration, memberID uuid.UUID, notify, bind bool) (*domain.Registration, error) {
 	if reg.MemberID != nil {
 		return nil, domain.ErrRegistrationAssigned
 	}
@@ -384,6 +391,9 @@ func (uc *RegistrationUsecase) assign(ctx context.Context, actorID *uuid.UUID, r
 	reg.PendingMemberID = nil
 	reg.SelfRegistered = false
 	reg.ConfirmationToken = nil
+	if bind {
+		bindReservation(reg)
+	}
 	if err := uc.registrations.Update(ctx, reg); err != nil {
 		return nil, fmt.Errorf("assign registration: %w", err)
 	}

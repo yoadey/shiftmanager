@@ -167,13 +167,25 @@ func TestConfirmByLink(t *testing.T) {
 
 	reg, err := f.uc.ConfirmByLink(context.Background(), token)
 	require.NoError(t, err)
-	assert.Equal(t, domain.RegistrationStateConfirmed, reg.State)
+	assert.Equal(t, domain.RegistrationStateRegistered, reg.State, "a link never confirms attendance (K-011)")
 	assert.Nil(t, reg.ConfirmationToken)
 	assert.True(t, f.audit.has(domain.AuditActionConfirm, domain.AuditEntityRegistration))
 
 	// Token consumed -> invalid now.
 	_, err = f.uc.ConfirmByLink(context.Background(), token)
 	assert.ErrorIs(t, err, domain.ErrInvalidToken)
+}
+
+func TestConfirmByLink_MakesReservationBinding(t *testing.T) {
+	f := newRegFixture(5)
+	token := uuid.New()
+	future := time.Now().UTC().Add(time.Hour)
+	f.regs.add(&domain.Registration{ID: uuid.New(), ShiftID: f.shift.ID, State: domain.RegistrationStateReserved, ReservedUntil: &future, ConfirmationToken: &token})
+
+	reg, err := f.uc.ConfirmByLink(context.Background(), token)
+	require.NoError(t, err)
+	assert.Equal(t, domain.RegistrationStateRegistered, reg.State)
+	assert.Nil(t, reg.ReservedUntil, "a binding registration no longer expires (K-009)")
 }
 
 func TestConfirmByLink_ExpiredReservation(t *testing.T) {
@@ -411,6 +423,38 @@ func TestKioskRegister_PendingEntryAssignsEvenAfterOrganiserConfirmed(t *testing
 	require.NotNil(t, confirmed.MemberID, "the link still assigns the entry (K-006)")
 	assert.Equal(t, memberID, *confirmed.MemberID)
 	assert.Equal(t, domain.RegistrationStateConfirmed, confirmed.State)
+}
+
+func TestKioskRegister_PendingReservationBindingOnConfirm(t *testing.T) {
+	f := newRegFixture(1)
+	memberID := uuid.New()
+	f.members.add(&domain.Member{ID: memberID, Email: "max@example.org", FirstName: "Max", LastName: "Mustermann", IsActive: true})
+	_, err := f.uc.KioskRegister(context.Background(), KioskRegisterInput{ShiftID: f.shift.ID, Name: "Erika Beispiel"})
+	require.NoError(t, err)
+	reg, err := f.uc.KioskRegister(context.Background(), KioskRegisterInput{ShiftID: f.shift.ID, Name: "Maxi", Email: "max@example.org"})
+	require.NoError(t, err)
+	require.Equal(t, domain.RegistrationStateReserved, reg.State, "shift is full")
+
+	confirmed, err := f.uc.ConfirmByLink(context.Background(), *reg.ConfirmationToken)
+	require.NoError(t, err)
+	require.NotNil(t, confirmed.MemberID)
+	assert.Equal(t, domain.RegistrationStateRegistered, confirmed.State)
+	assert.Nil(t, confirmed.ReservedUntil, "the member confirmed, so the reservation must not expire (K-006)")
+}
+
+func TestKioskRegister_GuestLinkThenAssignCreditsNoHours(t *testing.T) {
+	f := newRegFixture(5)
+	memberID := uuid.New()
+	f.members.add(&domain.Member{ID: memberID, Email: "hans@verein.de", FirstName: "Hans", LastName: "Gast", IsActive: true})
+	reg, err := f.uc.KioskRegister(context.Background(), KioskRegisterInput{ShiftID: f.shift.ID, Name: "Hans Gast", Email: "hans.privat@example.org"})
+	require.NoError(t, err)
+	require.Nil(t, reg.PendingMemberID)
+
+	_, err = f.uc.ConfirmByLink(context.Background(), *reg.ConfirmationToken)
+	require.NoError(t, err)
+	assigned, err := f.uc.AssignRegistration(context.Background(), uuid.New(), reg.ID, memberID)
+	require.NoError(t, err)
+	assert.Equal(t, domain.RegistrationStateRegistered, assigned.State, "attendance is confirmed by an organiser only (K-007)")
 }
 
 func TestKioskRegister_MemberEmailTwiceAndMemberOnShift(t *testing.T) {
