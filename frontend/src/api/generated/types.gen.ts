@@ -145,7 +145,23 @@ export type Signup = {
   id: Uuid;
   memberId: Uuid;
   state: string;
+  /**
+   * Empty on other people's signups below Veranstaltungsleiter
+   */
   comment?: string;
+  /**
+   * Name to show for this signup to the caller, per name mode (full for Veranstaltungsleiter+ and for the caller's own signup).
+   */
+  displayName?: string;
+  /**
+   * Kiosk entry still to be assigned (Veranstaltungsleiter+ only)
+   */
+  selfRegistered?: boolean;
+  pendingMemberId?: Uuid;
+  /**
+   * Veranstaltungsleiter+ only
+   */
+  pendingMemberName?: string;
 };
 
 export type ShiftDay = {
@@ -180,11 +196,48 @@ export type RegisterShiftRequest = {
 
 export type KioskRegisterRequest = {
   /**
-   * Guest e-mail address
+   * Full name, or display name with an e-mail (required unless memberId)
+   */
+  name?: string;
+  /**
+   * Optional e-mail; a member's address gets a confirmation request
    */
   email?: string;
   memberId?: Uuid;
   comment?: string;
+};
+
+export type KioskConfig = {
+  kioskSearch: boolean;
+  clubName?: string;
+  logoUrl?: string;
+  primaryColor?: string;
+};
+
+export type KioskLink = {
+  id: Uuid;
+  label: string;
+  createdBy?: Uuid;
+  createdAt: string;
+  expiresAt: string;
+  revokedAt?: string;
+  /**
+   * Only in the response to its creation
+   */
+  token?: string;
+};
+
+export type MemberSuggestion = {
+  id: Uuid;
+  name: string;
+  /**
+   * Name similarity 0..1
+   */
+  score: number;
+  /**
+   * The member whose e-mail was entered at the kiosk
+   */
+  pending?: boolean;
 };
 
 export type ConfirmResult = {
@@ -212,10 +265,20 @@ export type HourEntry = {
   shiftName?: string;
 };
 
+export type MemberName = {
+  id: Uuid;
+  name: string;
+};
+
 export type MemberHourAccount = {
   confirmed: number;
   reserved: number;
   goal: number;
+  clubYearLabel?: string;
+  /**
+   * Compensation fee in euro cents due if the member works no further hours this club year. Omitted when no fee tiers are configured.
+   */
+  openFeeCents?: number;
   entries: Array<HourEntry>;
 };
 
@@ -603,6 +666,10 @@ export type ExportMembersErrors = {
    * Missing or invalid JWT
    */
   401: ErrorResponse;
+  /**
+   * Insufficient role
+   */
+  403: ErrorResponse;
 };
 
 export type ExportMembersError = ExportMembersErrors[keyof ExportMembersErrors];
@@ -616,6 +683,46 @@ export type ExportMembersResponses = {
 
 export type ExportMembersResponse =
   ExportMembersResponses[keyof ExportMembersResponses];
+
+export type LookupMembersData = {
+  body?: never;
+  path?: never;
+  query: {
+    q: string;
+    /**
+     * Member ids to leave out before the 20-result limit applies (e.g. helpers already on the shift); repeat the parameter per id, at most 500
+     */
+    exclude?: Array<Uuid>;
+  };
+  url: "/members/lookup";
+};
+
+export type LookupMembersErrors = {
+  /**
+   * Invalid request
+   */
+  400: ErrorResponse;
+  /**
+   * Missing or invalid JWT
+   */
+  401: ErrorResponse;
+  /**
+   * Insufficient role
+   */
+  403: ErrorResponse;
+};
+
+export type LookupMembersError = LookupMembersErrors[keyof LookupMembersErrors];
+
+export type LookupMembersResponses = {
+  /**
+   * Up to 20 matching members
+   */
+  200: Array<MemberName>;
+};
+
+export type LookupMembersResponse =
+  LookupMembersResponses[keyof LookupMembersResponses];
 
 export type UpdateMyPreferencesData = {
   body: MemberPreferences;
@@ -691,6 +798,10 @@ export type GetMemberErrors = {
    * Missing or invalid JWT
    */
   401: ErrorResponse;
+  /**
+   * Insufficient role
+   */
+  403: ErrorResponse;
   /**
    * Resource not found
    */
@@ -814,8 +925,26 @@ export type ListEventsData = {
   query?: {
     status?: EventStatus;
     visibility?: EventVisibility;
+    category?: string;
+    /**
+     * Events ending on or after this day
+     */
     from?: string;
+    /**
+     * Events starting on or before this day (inclusive)
+     */
     to?: string;
+    /**
+     * Only events with at least one shift that still has a free place (unlimited, or fewer registered/reserved/confirmed helpers than its maximum)
+     */
+    freeSlots?: boolean;
+    /**
+     * Sort by start date
+     */
+    order?: "asc" | "desc";
+    /**
+     * Page size; 0 returns all matches
+     */
     limit?: number;
     offset?: number;
   };
@@ -823,6 +952,10 @@ export type ListEventsData = {
 };
 
 export type ListEventsErrors = {
+  /**
+   * Invalid request
+   */
+  400: ErrorResponse;
   /**
    * Missing or invalid JWT
    */
@@ -1496,6 +1629,10 @@ export type GetMemberAccountErrors = {
    * Missing or invalid JWT
    */
   401: ErrorResponse;
+  /**
+   * Insufficient role
+   */
+  403: ErrorResponse;
 };
 
 export type GetMemberAccountError =
@@ -1621,6 +1758,10 @@ export type GetMemberHoursErrors = {
    * Missing or invalid JWT
    */
   401: ErrorResponse;
+  /**
+   * Insufficient role
+   */
+  403: ErrorResponse;
 };
 
 export type GetMemberHoursError =
@@ -2293,6 +2434,197 @@ export type ExportBillingPdfResponses = {
 export type ExportBillingPdfResponse =
   ExportBillingPdfResponses[keyof ExportBillingPdfResponses];
 
+export type ListKioskLinksData = {
+  body?: never;
+  path?: never;
+  query?: never;
+  url: "/settings/kiosk-links";
+};
+
+export type ListKioskLinksErrors = {
+  /**
+   * Missing or invalid JWT
+   */
+  401: ErrorResponse;
+  /**
+   * Insufficient role
+   */
+  403: ErrorResponse;
+};
+
+export type ListKioskLinksError =
+  ListKioskLinksErrors[keyof ListKioskLinksErrors];
+
+export type ListKioskLinksResponses = {
+  /**
+   * Kiosk links, newest first
+   */
+  200: Array<KioskLink>;
+};
+
+export type ListKioskLinksResponse =
+  ListKioskLinksResponses[keyof ListKioskLinksResponses];
+
+export type CreateKioskLinkData = {
+  body: {
+    label?: string;
+    validDays: number;
+  };
+  path?: never;
+  query?: never;
+  url: "/settings/kiosk-links";
+};
+
+export type CreateKioskLinkErrors = {
+  /**
+   * Invalid request
+   */
+  400: ErrorResponse;
+  /**
+   * Missing or invalid JWT
+   */
+  401: ErrorResponse;
+  /**
+   * Insufficient role
+   */
+  403: ErrorResponse;
+};
+
+export type CreateKioskLinkError =
+  CreateKioskLinkErrors[keyof CreateKioskLinkErrors];
+
+export type CreateKioskLinkResponses = {
+  /**
+   * Created link including its token
+   */
+  201: KioskLink;
+};
+
+export type CreateKioskLinkResponse =
+  CreateKioskLinkResponses[keyof CreateKioskLinkResponses];
+
+export type RevokeKioskLinkData = {
+  body?: never;
+  path: {
+    id: Uuid;
+  };
+  query?: never;
+  url: "/settings/kiosk-links/{id}";
+};
+
+export type RevokeKioskLinkErrors = {
+  /**
+   * Missing or invalid JWT
+   */
+  401: ErrorResponse;
+  /**
+   * Insufficient role
+   */
+  403: ErrorResponse;
+  /**
+   * Resource not found
+   */
+  404: ErrorResponse;
+};
+
+export type RevokeKioskLinkError =
+  RevokeKioskLinkErrors[keyof RevokeKioskLinkErrors];
+
+export type RevokeKioskLinkResponses = {
+  /**
+   * Revoked
+   */
+  204: void;
+};
+
+export type RevokeKioskLinkResponse =
+  RevokeKioskLinkResponses[keyof RevokeKioskLinkResponses];
+
+export type SuggestRegistrationMembersData = {
+  body?: never;
+  path: {
+    id: Uuid;
+  };
+  query?: never;
+  url: "/registrations/{id}/suggestions";
+};
+
+export type SuggestRegistrationMembersErrors = {
+  /**
+   * Missing or invalid JWT
+   */
+  401: ErrorResponse;
+  /**
+   * Insufficient role
+   */
+  403: ErrorResponse;
+  /**
+   * Resource not found
+   */
+  404: ErrorResponse;
+  /**
+   * Already assigned
+   */
+  409: unknown;
+};
+
+export type SuggestRegistrationMembersError =
+  SuggestRegistrationMembersErrors[keyof SuggestRegistrationMembersErrors];
+
+export type SuggestRegistrationMembersResponses = {
+  /**
+   * Up to 5 suggestions, the pending member first
+   */
+  200: Array<MemberSuggestion>;
+};
+
+export type SuggestRegistrationMembersResponse =
+  SuggestRegistrationMembersResponses[keyof SuggestRegistrationMembersResponses];
+
+export type AssignRegistrationData = {
+  body: {
+    memberId: Uuid;
+  };
+  path: {
+    id: Uuid;
+  };
+  query?: never;
+  url: "/registrations/{id}/assign";
+};
+
+export type AssignRegistrationErrors = {
+  /**
+   * Invalid request
+   */
+  400: ErrorResponse;
+  /**
+   * Missing or invalid JWT
+   */
+  401: ErrorResponse;
+  /**
+   * Insufficient role
+   */
+  403: ErrorResponse;
+  /**
+   * Resource not found
+   */
+  404: ErrorResponse;
+  /**
+   * Already assigned
+   */
+  409: unknown;
+};
+
+export type AssignRegistrationError =
+  AssignRegistrationErrors[keyof AssignRegistrationErrors];
+
+export type AssignRegistrationResponses = {
+  /**
+   * Assigned registration
+   */
+  200: unknown;
+};
+
 export type ListKioskEventsData = {
   body?: never;
   path?: never;
@@ -2301,6 +2633,10 @@ export type ListKioskEventsData = {
 };
 
 export type ListKioskEventsErrors = {
+  /**
+   * Missing or invalid kiosk link token
+   */
+  401: unknown;
   /**
    * Kiosk locked
    */
@@ -2327,6 +2663,10 @@ export type GetKioskEventTimelineData = {
 };
 
 export type GetKioskEventTimelineErrors = {
+  /**
+   * Missing or invalid kiosk link token
+   */
+  401: unknown;
   /**
    * Kiosk locked
    */
@@ -2365,7 +2705,11 @@ export type SearchKioskMembersErrors = {
    */
   400: ErrorResponse;
   /**
-   * Kiosk locked
+   * Missing or invalid kiosk link token
+   */
+  401: unknown;
+  /**
+   * Kiosk locked or member search disabled
    */
   403: unknown;
 };
@@ -2377,7 +2721,7 @@ export type SearchKioskMembersResponses = {
   /**
    * Matching members
    */
-  200: Array<Member>;
+  200: Array<MemberName>;
 };
 
 export type SearchKioskMembersResponse =
@@ -2394,6 +2738,14 @@ export type KioskRegisterData = {
 
 export type KioskRegisterErrors = {
   /**
+   * Invalid request
+   */
+  400: ErrorResponse;
+  /**
+   * Missing or invalid kiosk link token
+   */
+  401: unknown;
+  /**
    * Kiosk locked
    */
   403: unknown;
@@ -2407,6 +2759,8 @@ export type KioskRegisterErrors = {
   422: unknown;
 };
 
+export type KioskRegisterError = KioskRegisterErrors[keyof KioskRegisterErrors];
+
 export type KioskRegisterResponses = {
   /**
    * Registration pending email confirmation
@@ -2416,6 +2770,34 @@ export type KioskRegisterResponses = {
 
 export type KioskRegisterResponse =
   KioskRegisterResponses[keyof KioskRegisterResponses];
+
+export type GetKioskConfigData = {
+  body?: never;
+  path?: never;
+  query?: never;
+  url: "/kiosk/config";
+};
+
+export type GetKioskConfigErrors = {
+  /**
+   * Missing or invalid kiosk link token
+   */
+  401: unknown;
+  /**
+   * Kiosk locked
+   */
+  403: unknown;
+};
+
+export type GetKioskConfigResponses = {
+  /**
+   * Kiosk configuration
+   */
+  200: KioskConfig;
+};
+
+export type GetKioskConfigResponse =
+  GetKioskConfigResponses[keyof GetKioskConfigResponses];
 
 export type ConfirmKioskRegistrationData = {
   body?: never;

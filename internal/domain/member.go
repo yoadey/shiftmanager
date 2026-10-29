@@ -84,6 +84,13 @@ func (m *Member) DisplayName(mode NameMode) string {
 	}
 }
 
+// MemberName is the minimal view of a member — id and the name to show —
+// for contexts that must not expose any other member data (ML-014, K-003).
+type MemberName struct {
+	ID   uuid.UUID `json:"id"`
+	Name string    `json:"name"`
+}
+
 // DisplayNameFor returns the member's name as it should be shown to the given viewer.
 // Per NM-002 the full name is always returned when:
 //   - the viewer is looking at their own name (viewerID == member.ID), or
@@ -120,6 +127,17 @@ func (m *Member) Abbreviate() string {
 		return fmt.Sprintf("%s.", initial)
 	}
 	return fmt.Sprintf("%s %s.", m.FirstName, initial)
+}
+
+// AbbreviateName shortens a free-text full name such as a guest's
+// ("Hans Peter Müller") to the NM-002 format ("Hans Peter M.").
+func AbbreviateName(full string) string {
+	parts := strings.Fields(full)
+	if len(parts) < 2 {
+		return strings.Join(parts, " ")
+	}
+	m := Member{FirstName: strings.Join(parts[:len(parts)-1], " "), LastName: parts[len(parts)-1]}
+	return m.Abbreviate()
 }
 
 // Activate marks the member as active.

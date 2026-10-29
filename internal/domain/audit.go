@@ -41,6 +41,8 @@ const (
 	AuditActionGDPRDelete = "gdpr_delete"
 	AuditActionResend     = "resend"
 	AuditActionCarryOver  = "carry_over"
+	AuditActionAssign     = "assign"
+	AuditActionRevoke     = "revoke"
 )
 
 // Common audit entity constants.
@@ -58,6 +60,7 @@ const (
 	AuditEntityEmailTemplate = "email_template"
 	AuditEntityEmailLog      = "email_log"
 	AuditEntityLogo          = "logo"
+	AuditEntityKioskLink     = "kiosk_link"
 )
 
 // NewAuditEntry creates an audit entry with a new UUID and current timestamp.

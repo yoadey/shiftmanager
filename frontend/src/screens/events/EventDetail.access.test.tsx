@@ -1,4 +1,4 @@
-import { describe, it, expect, vi } from 'vitest';
+import { describe, it, expect, vi, afterEach, beforeEach } from 'vitest';
 import { render, screen, fireEvent } from '@testing-library/react';
 import { MemoryRouter, Routes, Route, useLocation } from 'react-router-dom';
 import { useAuthStore } from '@/store/auth.store';
@@ -23,12 +23,14 @@ const fixtureEvent: Event = {
       shifts: [
         {
           id: 's1', name: 'Aufbau', start: '14:00', end: '18:00', min: 2, max: 5,
-          signups: [{ id: 'reg1', memberId: 'm1', status: 'angemeldet' }],
+          signups: [{ id: 'reg1', memberId: 'm1', status: 'angemeldet', name: 'Max M.' }],
         },
       ],
     },
   ],
 };
+
+let attachmentsData: { id: string; eventId: string; fileName: string; url: string; contentType: string; sizeBytes: number; uploadedAt: string }[] = [];
 
 vi.mock('@/api/events', () => ({
   useEvent: () => ({ data: fixtureEvent, isLoading: false, isError: false }),
@@ -36,7 +38,7 @@ vi.mock('@/api/events', () => ({
   useUpdateEvent: () => ({ mutate: vi.fn(), mutateAsync: vi.fn(), isPending: false }),
   useDeleteEvent: () => ({ mutate: vi.fn(), isPending: false }),
   useCompleteEvent: () => ({ mutate: vi.fn(), isPending: false }),
-  useEventAttachments: () => ({ data: [] }),
+  useEventAttachments: () => ({ data: attachmentsData }),
   useUploadEventAttachment: () => ({ mutate: vi.fn(), isPending: false }),
   useDeleteEventAttachment: () => ({ mutate: vi.fn(), isPending: false }),
   useUploadEventHeaderImage: () => ({ mutate: vi.fn(), isPending: false }),
@@ -53,10 +55,22 @@ vi.mock('@/api/shifts', () => ({
   useForceDeleteRegistration: () => ({ mutate: vi.fn() }),
   useAddMemberToShift: () => ({ mutate: vi.fn() }),
   useAddGuestToShift: () => ({ mutate: vi.fn() }),
+  useRegistrationSuggestions: () => ({
+    data: [{ id: 'm9', name: 'Maximilian Mustermann', score: 0.86 }, { id: 'm1', name: 'Max Mustermann', score: 1, pending: true }],
+    isLoading: false,
+  }),
+  useAssignRegistration: () => ({ mutate: assignMutate, isPending: false }),
 }));
 
+const lookupCalls: { q: string; exclude: string[] }[] = [];
+const assignMutate = vi.fn();
 vi.mock('@/api/members', () => ({
-  useMembers: () => ({ data: [] }),
+  // Like the server: helpers in `exclude` never come back.
+  useMemberLookup: (q: string, exclude: string[] = []) => {
+    lookupCalls.push({ q, exclude });
+    const all = [{ id: 'm1', name: 'Max Mustermann' }, { id: 'm2', name: 'Maria Musterfrau' }];
+    return { data: q.length >= 2 ? all.filter((m) => !exclude.includes(m.id)) : undefined, isFetching: false };
+  },
 }));
 
 vi.mock('@/api/settings', () => ({
@@ -120,17 +134,152 @@ describe('EventDetail board-only sheets via direct URL', () => {
   });
 });
 
+// Members see only the helpers' names per shift (SC-011); organisers search
+// helpers by name instead of loading the member list (ML-014).
+describe('EventDetail helper names', () => {
+  it('shows a plain member the names of the helpers in each shift', async () => {
+    setRole('mitglied');
+    renderAt('/events/e1');
+    expect(await screen.findByTestId('helper-names')).toHaveTextContent('Max M.');
+  });
+
+  it('shows the organiser the helpers and "Helfer hinzufügen" right away (SC-012)', async () => {
+    setRole('veranstaltungsleiter');
+    renderAt('/events/e1');
+    expect(await screen.findByTestId('registrations')).toHaveTextContent('Max M.');
+    expect(screen.queryByTestId('helper-names')).not.toBeInTheDocument();
+    expect(screen.queryByText(/eingetragen/)).not.toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /Helfer hinzufügen/ })).toHaveClass('primary');
+  });
+
+  it('searches helpers by name and hides those already in the shift', async () => {
+    setRole('veranstaltungsleiter');
+    lookupCalls.length = 0;
+    renderAt('/events/e1/helfer/s1');
+    expect(await screen.findByText('Mindestens zwei Buchstaben eingeben.')).toBeInTheDocument();
+    fireEvent.change(screen.getByPlaceholderText('Name oder E-Mail…'), { target: { value: 'mus' } });
+    expect(await screen.findByText('Maria Musterfrau')).toBeInTheDocument();
+    expect(screen.queryByText('Max Mustermann')).not.toBeInTheDocument();
+    expect(lookupCalls).toContainEqual({ q: 'mus', exclude: ['m1'] });
+  });
+});
+
+// Kiosk entries waiting for assignment (K-014, K-015, K-006).
+describe('EventDetail kiosk entries', () => {
+  const kioskSignups = [
+    { id: 'reg2', memberId: '', status: 'angemeldet' as const, name: 'Erika Musterfrau', selfRegistered: true },
+    { id: 'reg3', memberId: '', status: 'angemeldet' as const, name: 'Maxi', selfRegistered: true, pendingMemberId: 'm1', pendingMemberName: 'Max Mustermann' },
+  ];
+  beforeEach(() => {
+    assignMutate.mockClear();
+    fixtureEvent.days[0].shifts[0].signups = [{ id: 'reg1', memberId: 'm1', status: 'angemeldet', name: 'Max M.' }, ...kioskSignups];
+  });
+  afterEach(() => {
+    fixtureEvent.days[0].shifts[0].signups = [{ id: 'reg1', memberId: 'm1', status: 'angemeldet', name: 'Max M.' }];
+  });
+
+  it('marks open and pending kiosk entries for organisers', async () => {
+    setRole('veranstaltungsleiter');
+    renderAt('/events/e1');
+    const badges = await screen.findAllByTestId('assignment-badge');
+    expect(badges.map((b) => b.textContent)).toEqual(['Zuordnung offen', 'Bestätigung ausstehend · Max Mustermann']);
+    expect(screen.getAllByRole('button', { name: 'Zuordnen' })).toHaveLength(2);
+  });
+
+  it('confirms a pending entry by assigning the member asked', async () => {
+    setRole('veranstaltungsleiter');
+    renderAt('/events/e1');
+    fireEvent.click(await screen.findByRole('button', { name: 'Bestätigen' }));
+    expect(assignMutate).toHaveBeenCalledWith({ registrationId: 'reg3', memberId: 'm1', eventId: 'e1' }, expect.anything());
+  });
+
+  it('assigns from the suggestions, the member with the matching e-mail flagged', async () => {
+    setRole('veranstaltungsleiter');
+    renderAt('/events/e1/zuordnen/reg2');
+    const list = await screen.findByTestId('suggestions');
+    expect(list).toHaveTextContent('Maximilian Mustermann');
+    expect(list).toHaveTextContent('86 %');
+    expect(list).toHaveTextContent('E-Mail passt');
+    fireEvent.click(screen.getByRole('button', { name: /Maximilian Mustermann/ }));
+    expect(assignMutate).toHaveBeenCalledWith({ registrationId: 'reg2', memberId: 'm9', eventId: 'e1' }, expect.anything());
+  });
+
+  it('shows plain members only the names, no assignment controls', async () => {
+    setRole('mitglied');
+    renderAt('/events/e1/zuordnen/reg2');
+    expect(await screen.findByTestId('helper-names')).toHaveTextContent('Erika Musterfrau');
+    expect(screen.queryByTestId('assignment-badge')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('suggestions')).not.toBeInTheDocument();
+  });
+});
+
+// Compact event view (V-008, V-011).
+describe('EventDetail compact view', () => {
+  afterEach(() => {
+    attachmentsData = [];
+    vi.restoreAllMocks();
+  });
+
+  it('shows no summary tiles and no empty attachments section', async () => {
+    setRole('veranstaltungsleiter');
+    renderAt('/events/e1');
+    await screen.findByText('Sommerfest');
+    expect(screen.queryByText('Freie Plätze')).not.toBeInTheDocument();
+    expect(screen.queryByText('Tag')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('attachments')).not.toBeInTheDocument();
+    // The single-day badge above the shifts is labelled "Schichten" (not "Programm").
+    expect(screen.getByText('Schichten')).toHaveClass('tl-daybadge');
+  });
+
+  it('lists existing attachments read-only in the view, editable on the edit page', async () => {
+    attachmentsData = [{ id: 'a1', eventId: 'e1', fileName: 'plan.pdf', url: '/uploads/plan.pdf', contentType: 'application/pdf', sizeBytes: 1, uploadedAt: '' }];
+    setRole('veranstaltungsleiter');
+    const { unmount } = renderAt('/events/e1');
+    expect(await screen.findByTestId('attachments')).toHaveTextContent('plan.pdf');
+    expect(screen.queryByTitle('Anhang entfernen')).not.toBeInTheDocument();
+    expect(screen.queryByText('Bild oder Datei anhängen')).not.toBeInTheDocument();
+    unmount();
+
+    renderAt('/events/e1/bearbeiten');
+    expect(await screen.findByText('Bild oder Datei anhängen')).toBeInTheDocument();
+    expect(screen.getByTitle('Anhang entfernen')).toBeInTheDocument();
+  });
+
+  it('collapses a long description to its first lines until expanded', async () => {
+    vi.spyOn(HTMLElement.prototype, 'scrollHeight', 'get').mockReturnValue(400);
+    setRole('mitglied');
+    renderAt('/events/e1');
+    const body = await screen.findByTestId('event-description');
+    expect(screen.getByRole('region', { name: 'Beschreibung' })).toBeInTheDocument();
+    expect(body.style.maxHeight).not.toBe('');
+
+    fireEvent.click(screen.getByRole('button', { name: /Mehr anzeigen/ }));
+    expect(body.style.maxHeight).toBe('');
+    fireEvent.click(screen.getByRole('button', { name: /Weniger anzeigen/ }));
+    expect(body.style.maxHeight).not.toBe('');
+  });
+
+  it('shows a short description in full without a toggle', async () => {
+    setRole('mitglied');
+    renderAt('/events/e1');
+    const body = await screen.findByTestId('event-description');
+    expect(body.style.maxHeight).toBe('');
+    expect(screen.queryByRole('button', { name: /Mehr anzeigen/ })).not.toBeInTheDocument();
+  });
+});
+
 // Regression coverage for a second bug: App.tsx keys the screen's
 // ErrorBoundary on the URL so it resets when navigating to a genuinely
 // different screen, but it used to key on the *full* pathname — including a
 // modal's own sub-route. That forced a full remount of EventDetail on every
 // click that opens a route-backed sheet, wiping local UI state the sheet
-// depends on. "Zeit bearbeiten" was the visible casualty: it lives inside
-// the registrant list's expand toggle (local state, not URL-derived), so
-// clicking it navigated to /events/:id/zeit/:signupId, which remounted the
-// list collapsed again — and the popup that navigation was supposed to open
-// never appeared. Reproduced here by wrapping EventDetail the same way
-// App.tsx does: a key derived from the first two path segments only.
+// depends on. "Zeit bearbeiten" was the visible casualty: it then lived
+// inside the registrant list's expand toggle (local state, not URL-derived),
+// so clicking it navigated to /events/:id/zeit/:signupId, which remounted
+// the list collapsed again — and the popup never appeared. The list is now
+// always visible, but the tests still guard against the remount. Reproduced
+// by wrapping EventDetail the same way App.tsx does: a key derived from the
+// first two path segments only.
 function AppShellLike() {
   const location = useLocation();
   const navKey = location.pathname.split('/').filter(Boolean).slice(0, 2).join('/') || 'home';
@@ -152,14 +301,13 @@ describe('EventDetail click-through under the app-level remount key', () => {
       </MemoryRouter>,
     );
 
-    fireEvent.click(await screen.findByText(/eingetragen/));
     fireEvent.click(await screen.findByTitle('Zeit bearbeiten'));
 
     // The time picker's "Übernehmen" save button only exists once it's open.
     expect(await screen.findByText('Übernehmen')).toBeInTheDocument();
   });
 
-  it('keeps the registrant list expanded after closing the time-edit sheet', async () => {
+  it('keeps the registrant list visible after closing the time-edit sheet', async () => {
     setRole('veranstaltungsleiter');
     render(
       <MemoryRouter initialEntries={['/events/e1']}>
@@ -169,14 +317,11 @@ describe('EventDetail click-through under the app-level remount key', () => {
       </MemoryRouter>,
     );
 
-    fireEvent.click(await screen.findByText(/eingetragen/));
     fireEvent.click(await screen.findByTitle('Zeit bearbeiten'));
     fireEvent.click(await screen.findByText('Abbrechen'));
 
-    // Closing the sheet navigates back to /events/e1. If that remounts the
-    // shift row (the old, full-pathname remount key), the registrant list's
-    // local expand state is lost and collapses — even though the user never
-    // asked for that.
+    // Closing the sheet navigates back to /events/e1; the registrant list
+    // must still be there.
     expect(screen.queryByText('Übernehmen')).not.toBeInTheDocument();
     expect(await screen.findByTitle('Zeit bearbeiten')).toBeInTheDocument();
   });

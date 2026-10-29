@@ -1,7 +1,9 @@
 package handler
 
 import (
+	"errors"
 	"net/http"
+	"strconv"
 	"time"
 
 	"github.com/go-chi/chi/v5"
@@ -25,40 +27,72 @@ func NewEventHandler(uc *usecase.EventUsecase, storage port.MediaStorage) *Event
 	return &EventHandler{uc: uc, storage: storage}
 }
 
-// List returns events filtered by status, date range, etc.
+// List returns a page of events. Query parameters: status, visibility,
+// category, from/to (YYYY-MM-DD, both inclusive), freeSlots=true (only events
+// with a shift that still has a free place), order (asc|desc by start date,
+// default desc), limit (default 50, 0 = all), offset. The total number of
+// matches is returned in the X-Total-Count header.
 // GET /api/v1/events
 func (h *EventHandler) List(w http.ResponseWriter, r *http.Request) {
+	limit, limitOK := parseNonNegativeIntQuery(r, "limit", 50)
+	offset, offsetOK := parseNonNegativeIntQuery(r, "offset", 0)
+	if !limitOK || !offsetOK {
+		writeError(w, http.StatusBadRequest, "limit and offset must be non-negative integers")
+		return
+	}
+	q := r.URL.Query()
 	filter := port.EventFilter{
-		Limit:  parseIntQuery(r, "limit", 50),
-		Offset: parseIntQuery(r, "offset", 0),
+		Limit:     limit,
+		Offset:    offset,
+		Category:  q.Get("category"),
+		FreeSlots: q.Get("freeSlots") == "true",
+		// Members never see drafts (V-006); organisers manage them.
+		ExcludeDrafts: !domain.HasRole(middleware.GetUserRole(r.Context()), domain.RoleVeranstaltungsleiter),
 	}
 
-	if s := r.URL.Query().Get("status"); s != "" {
+	switch q.Get("order") {
+	case "", "desc":
+	case "asc":
+		filter.Ascending = true
+	default:
+		writeError(w, http.StatusBadRequest, "order must be asc or desc")
+		return
+	}
+	if s := q.Get("status"); s != "" {
 		st := domain.EventStatus(s)
 		filter.Status = &st
 	}
-	if v := r.URL.Query().Get("visibility"); v != "" {
+	if v := q.Get("visibility"); v != "" {
 		vis := domain.EventVisibility(v)
 		filter.Visibility = &vis
 	}
-	if from := r.URL.Query().Get("from"); from != "" {
+	if from := q.Get("from"); from != "" {
 		t, err := time.Parse("2006-01-02", from)
-		if err == nil {
-			filter.FromDate = &t
+		if err != nil {
+			writeError(w, http.StatusBadRequest, "from must be a date (YYYY-MM-DD)")
+			return
 		}
+		filter.FromDate = &t
 	}
-	if to := r.URL.Query().Get("to"); to != "" {
+	if to := q.Get("to"); to != "" {
 		t, err := time.Parse("2006-01-02", to)
-		if err == nil {
-			filter.ToDate = &t
+		if err != nil {
+			writeError(w, http.StatusBadRequest, "to must be a date (YYYY-MM-DD)")
+			return
 		}
+		// Inclusive: everything starting on the "to" day counts.
+		end := t.AddDate(0, 0, 1)
+		filter.ToDate = &end
 	}
 
-	events, err := h.uc.ListEvents(r.Context(), filter)
+	events, total, err := h.uc.ListEvents(r.Context(), filter)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
+	// The body stays a plain array; the total travels in a header, as for
+	// the member list.
+	w.Header().Set("X-Total-Count", strconv.Itoa(total))
 	writeJSON(w, http.StatusOK, events)
 }
 
@@ -107,9 +141,13 @@ func (h *EventHandler) GetWithTimeline(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	timeline, err := h.uc.GetEventTimeline(r.Context(), id)
-	if err != nil {
+	timeline, err := h.uc.GetEventTimelineFor(r.Context(), id, viewerOf(r))
+	if errors.Is(err, domain.ErrEventNotFound) {
 		writeError(w, http.StatusNotFound, "event not found")
+		return
+	}
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
 	writeJSON(w, http.StatusOK, timeline)
@@ -417,7 +455,7 @@ func (h *EventHandler) ListAttachments(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "invalid event id")
 		return
 	}
-	list, err := h.uc.ListAttachments(r.Context(), eventID)
+	list, err := h.uc.ListAttachments(r.Context(), eventID, viewerOf(r))
 	if err != nil {
 		if err == domain.ErrEventNotFound {
 			writeError(w, http.StatusNotFound, "event not found")

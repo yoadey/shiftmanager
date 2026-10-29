@@ -87,7 +87,12 @@ func SeedDefaultTemplates(db *gorm.DB) error {
 		{
 			Name:    domain.EmailTemplateKioskConfirmation,
 			Subject: "Kioskbestätigung",
-			Body:    "Hallo {{.FirstName}},\n\nDeine Kioskregistrierung für {{.ShiftName}} wurde bestätigt.\n",
+			Body:    "Hallo,\n\nbitte bestätige deine Eintragung für {{.ShiftName}} bei {{.EventName}}:\n{{.ConfirmURL}}\n",
+		},
+		{
+			Name:    domain.EmailTemplateKioskAssigned,
+			Subject: "Du bist eingetragen",
+			Body:    "Hallo {{.MemberName}},\n\ndeine Eintragung am Kiosk für {{.ShiftName}} bei {{.EventName}} wurde deinem Konto zugeordnet.\n",
 		},
 		{
 			Name:    domain.EmailTemplateShiftConfirmation,

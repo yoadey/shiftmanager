@@ -2,7 +2,9 @@ package usecase
 
 import (
 	"context"
+	"errors"
 	"fmt"
+	"sort"
 	"strings"
 	"time"
 
@@ -27,6 +29,22 @@ type RegistrationUsecase struct {
 	audit         port.AuditRepository
 	settings      port.SettingsRepository
 	understaffed  ShiftUnderstaffedNotifier
+	publicBaseURL string // origin of the app for e-mailed links (BASE_URL)
+}
+
+// SetPublicBaseURL sets the app origin used in e-mailed confirmation links.
+func (uc *RegistrationUsecase) SetPublicBaseURL(url string) {
+	uc.publicBaseURL = strings.TrimRight(url, "/")
+}
+
+// confirmURL is the app page that confirms a registration from its e-mailed
+// token (it calls GET /api/v1/kiosk/confirm/{token}).
+func (uc *RegistrationUsecase) confirmURL(token uuid.UUID) string {
+	base := uc.publicBaseURL
+	if base == "" {
+		base = "http://localhost:8080"
+	}
+	return fmt.Sprintf("%s/shifts/confirm/%s", base, token)
 }
 
 // SetUnderstaffedNotifier wires the understaffed-shift notifier (SC-007). It is
@@ -61,7 +79,14 @@ type RegisterInput struct {
 	ShiftID    uuid.UUID
 	MemberID   *uuid.UUID // nil for kiosk / guest registrations
 	GuestEmail *string
-	Comment    string
+	// GuestName is the name entered at the kiosk (K-014, K-006/K-007).
+	GuestName *string
+	// PendingMemberID is the member whose e-mail was entered at the kiosk;
+	// the confirmation link goes to them (K-006).
+	PendingMemberID *uuid.UUID
+	// SelfRegistered marks a kiosk entry still to be assigned to a member.
+	SelfRegistered bool
+	Comment        string
 }
 
 // Register creates a new registration for a shift.
@@ -112,18 +137,37 @@ func (uc *RegistrationUsecase) Register(ctx context.Context, actorID *uuid.UUID,
 			return nil, domain.ErrAlreadyRegistered
 		}
 	}
+	if input.PendingMemberID != nil {
+		if existing, err := uc.registrations.FindByMemberAndShift(ctx, *input.PendingMemberID, input.ShiftID); err == nil && existing != nil {
+			return nil, domain.ErrAlreadyRegistered
+		}
+		// The same member's e-mail entered twice: one pending entry is enough.
+		if regs, err := uc.registrations.FindByShiftID(ctx, input.ShiftID); err == nil {
+			for _, r := range regs {
+				if r.PendingMemberID != nil && *r.PendingMemberID == *input.PendingMemberID {
+					return nil, domain.ErrAlreadyRegistered
+				}
+			}
+		}
+	}
 
 	token := uuid.New()
 	reg := &domain.Registration{
 		ID:                uuid.New(),
 		ShiftID:           input.ShiftID,
 		MemberID:          input.MemberID,
+		GuestName:         input.GuestName,
 		GuestEmail:        input.GuestEmail,
 		State:             state,
 		Comment:           input.Comment,
 		ReservedUntil:     reservedUntil,
 		ConfirmationToken: &token,
 		CreatedAt:         now,
+		SelfRegistered:    input.SelfRegistered,
+		PendingMemberID:   input.PendingMemberID,
+	}
+	if input.MemberID == nil && input.GuestEmail == nil && input.PendingMemberID == nil {
+		reg.ConfirmationToken = nil // name only: no link to send
 	}
 
 	if err := uc.registrations.Create(ctx, reg); err != nil {
@@ -131,23 +175,21 @@ func (uc *RegistrationUsecase) Register(ctx context.Context, actorID *uuid.UUID,
 	}
 
 	// Send confirmation email.
-	var emailTo string
-	if input.GuestEmail != nil {
-		emailTo = *input.GuestEmail
-	} else if input.MemberID != nil {
-		if m, err := uc.members.GetByID(ctx, *input.MemberID); err == nil {
-			emailTo = m.Email
-		}
-	}
-	if emailTo != "" && uc.email != nil {
-		if input.GuestEmail != nil {
-			// Kiosk flow: send double-opt-in confirmation link.
-			baseURL := "http://localhost:8080"
-			confirmURL := fmt.Sprintf("%s/api/v1/kiosk/confirm/%s", baseURL, token.String())
-			_ = uc.email.SendKioskConfirmation(ctx, emailTo, confirmURL, shift, event)
-		} else if input.MemberID != nil {
+	if uc.email != nil {
+		switch {
+		case input.PendingMemberID != nil:
+			// Kiosk entry with a member's e-mail: ask that member to confirm (K-006).
+			if m, err := uc.members.GetByID(ctx, *input.PendingMemberID); err == nil {
+				_ = uc.email.SendKioskConfirmation(ctx, m.Email, uc.confirmURL(token), shift, event)
+			}
+		case input.GuestEmail != nil:
+			// Kiosk guest: double-opt-in confirmation link (K-007).
+			_ = uc.email.SendKioskConfirmation(ctx, *input.GuestEmail, uc.confirmURL(token), shift, event)
+		case input.MemberID != nil:
 			// Member flow: send standard registration confirmation.
-			_ = uc.email.SendConfirmation(ctx, emailTo, reg, shift, event)
+			if m, err := uc.members.GetByID(ctx, *input.MemberID); err == nil {
+				_ = uc.email.SendConfirmation(ctx, m.Email, reg, shift, event)
+			}
 		}
 	}
 
@@ -220,32 +262,214 @@ func (uc *RegistrationUsecase) Deregister(ctx context.Context, actorID *uuid.UUI
 	return nil
 }
 
-// ConfirmByLink validates a one-time confirmation token and transitions the registration
-// to confirmed state.
+// ConfirmByLink validates a one-time confirmation token. The link confirms
+// the e-mail address (or, for a pending kiosk entry, the member's identity)
+// and makes a reservation binding; it never confirms attendance, which only
+// an organiser does (K-011).
 func (uc *RegistrationUsecase) ConfirmByLink(ctx context.Context, token uuid.UUID) (*domain.Registration, error) {
 	reg, err := uc.registrations.GetByToken(ctx, token)
 	if err != nil {
 		return nil, domain.ErrInvalidToken
 	}
 
-	if reg.State == domain.RegistrationStateConfirmed {
-		return reg, nil // idempotent
-	}
-
 	if reg.IsExpired(time.Now().UTC()) {
 		return nil, domain.ErrInvalidToken
 	}
 
-	reg.State = domain.RegistrationStateConfirmed
+	// A kiosk entry with a member's e-mail: confirming means "that was me";
+	// it assigns the entry to that member (K-006).
+	if reg.PendingMemberID != nil {
+		return uc.assign(ctx, nil, reg, *reg.PendingMemberID, false, true)
+	}
+
+	before := *reg
+	bindReservation(reg)
 	reg.ConfirmationToken = nil // consume the token
 
 	if err := uc.registrations.Update(ctx, reg); err != nil {
 		return nil, fmt.Errorf("confirm registration: %w", err)
 	}
 
-	_ = uc.writeAudit(ctx, nil, domain.AuditActionConfirm, domain.AuditEntityRegistration, reg.ID.String(), nil, reg)
+	_ = uc.writeAudit(ctx, nil, domain.AuditActionConfirm, domain.AuditEntityRegistration, reg.ID.String(), before, reg)
 
 	return reg, nil
+}
+
+// bindReservation turns a reservation into a binding registration that no
+// longer expires (K-007, K-009); other states are left alone.
+func bindReservation(reg *domain.Registration) {
+	if reg.State == domain.RegistrationStateReserved {
+		reg.State = domain.RegistrationStateRegistered
+		reg.ReservedUntil = nil
+	}
+}
+
+// KioskRegisterInput is a self-service kiosk registration: a member picked
+// via the member search (MemberID), or a typed full name with an optional
+// e-mail address (K-014, K-006, K-007).
+type KioskRegisterInput struct {
+	ShiftID  uuid.UUID
+	MemberID *uuid.UUID
+	Name     string
+	Email    string
+	Comment  string
+}
+
+// Bounds for a name typed at the kiosk.
+const (
+	minKioskNameLen = 2
+	maxKioskNameLen = 100
+)
+
+// ErrInvalidKioskName is returned for a missing or overlong kiosk name.
+var ErrInvalidKioskName = fmt.Errorf("name must be %d to %d characters", minKioskNameLen, maxKioskNameLen)
+
+// KioskRegister registers someone from the kiosk. A typed name becomes an
+// entry for an organiser to assign; with an e-mail that belongs to an active
+// member, that member is asked to confirm instead. The result never reveals
+// whether the e-mail was known (K-005).
+func (uc *RegistrationUsecase) KioskRegister(ctx context.Context, in KioskRegisterInput) (*domain.Registration, error) {
+	if in.MemberID != nil {
+		return uc.Register(ctx, nil, RegisterInput{ShiftID: in.ShiftID, MemberID: in.MemberID, Comment: in.Comment})
+	}
+	name := strings.Join(strings.Fields(in.Name), " ")
+	if n := len([]rune(name)); n < minKioskNameLen || n > maxKioskNameLen {
+		return nil, ErrInvalidKioskName
+	}
+	input := RegisterInput{ShiftID: in.ShiftID, GuestName: &name, SelfRegistered: true, Comment: in.Comment}
+	if email := strings.ToLower(strings.TrimSpace(in.Email)); email != "" {
+		if m, err := uc.members.GetByEmail(ctx, email); err == nil && m.IsActive {
+			input.PendingMemberID = &m.ID
+		} else {
+			input.GuestEmail = &email
+		}
+	}
+	reg, err := uc.Register(ctx, nil, input)
+	if errors.Is(err, domain.ErrAlreadyRegistered) {
+		// Nothing to add. Every duplicate entered with an e-mail gets the
+		// same answer as a new entry: whether the address's member is already
+		// on the shift, already pending, or the address is an unknown guest's
+		// must not be told apart, not even by entering it twice (K-005).
+		return nil, nil
+	}
+	return reg, err
+}
+
+// AssignRegistration assigns an unassigned kiosk or guest entry to a member
+// and tells the member by e-mail (K-015).
+func (uc *RegistrationUsecase) AssignRegistration(ctx context.Context, actorID, regID, memberID uuid.UUID) (*domain.Registration, error) {
+	reg, err := uc.registrations.GetByID(ctx, regID)
+	if err != nil {
+		return nil, err
+	}
+	aid := actorID
+	return uc.assign(ctx, &aid, reg, memberID, true, false)
+}
+
+// assign links reg to memberID, clearing the kiosk/guest fields. notify sends
+// the member an e-mail (not needed when they confirmed themselves); bind makes
+// a reservation binding (only the member's own link confirmation does).
+func (uc *RegistrationUsecase) assign(ctx context.Context, actorID *uuid.UUID, reg *domain.Registration, memberID uuid.UUID, notify, bind bool) (*domain.Registration, error) {
+	if reg.MemberID != nil {
+		return nil, domain.ErrRegistrationAssigned
+	}
+	member, err := uc.members.GetByID(ctx, memberID)
+	if err != nil {
+		return nil, domain.ErrMemberNotFound
+	}
+	if !member.IsActive {
+		return nil, domain.ErrMemberNotFound
+	}
+	if existing, err := uc.registrations.FindByMemberAndShift(ctx, memberID, reg.ShiftID); err == nil && existing != nil && existing.ID != reg.ID {
+		return nil, domain.ErrAlreadyRegistered
+	}
+
+	before := *reg
+	reg.MemberID = &memberID
+	reg.GuestName = nil
+	reg.GuestEmail = nil
+	reg.PendingMemberID = nil
+	reg.SelfRegistered = false
+	reg.ConfirmationToken = nil
+	if bind {
+		bindReservation(reg)
+	}
+	if err := uc.registrations.Update(ctx, reg); err != nil {
+		return nil, fmt.Errorf("assign registration: %w", err)
+	}
+	_ = uc.writeAudit(ctx, actorID, domain.AuditActionAssign, domain.AuditEntityRegistration, reg.ID.String(), before, reg)
+
+	if notify && uc.email != nil {
+		if shift, err := uc.shifts.GetByID(ctx, reg.ShiftID); err == nil {
+			event, _ := uc.events.GetByID(ctx, shift.EventID)
+			_ = uc.email.SendKioskAssigned(ctx, member.Email, member, shift, event)
+		}
+	}
+	return reg, nil
+}
+
+// Suggestion bounds for assigning kiosk entries (K-015).
+const (
+	suggestionMinScore = 0.5
+	suggestionLimit    = 5
+)
+
+// SuggestMembers proposes active members for an unassigned entry by name
+// similarity, including near misses; the member whose e-mail was entered
+// comes first. Members already on the shift are left out.
+func (uc *RegistrationUsecase) SuggestMembers(ctx context.Context, regID uuid.UUID) ([]domain.MemberSuggestion, error) {
+	reg, err := uc.registrations.GetByID(ctx, regID)
+	if err != nil {
+		return nil, err
+	}
+	if reg.MemberID != nil {
+		return nil, domain.ErrRegistrationAssigned
+	}
+	query := ""
+	switch {
+	case reg.GuestName != nil:
+		query = *reg.GuestName
+	case reg.GuestEmail != nil:
+		// No name: the local part often holds one ("max.mustermann@...").
+		local, _, _ := strings.Cut(*reg.GuestEmail, "@")
+		query = strings.NewReplacer(".", " ", "_", " ", "-", " ").Replace(local)
+	}
+
+	onShift := map[uuid.UUID]bool{}
+	if regs, err := uc.registrations.FindByShiftID(ctx, reg.ShiftID); err == nil {
+		for _, r := range regs {
+			if r.MemberID != nil {
+				onShift[*r.MemberID] = true
+			}
+		}
+	}
+	members, err := uc.members.List(ctx, port.MemberFilter{Status: port.MemberStatusActive})
+	if err != nil {
+		return nil, fmt.Errorf("list members: %w", err)
+	}
+
+	var out []domain.MemberSuggestion
+	for _, m := range members {
+		if onShift[m.ID] {
+			continue
+		}
+		pending := reg.PendingMemberID != nil && *reg.PendingMemberID == m.ID
+		score := domain.NameSimilarity(query, m.FullName())
+		if score < suggestionMinScore && !pending {
+			continue
+		}
+		out = append(out, domain.MemberSuggestion{ID: m.ID, Name: m.FullName(), Score: score, Pending: pending})
+	}
+	sort.SliceStable(out, func(i, j int) bool {
+		if out[i].Pending != out[j].Pending {
+			return out[i].Pending
+		}
+		return out[i].Score > out[j].Score
+	})
+	if len(out) > suggestionLimit {
+		out = out[:suggestionLimit]
+	}
+	return out, nil
 }
 
 // ExpireReservations finds and deletes all reserved registrations that have passed

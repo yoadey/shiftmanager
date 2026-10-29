@@ -73,17 +73,25 @@ func (uc *MemberUsecase) ListMembers(ctx context.Context, filter port.MemberFilt
 	if err != nil {
 		return nil, 0, err
 	}
-	// The page itself proves the total when it is the last one: it ended
-	// before the limit (or there is no limit) and it is not empty or starts at
-	// the very beginning. Only otherwise is a separate COUNT needed.
-	if (filter.Limit <= 0 || len(members) < filter.Limit) && (len(members) > 0 || filter.Offset <= 0) {
-		return members, max(filter.Offset, 0) + len(members), nil
-	}
-	total, err := uc.members.CountFiltered(ctx, filter)
+	total, err := pageTotal(len(members), filter.Limit, filter.Offset, func() (int, error) {
+		return uc.members.CountFiltered(ctx, filter)
+	})
 	if err != nil {
 		return nil, 0, err
 	}
 	return members, total, nil
+}
+
+// LookupMembers searches active members by name or e-mail for assigning
+// helpers (ML-014). Members in exclude (already on the shift) are dropped
+// before the limit applies, so they never crowd out other matches.
+func (uc *MemberUsecase) LookupMembers(ctx context.Context, query string, exclude []uuid.UUID, limit int) ([]*domain.Member, error) {
+	return uc.members.List(ctx, port.MemberFilter{
+		Search:     query,
+		Status:     port.MemberStatusActive,
+		ExcludeIDs: exclude,
+		Limit:      limit,
+	})
 }
 
 // GetMember returns a single member by ID.

@@ -38,8 +38,15 @@ type MemberFilter struct {
 	IsActive *bool
 	Status   MemberStatus // "" = no status restriction
 	Search   string       // matches first/last name or email
-	Limit    int
-	Offset   int
+	// SearchNamesOnly restricts Search to names (no e-mail), for the
+	// anonymous kiosk (K-003).
+	SearchNamesOnly bool
+	// IDs, when non-nil, restricts the result to these members (batch load).
+	IDs []uuid.UUID
+	// ExcludeIDs drops these members before Limit/Offset apply.
+	ExcludeIDs []uuid.UUID
+	Limit      int
+	Offset     int
 }
 
 // MemberStatus narrows a member listing by account state.
@@ -72,6 +79,8 @@ type EventRepository interface {
 	Create(ctx context.Context, e *domain.Event) error
 	GetByID(ctx context.Context, id uuid.UUID) (*domain.Event, error)
 	List(ctx context.Context, filter EventFilter) ([]*domain.Event, error)
+	// CountFiltered counts the events matching filter, ignoring Limit/Offset.
+	CountFiltered(ctx context.Context, filter EventFilter) (int, error)
 	Update(ctx context.Context, e *domain.Event) error
 	Delete(ctx context.Context, id uuid.UUID) error
 	UpdateStatus(ctx context.Context, id uuid.UUID, status domain.EventStatus) error
@@ -87,10 +96,20 @@ type EventRepository interface {
 type EventFilter struct {
 	Status     *domain.EventStatus
 	Visibility *domain.EventVisibility
-	FromDate   *time.Time
-	ToDate     *time.Time
-	Limit      int
-	Offset     int
+	Category   string
+	// ExcludeDrafts hides draft events (non-organisers, V-006).
+	ExcludeDrafts bool
+	// FromDate keeps events that end at or after it.
+	FromDate *time.Time
+	// ToDate keeps events that start strictly before it (exclusive bound).
+	ToDate *time.Time
+	// FreeSlots keeps only events with at least one shift that still has a
+	// free place.
+	FreeSlots bool
+	// Ascending sorts by start date, earliest first; the default is newest first.
+	Ascending bool
+	Limit     int
+	Offset    int
 }
 
 // EventAttachmentRepository persists files attached to events (V-008).
@@ -133,6 +152,15 @@ type RegistrationRepository interface {
 	Update(ctx context.Context, r *domain.Registration) error
 	Delete(ctx context.Context, id uuid.UUID) error
 	ListUnconfirmedExpiredReservations(ctx context.Context, before time.Time) ([]*domain.Registration, error)
+}
+
+// KioskLinkRepository persists kiosk links (K-016); tokens are stored hashed.
+type KioskLinkRepository interface {
+	Create(ctx context.Context, l *domain.KioskLink, tokenHash string) error
+	// List returns all links, newest first.
+	List(ctx context.Context) ([]*domain.KioskLink, error)
+	GetByTokenHash(ctx context.Context, tokenHash string) (*domain.KioskLink, error)
+	Revoke(ctx context.Context, id uuid.UUID, at time.Time) error
 }
 
 // HourRepository defines persistence operations for hour entries and club years.

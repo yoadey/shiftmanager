@@ -101,3 +101,10 @@ func TestMember_ActivateDeactivate(t *testing.T) {
 		assert.Equal(t, now, *m.LeftAt)
 	}
 }
+
+func TestAbbreviateName(t *testing.T) {
+	assert.Equal(t, "Hans M.", AbbreviateName("Hans Müller"))
+	assert.Equal(t, "Hans Peter Ö.", AbbreviateName(" Hans  Peter özdemir "))
+	assert.Equal(t, "Cher", AbbreviateName("Cher"))
+	assert.Equal(t, "", AbbreviateName("  "))
+}

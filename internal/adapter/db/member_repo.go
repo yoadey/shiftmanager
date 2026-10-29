@@ -187,6 +187,14 @@ func (r *MemberRepo) CountFiltered(ctx context.Context, filter port.MemberFilter
 	return int(n), nil
 }
 
+func uuidStrings(ids []uuid.UUID) []string {
+	out := make([]string, len(ids))
+	for i, id := range ids {
+		out[i] = id.String()
+	}
+	return out
+}
+
 var likeEscaper = strings.NewReplacer(`\`, `\\`, `%`, `\%`, `_`, `\_`)
 
 // applyMemberFilter adds the WHERE conditions shared by List and CountFiltered.
@@ -204,10 +212,26 @@ func applyMemberFilter(q *gorm.DB, filter port.MemberFilter) *gorm.DB {
 	case port.MemberStatusApproved:
 		q = q.Where("(is_active = ? OR left_at IS NOT NULL)", true)
 	}
+	if filter.IDs != nil {
+		q = q.Where("id IN ?", uuidStrings(filter.IDs))
+	}
+	if len(filter.ExcludeIDs) > 0 {
+		q = q.Where("id NOT IN ?", uuidStrings(filter.ExcludeIDs))
+	}
 	if s := strings.TrimSpace(filter.Search); s != "" {
 		// Escape LIKE wildcards so "%" or "_" in a search match literally.
 		like := "%" + likeEscaper.Replace(strings.ToLower(s)) + "%"
-		q = q.Where(`(lower(first_name) LIKE ? ESCAPE '\' OR lower(last_name) LIKE ? ESCAPE '\' OR lower(first_name || ' ' || last_name) LIKE ? ESCAPE '\' OR lower(email) LIKE ? ESCAPE '\')`, like, like, like, like)
+		columns := []string{"first_name", "last_name", "first_name || ' ' || last_name"}
+		if !filter.SearchNamesOnly {
+			columns = append(columns, "email")
+		}
+		conds := make([]string, len(columns))
+		args := make([]any, len(columns))
+		for i, c := range columns {
+			conds[i] = "lower(" + c + `) LIKE ? ESCAPE '\'`
+			args[i] = like
+		}
+		q = q.Where("("+strings.Join(conds, " OR ")+")", args...)
 	}
 	return q
 }

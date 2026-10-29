@@ -20,6 +20,7 @@ type HourUsecase struct {
 	audit         port.AuditRepository
 	email         port.EmailService
 	events        port.EventRepository
+	settings      port.SettingsRepository // fee tiers for the open-fee projection (G-011)
 }
 
 // NewHourUsecase creates a new HourUsecase.
@@ -31,6 +32,7 @@ func NewHourUsecase(
 	audit port.AuditRepository,
 	emailSvc port.EmailService,
 	events port.EventRepository,
+	settings port.SettingsRepository,
 ) *HourUsecase {
 	return &HourUsecase{
 		hours:         hours,
@@ -40,6 +42,7 @@ func NewHourUsecase(
 		audit:         audit,
 		email:         emailSvc,
 		events:        events,
+		settings:      settings,
 	}
 }
 
@@ -477,7 +480,10 @@ type MemberAccountFull struct {
 	Reserved       float64            `json:"reserved"`
 	Goal           float64            `json:"goal"`
 	ClubYearLabel  string             `json:"clubYearLabel"`
-	Entries        []*MemberHourEntry `json:"entries"`
+	// OpenFeeCents is the compensation fee due if the member works no further
+	// hours this club year (G-011); nil when no fee tiers are configured.
+	OpenFeeCents *int               `json:"openFeeCents,omitempty"`
+	Entries      []*MemberHourEntry `json:"entries"`
 }
 
 // GetMemberAccountFull returns the account summary and enriched entries for a member
@@ -491,11 +497,13 @@ func (uc *HourUsecase) GetMemberAccountFull(ctx context.Context, memberID uuid.U
 		return empty, nil
 	}
 
-	// Determine target hours for this member.
-	targetHours := year.DefaultTargetHours
-	if ht, err := uc.hours.GetHourTarget(ctx, memberID, year.ID); err == nil && ht != nil {
-		targetHours = ht.TargetHours
+	// Determine target hours for this member the same way billing does, so
+	// the goal and the open-fee projection match the year-end computation.
+	member := &domain.Member{ID: memberID}
+	if m, err := uc.members.GetByID(ctx, memberID); err == nil {
+		member = m
 	}
+	targetHours := resolveTargetHours(ctx, uc.hours, member, year)
 
 	// Collect explicit HourEntry records and track which shifts they cover.
 	rawEntries, err := uc.hours.FindEntriesByMemberAndYear(ctx, memberID, year.ID)
@@ -596,8 +604,35 @@ func (uc *HourUsecase) GetMemberAccountFull(ctx context.Context, memberID uuid.U
 		Reserved:      pending,
 		Goal:          targetHours,
 		ClubYearLabel: year.Label,
+		OpenFeeCents:  uc.openFeeCents(ctx, member, year.ID, targetHours, confirmed),
 		Entries:       result,
 	}, nil
+}
+
+// openFeeCents projects the compensation fee due if the member works no
+// further hours (G-011), using the tiers billing would apply. Returns nil when
+// no fee tiers are configured (or they cannot be loaded), and for inactive
+// members, whom year-end billing leaves out.
+func (uc *HourUsecase) openFeeCents(ctx context.Context, member *domain.Member, clubYearID uuid.UUID, target, confirmed float64) *int {
+	if uc.settings == nil || !member.IsActive {
+		return nil
+	}
+	yearTiers, err := yearFeeTiers(ctx, uc.settings, clubYearID)
+	if err != nil {
+		return nil
+	}
+	tiers := memberFeeTiers(ctx, uc.settings, member.ID, clubYearID, yearTiers)
+	if len(tiers) == 0 {
+		return nil
+	}
+	res := domain.ComputeBilling(*member, domain.MemberHourAccount{
+		MemberID:       member.ID,
+		ClubYearID:     clubYearID,
+		TargetHours:    target,
+		ConfirmedHours: confirmed,
+		MissingHours:   target - confirmed,
+	}, tiers)
+	return &res.TotalCents
 }
 
 // GetYearSummary returns hour summaries for all active members for the given year.

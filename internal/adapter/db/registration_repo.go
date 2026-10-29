@@ -128,6 +128,8 @@ func (r *RegistrationRepo) Update(ctx context.Context, reg *domain.Registration)
 			"reserved_until":     model.ReservedUntil,
 			"booked_hours":       model.BookedHours,
 			"confirmation_token": model.ConfirmationToken,
+			"self_registered":    model.SelfRegistered,
+			"pending_member_id":  model.PendingMemberID,
 		})
 	if result.Error != nil {
 		return result.Error
@@ -194,6 +196,11 @@ func toRegistrationModel(r *domain.Registration) RegistrationModel {
 		s := r.ConfirmationToken.String()
 		m.ConfirmationToken = &s
 	}
+	m.SelfRegistered = r.SelfRegistered
+	if r.PendingMemberID != nil {
+		s := r.PendingMemberID.String()
+		m.PendingMemberID = &s
+	}
 	return m
 }
 
@@ -222,6 +229,11 @@ func toRegistrationDomain(m RegistrationModel) *domain.Registration {
 	if m.ConfirmationToken != nil {
 		id := uuid.MustParse(*m.ConfirmationToken)
 		r.ConfirmationToken = &id
+	}
+	r.SelfRegistered = m.SelfRegistered
+	if m.PendingMemberID != nil {
+		id := uuid.MustParse(*m.PendingMemberID)
+		r.PendingMemberID = &id
 	}
 	return r
 }

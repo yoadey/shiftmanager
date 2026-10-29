@@ -3,6 +3,7 @@ package handler
 import (
 	"net/http"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/go-chi/chi/v5"
@@ -47,18 +48,6 @@ func (h *MemberHandler) List(w http.ResponseWriter, r *http.Request) {
 	if !filter.Status.Valid() {
 		writeError(w, http.StatusBadRequest, "invalid status")
 		return
-	}
-	// Every authenticated user may read the member list (ML-010), but pending
-	// self-registrations are not members yet: only the board, who decides on
-	// them, sees them (ML-013).
-	if !domain.HasRole(middleware.GetUserRole(r.Context()), domain.RoleVorstand) {
-		switch filter.Status {
-		case port.MemberStatusPending:
-			writeError(w, http.StatusForbidden, "forbidden")
-			return
-		case "":
-			filter.Status = port.MemberStatusApproved
-		}
 	}
 
 	members, total, err := h.uc.ListMembers(r.Context(), filter)
@@ -117,18 +106,62 @@ func (h *MemberHandler) Get(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Members may read their own record; other members are for the board only (ML-010).
+	if !isSelfOrBoard(r, id) {
+		writeError(w, http.StatusForbidden, "forbidden")
+		return
+	}
+
 	m, err := h.uc.GetMember(r.Context(), id)
 	if err != nil {
 		writeError(w, http.StatusNotFound, "member not found")
 		return
 	}
-	// As in List: a pending self-registration is visible to the board only
-	// (ML-010), answered like a missing member so its existence isn't leaked.
-	if m.IsPendingApproval() && !domain.HasRole(middleware.GetUserRole(r.Context()), domain.RoleVorstand) {
-		writeError(w, http.StatusNotFound, "member not found")
+	writeJSON(w, http.StatusOK, m)
+}
+
+// memberLookupLimit caps the name search so it cannot page through the
+// whole member list; memberLookupMaxExclude bounds the exclude list.
+const (
+	memberLookupLimit      = 20
+	memberLookupMaxExclude = 500
+)
+
+// Lookup searches active members by name or e-mail and returns only their id
+// and full name, so organisers can assign helpers to shifts (ML-014, SC-010)
+// without access to the member list. Optional repeated `exclude` ids (the
+// helpers already on the shift) are left out before the limit applies.
+// GET /api/v1/members/lookup?q=...&exclude=<id>&exclude=<id>
+func (h *MemberHandler) Lookup(w http.ResponseWriter, r *http.Request) {
+	q := strings.TrimSpace(r.URL.Query().Get("q"))
+	if len([]rune(q)) < 2 {
+		writeError(w, http.StatusBadRequest, "query must be at least 2 characters")
 		return
 	}
-	writeJSON(w, http.StatusOK, m)
+	rawExclude := r.URL.Query()["exclude"]
+	if len(rawExclude) > memberLookupMaxExclude {
+		writeError(w, http.StatusBadRequest, "too many exclude ids")
+		return
+	}
+	exclude := make([]uuid.UUID, 0, len(rawExclude))
+	for _, raw := range rawExclude {
+		id, err := uuid.Parse(raw)
+		if err != nil {
+			writeError(w, http.StatusBadRequest, "invalid exclude id")
+			return
+		}
+		exclude = append(exclude, id)
+	}
+	members, err := h.uc.LookupMembers(r.Context(), q, exclude, memberLookupLimit)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	out := make([]domain.MemberName, 0, len(members))
+	for _, m := range members {
+		out = append(out, domain.MemberName{ID: m.ID, Name: m.FullName()})
+	}
+	writeJSON(w, http.StatusOK, out)
 }
 
 // Update applies changes to a member.

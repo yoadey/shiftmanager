@@ -1,4 +1,4 @@
-import { useRef, useState, lazy, Suspense } from 'react';
+import { useEffect, useLayoutEffect, useRef, useState, lazy, Suspense } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { Icon } from '@/components/ui/Icon';
 import { Avatar } from '@/components/ui/Avatar';
@@ -26,7 +26,10 @@ import {
   useForceDeleteRegistration,
   useAddMemberToShift,
   useAddGuestToShift,
+  useRegistrationSuggestions,
+  useAssignRegistration,
 } from '@/api/shifts';
+import { isAxiosError } from 'axios';
 import {
   useEvent,
   useEventTimeline,
@@ -39,14 +42,13 @@ import {
   useUploadEventHeaderImage,
   useDeleteEventHeaderImage,
 } from '@/api/events';
-import { useMembers } from '@/api/members';
+import { useMemberLookup } from '@/api/members';
 import { useSettings } from '@/api/settings';
 import { calcOccupancy } from '@/hooks/useOccupancy';
-import { useNameFormat } from '@/hooks/useNameFormat';
 import { useIsEventManager } from '@/hooks/useIsEventManager';
 import { LoadingState, ErrorState } from '@/components/ui/States';
 import { fmtDate, hrs, durH, catGradient } from '@/screens/_demo';
-import type { Event, Shift, Signup, Member, EventAttachment } from '@/types';
+import type { Event, Shift, Signup, EventAttachment } from '@/types';
 
 const dotColor: Record<string, string> = {
   ok: 'var(--ok)',
@@ -59,12 +61,60 @@ function findEvent(events: Event[], id: string): Event | undefined {
   return events.find((e) => e.id === id);
 }
 
-function MiniStat({ label, val, accent }: { label: string; val: number; accent?: boolean }) {
+// Height of the collapsed description preview — roughly the first three lines.
+const DESCRIPTION_PREVIEW_PX = 80;
+
+// The event description as its own box, collapsed to the first lines by
+// default (V-011); the toggle only appears when there is more to show.
+function EventDescription({ text }: { text: string }) {
+  const bodyRef = useRef<HTMLDivElement>(null);
+  const [expanded, setExpanded] = useState(false);
+  const [overflows, setOverflows] = useState(false);
+
+  useLayoutEffect(() => {
+    const el = bodyRef.current;
+    if (!el) return;
+    // scrollHeight is the full content height even while clipped.
+    const measure = () => setOverflows(el.scrollHeight > DESCRIPTION_PREVIEW_PX + 4);
+    measure();
+    if (typeof ResizeObserver === 'undefined') return;
+    const ro = new ResizeObserver(measure);
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, [text]);
+
+  const collapsed = overflows && !expanded;
+  const fade = 'linear-gradient(180deg, #000 45%, transparent)';
+
   return (
-    <div className="sm-card" style={{ flex: 1, padding: '12px 10px', textAlign: 'center' }}>
-      <div style={{ fontFamily: 'Bricolage Grotesque', fontWeight: 800, fontSize: 22, color: accent ? 'var(--on-primary)' : 'var(--ink)' }}>{val}</div>
-      <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--muted)', marginTop: 1 }}>{label}</div>
-    </div>
+    <section className="sm-card" aria-label="Beschreibung" style={{ marginTop: 14, padding: '11px 14px 12px' }}>
+      <div style={{ fontWeight: 800, fontSize: 12, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '.06em', marginBottom: 6 }}>Beschreibung</div>
+      <div
+        ref={bodyRef}
+        data-testid="event-description"
+        style={{
+          overflow: 'hidden',
+          maxHeight: collapsed ? DESCRIPTION_PREVIEW_PX : undefined,
+          WebkitMaskImage: collapsed ? fade : undefined,
+          maskImage: collapsed ? fade : undefined,
+        }}
+      >
+        <MarkdownContent text={text} />
+      </div>
+      {overflows && (
+        <button
+          className="pressable"
+          aria-expanded={expanded}
+          onClick={() => setExpanded(!expanded)}
+          style={{ border: 'none', background: 'none', padding: 0, marginTop: 6, cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: 4, fontWeight: 700, fontSize: 13, color: 'var(--ink-2)', fontFamily: 'inherit' }}
+        >
+          {expanded ? 'Weniger anzeigen' : 'Mehr anzeigen'}
+          <span style={{ display: 'inline-flex', transform: expanded ? 'rotate(180deg)' : undefined }}>
+            <Icon name="chevD" size={14} stroke={2.4} />
+          </span>
+        </button>
+      )}
+    </section>
   );
 }
 
@@ -128,11 +178,10 @@ function TimePickerSheet({ hh, mm, dur, onSave, onClose }: {
 }
 
 function RegistrationRow({
-  s, shift, eventId, memberMap,
+  s, shift, eventId,
 }: {
-  s: Signup; shift: Shift; eventId: string; memberMap: Record<string, Member>;
+  s: Signup; shift: Shift; eventId: string;
 }) {
-  const formatName = useNameFormat();
   const { showToast } = useAppStore();
   const patch = usePatchRegistration();
   const forceDelete = useForceDeleteRegistration();
@@ -146,6 +195,28 @@ function RegistrationRow({
   );
   const registrationId = s.id ?? '';
   const timeOpen = registrationId !== '' && (params['*'] ?? '') === `zeit/${registrationId}`;
+  const assignOpen = registrationId !== '' && !s.memberId && (params['*'] ?? '') === `zuordnen/${registrationId}`;
+  const assign = useAssignRegistration();
+  // Confirming a pending kiosk match is assigning to the member asked (K-006).
+  const onConfirmPending = () => {
+    if (!s.pendingMemberId) return;
+    assign.mutate({ registrationId, memberId: s.pendingMemberId, eventId }, {
+      onSuccess: () => showToast(`${s.pendingMemberName ?? 'Mitglied'} zugeordnet.`),
+      onError: () => showToast('Zuordnen fehlgeschlagen.', 'crit'),
+    });
+  };
+  // Assigning from the sheet runs here: the sheet unmounts when it closes,
+  // and callbacks passed to mutate() don't fire after their owner unmounts.
+  const onAssign = (memberId: string, name: string) => {
+    assign.mutate({ registrationId, memberId, eventId }, {
+      onSuccess: () => showToast(`${name} zugeordnet und per E-Mail informiert.`),
+      onError: (err) => showToast(
+        isAxiosError(err) && err.response?.status === 409 ? `${name} ist schon in dieser Schicht eingetragen.` : 'Zuordnen fehlgeschlagen.',
+        'crit',
+      ),
+    });
+    closeModal();
+  };
   const [deleteConfirm, setDeleteConfirm] = useState(false);
 
   const isConfirmed = s.status === 'bestätigt';
@@ -183,8 +254,8 @@ function RegistrationRow({
       { onError: () => showToast('Entfernen fehlgeschlagen.', 'crit') });
   };
 
-  const member = memberMap[s.memberId];
-  const displayName = s.guest ?? (member ? formatName(member, { viewerFull: true }) : '—');
+  // The timeline carries full names for organisers (SC-010).
+  const displayName = s.name ?? s.guest ?? '—';
   const bg = isNoShow
     ? 'color-mix(in srgb, var(--crit) 8%, var(--surface))'
     : isConfirmed
@@ -194,10 +265,32 @@ function RegistrationRow({
   return (
     <>
       <div style={{ display: 'flex', alignItems: 'center', gap: 5, padding: '6px 8px', borderRadius: 10, border: '1px solid var(--line)', background: bg }}>
-        <Avatar memberId={s.memberId} members={memberMap} size={24} />
-        <span style={{ fontSize: 12.5, fontWeight: 700, flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-          {displayName}
+        <Avatar name={displayName} size={24} />
+        <span style={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column', gap: 3 }}>
+          <span style={{ fontSize: 12.5, fontWeight: 700, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+            {displayName}
+          </span>
+          {/* Kiosk entries still to be assigned to a member (K-014/K-015). */}
+          {!s.memberId && (s.selfRegistered || s.pendingMemberId) && (
+            <span style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
+              <span className="sm-badge b-warn" data-testid="assignment-badge" style={{ fontSize: 10.5, padding: '1px 7px', whiteSpace: 'normal' }}>
+                {s.pendingMemberId ? `Bestätigung ausstehend · ${s.pendingMemberName ?? 'Mitglied'}` : 'Zuordnung offen'}
+              </span>
+              {s.pendingMemberId && (
+                <button onClick={onConfirmPending} disabled={assign.isPending} className="pressable"
+                  style={{ border: 'none', background: 'none', padding: 0, cursor: 'pointer', fontSize: 11.5, fontWeight: 800, color: 'var(--ok)', fontFamily: 'inherit' }}>
+                  Bestätigen
+                </button>
+              )}
+            </span>
+          )}
         </span>
+        {!s.memberId && (
+          <button onClick={() => navigate(routes.eventZuordnen(eventId, registrationId))} title="Mitglied zuordnen" className="pressable"
+            style={{ padding: '3px 9px', borderRadius: 8, border: '1px solid var(--line)', background: 'var(--surface)', fontSize: 12, fontWeight: 800, fontFamily: 'inherit', cursor: 'pointer', flexShrink: 0, whiteSpace: 'nowrap' }}>
+            Zuordnen
+          </button>
+        )}
         {!isNoShow && (
           <button onClick={() => navigate(routes.eventZeit(eventId, registrationId))} title="Zeit bearbeiten" className="pressable"
             style={{ padding: '3px 9px', borderRadius: 8, border: '1px solid var(--line)', background: 'var(--surface)', fontSize: 12.5, fontWeight: 800, fontFamily: 'inherit', cursor: 'pointer', flexShrink: 0, whiteSpace: 'nowrap' }}>
@@ -220,6 +313,14 @@ function RegistrationRow({
       {timeOpen && (
         <TimePickerSheet hh={hh} mm={mm} dur={dur} onSave={onTimeSave} onClose={closeModal} />
       )}
+      {assignOpen && (
+        <AssignSheet
+          s={s}
+          onShift={shift.signups.map((x) => x.memberId).filter(Boolean)}
+          onPick={onAssign}
+          onClose={closeModal}
+        />
+      )}
       {deleteConfirm && (
         <Sheet variant="dialog" onClose={() => setDeleteConfirm(false)}>
           <div style={{ textAlign: 'center', padding: '6px 4px 4px' }}>
@@ -241,13 +342,74 @@ function RegistrationRow({
   );
 }
 
-function AddMemberSheet({
-  shift, eventId, members, onClose,
+// Assigning a kiosk entry to a member (K-015): suggestions by name
+// similarity (also near misses), the member whose e-mail was entered first,
+// and a name search for anyone else.
+function AssignSheet({
+  s, onShift, onPick, onClose,
 }: {
-  shift: Shift; eventId: string; members: Member[]; onClose: () => void;
+  s: Signup;
+  /** Members already on the shift; assigning one of them would be refused. */
+  onShift: string[];
+  onPick: (memberId: string, name: string) => void;
+  onClose: () => void;
+}) {
+  const registrationId = s.id ?? '';
+  const suggestionsQ = useRegistrationSuggestions(registrationId);
+  const [search, setSearch] = useState('');
+  const [query, setQuery] = useState('');
+  useEffect(() => {
+    const t = setTimeout(() => setQuery(search), 250);
+    return () => clearTimeout(t);
+  }, [search]);
+  const lookupQ = useMemberLookup(query, onShift);
+  const searching = search.trim().length >= 2;
+
+  const row = (id: string, name: string, extra?: React.ReactNode) => (
+    <button key={id} onClick={() => onPick(id, name)} className="pressable"
+      style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '10px 12px', borderRadius: 12, border: '1px solid var(--line)', background: 'var(--surface)', cursor: 'pointer', fontFamily: 'inherit', textAlign: 'left', width: '100%' }}
+    >
+      <div style={{ flex: 1, minWidth: 0, fontWeight: 700, fontSize: 14 }}>{name}</div>
+      {extra}
+      <Icon name="check" size={16} stroke={2.4} color="var(--primary)" />
+    </button>
+  );
+  const suggestions = suggestionsQ.data ?? [];
+
+  return (
+    <Sheet onClose={onClose} title="Mitglied zuordnen">
+      <div style={{ fontSize: 13.5, color: 'var(--ink-2)', fontWeight: 600, marginBottom: 14 }}>
+        Am Kiosk eingetragen als <b style={{ color: 'var(--ink)' }}>„{s.name ?? s.guest ?? '—'}“</b>. Das Mitglied wird nach der Zuordnung per E-Mail informiert.
+      </div>
+      <div style={{ fontSize: 11.5, fontWeight: 800, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '.06em', marginBottom: 8 }}>Vorschläge</div>
+      <div data-testid="suggestions" style={{ display: 'flex', flexDirection: 'column', gap: 6, marginBottom: 16 }}>
+        {suggestionsQ.isLoading && <span style={{ fontSize: 13, color: 'var(--muted)', fontWeight: 600 }}>Lade Vorschläge…</span>}
+        {!suggestionsQ.isLoading && suggestions.length === 0 && (
+          <span style={{ fontSize: 13, color: 'var(--muted)', fontWeight: 600 }}>Kein ähnlicher Name gefunden – bitte unten suchen.</span>
+        )}
+        {suggestions.map((m) => row(m.id, m.name, m.pending
+          ? <span className="sm-badge b-info" style={{ fontSize: 10.5 }}>E-Mail passt</span>
+          : <span style={{ fontSize: 11.5, color: 'var(--muted)', fontWeight: 700 }}>{Math.round(m.score * 100)} %</span>))}
+      </div>
+      <Field label="Anderes Mitglied suchen">
+        <Input placeholder="Name oder E-Mail…" value={search} onChange={(e) => setSearch(e.target.value)} />
+      </Field>
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+        {searching && (lookupQ.data ?? []).map((m) => row(m.id, m.name))}
+        {searching && !lookupQ.isFetching && query === search && (lookupQ.data ?? []).length === 0 && (
+          <span style={{ fontSize: 13, color: 'var(--muted)', fontWeight: 600, padding: '6px 0' }}>Keine Mitglieder gefunden.</span>
+        )}
+      </div>
+    </Sheet>
+  );
+}
+
+function AddMemberSheet({
+  shift, eventId, onClose,
+}: {
+  shift: Shift; eventId: string; onClose: () => void;
 }) {
   const { showToast } = useAppStore();
-  const formatName = useNameFormat();
   const addMember = useAddMemberToShift();
   const addGuest = useAddGuestToShift();
   const [mode, setMode] = useState<'member' | 'guest'>('member');
@@ -255,14 +417,17 @@ function AddMemberSheet({
   const [guestName, setGuestName] = useState('');
   const [guestEmail, setGuestEmail] = useState('');
 
-  const existingIds = new Set(shift.signups.map((s) => s.memberId));
-  const filtered = members.filter((m) => {
-    if (existingIds.has(m.id)) return false;
-    if (m.active === false) return false;
-    const q = search.toLowerCase();
-    if (!q) return true;
-    return `${m.first} ${m.last}`.toLowerCase().includes(q) || m.email.toLowerCase().includes(q);
-  });
+  // Organisers have no access to the member list: the lookup searches active
+  // members by name or e-mail and returns only id and name (ML-014).
+  const [query, setQuery] = useState('');
+  useEffect(() => {
+    const t = setTimeout(() => setQuery(search), 250);
+    return () => clearTimeout(t);
+  }, [search]);
+  const existingIds = shift.signups.map((s) => s.memberId).filter(Boolean);
+  const lookupQ = useMemberLookup(query, existingIds);
+  const searching = search.trim().length >= 2;
+  const filtered = searching ? (lookupQ.data ?? []) : [];
 
   const add = (memberId: string) => {
     addMember.mutate({ shiftId: shift.id, memberId, eventId }, {
@@ -302,17 +467,18 @@ function AddMemberSheet({
           <div style={{ display: 'flex', flexDirection: 'column', gap: 6, marginTop: 4 }}>
             {filtered.length === 0 && (
               <span style={{ fontSize: 13, color: 'var(--muted)', fontWeight: 600, padding: '10px 0' }}>
-                {search ? 'Keine Mitglieder gefunden.' : 'Alle Mitglieder bereits eingetragen.'}
+                {!searching
+                  ? 'Mindestens zwei Buchstaben eingeben.'
+                  : lookupQ.isFetching || query !== search
+                    ? 'Suche…'
+                    : 'Keine Mitglieder gefunden.'}
               </span>
             )}
-            {filtered.slice(0, 50).map((m) => (
+            {filtered.map((m) => (
               <button key={m.id} onClick={() => add(m.id)} className="pressable"
                 style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '10px 12px', borderRadius: 12, border: '1px solid var(--line)', background: 'var(--surface)', cursor: 'pointer', fontFamily: 'inherit', textAlign: 'left', width: '100%' }}
               >
-                <div style={{ flex: 1, minWidth: 0 }}>
-                  <div style={{ fontWeight: 700, fontSize: 14 }}>{formatName(m, { viewerFull: true })}</div>
-                  <div style={{ fontSize: 12, color: 'var(--muted)', fontWeight: 600 }}>{m.email}</div>
-                </div>
+                <div style={{ flex: 1, minWidth: 0, fontWeight: 700, fontSize: 14 }}>{m.name}</div>
                 <Icon name="plus" size={16} stroke={2.4} color="var(--primary)" />
               </button>
             ))}
@@ -340,7 +506,7 @@ function AddMemberSheet({
   );
 }
 
-function ShiftRow({ sh, eventId, ev, onDeregister, memberMap }: { sh: Shift; eventId: string; ev: Event; onDeregister: () => void; memberMap: Record<string, Member> }) {
+function ShiftRow({ sh, eventId, ev, onDeregister }: { sh: Shift; eventId: string; ev: Event; onDeregister: () => void }) {
   const { user } = useAuthStore();
   // Organizer controls here (registrant list, add/remove helper) map to the
   // backend's shift-management endpoints, which are veranstaltungsleiter+.
@@ -348,16 +514,14 @@ function ShiftRow({ sh, eventId, ev, onDeregister, memberMap }: { sh: Shift; eve
   const uid = user?.id ?? '';
   const o = calcOccupancy(sh);
   const mine = sh.signups.find((s) => s.memberId === uid && (s.status === 'angemeldet' || s.status === 'reserviert'));
+  // Members see who else helps in this shift — names only, as the server
+  // resolved them for this viewer (SC-011).
+  const helperNames = sh.signups
+    .filter((s) => s.status === 'angemeldet' || s.status === 'bestätigt' || s.status === 'reserviert')
+    .map((s) => (s.memberId === uid ? 'Du' : s.name ?? 'Gast') + (s.status === 'reserviert' ? ' (reserviert)' : ''));
   const navigate = useNavigate();
   const params = useParams();
   const rest = params['*'] ?? '';
-  // A direct link or reload straight into "Helfer hinzufügen" or "Zeit
-  // bearbeiten" needs the registrant list expanded already — those sheets
-  // are only reachable through it — so the initial value checks the URL
-  // instead of always starting collapsed.
-  const [open, setOpen] = useState(
-    () => rest === `helfer/${sh.id}` || sh.signups.some((s) => rest === `zeit/${s.id ?? ''}`),
-  );
   const registering = rest === `anmelden/${sh.id}`;
   // Board-only action — the route alone doesn't imply authorization, so a
   // non-board member navigating straight to this URL must not see the sheet.
@@ -372,12 +536,13 @@ function ShiftRow({ sh, eventId, ev, onDeregister, memberMap }: { sh: Shift; eve
       <span className="tl-dot" style={{ background: dotColor[o.key] }} />
       <div className="sm-card" style={{ padding: 13, border: mine ? '1.5px solid var(--primary)' : '1px solid var(--line)' }}>
         <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 10 }}>
-          <div style={{ flex: 1, minWidth: 0 }}>
+          {/* Title next to the time when there is room, below it otherwise (V-011). */}
+          <div style={{ flex: 1, minWidth: 0, display: 'flex', flexWrap: 'wrap', alignItems: 'center', columnGap: 12, rowGap: 3 }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: 6, color: 'var(--ink-2)', fontSize: 12.5, fontWeight: 800, whiteSpace: 'nowrap' }}>
               <Icon name="clock" size={13} stroke={2.3} />{sh.start}–{sh.end}
               <span style={{ color: 'var(--muted)' }}>· {hrs(durH(sh.start, sh.end))}</span>
             </div>
-            <div style={{ fontWeight: 700, fontSize: 15.5, marginTop: 3 }}>{sh.name}</div>
+            <div style={{ fontWeight: 700, fontSize: 15.5 }}>{sh.name}</div>
           </div>
           <OccBadge o={o} />
         </div>
@@ -395,36 +560,36 @@ function ShiftRow({ sh, eventId, ev, onDeregister, memberMap }: { sh: Shift; eve
           </div>
         )}
 
+        {!isBoard && helperNames.length > 0 && (
+          <div data-testid="helper-names" style={{ marginTop: 9, display: 'flex', alignItems: 'flex-start', gap: 6, fontSize: 12.5, fontWeight: 600, color: 'var(--ink-2)' }}>
+            <Icon name="users" size={14} stroke={2.2} color="var(--muted)" />
+            <span>{helperNames.join(', ')}</span>
+          </div>
+        )}
+
         {mine && mine.comment && (
           <div style={{ marginTop: 9, fontSize: 12.5, color: 'var(--ink-2)', background: 'var(--surface-2)', padding: '8px 10px', borderRadius: 10, fontWeight: 600 }}>
             <b>Dein Hinweis:</b> {mine.comment}
           </div>
         )}
 
+        {/* Organisers see the helpers right away and can add one directly;
+            the bar above already shows how many there are (SC-012). */}
         {isBoard && (
           <div style={{ marginTop: 10 }}>
-            <button
-              className="pressable"
-              onClick={() => setOpen(!open)}
-              style={{ border: 'none', background: 'none', padding: 0, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 6, fontWeight: 700, fontSize: 12.5, color: 'var(--ink-2)', fontFamily: 'inherit' }}
-            >
-              <Icon name="users" size={15} stroke={2.2} />{o.count} eingetragen<Icon name={open ? 'chevD' : 'chevR'} size={14} stroke={2.4} />
-            </button>
-            {open && (
-              <div style={{ marginTop: 8, display: 'flex', flexDirection: 'column', gap: 6 }}>
-                {sh.signups.length === 0 && <span style={{ fontSize: 12.5, color: 'var(--muted)', fontWeight: 600 }}>Noch niemand eingetragen.</span>}
+            {sh.signups.length > 0 && (
+              <div data-testid="registrations" style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(min(100%, 290px), 1fr))', gap: 6, marginBottom: 9 }}>
                 {sh.signups.map((s) => (
                   <RegistrationRow
                     key={s.id ?? s.memberId}
                     s={s}
                     shift={sh}
                     eventId={eventId}
-                    memberMap={memberMap}
                   />
                 ))}
-                <Button variant="soft" size="sm" icon="plus" onClick={() => navigate(routes.eventHelfer(eventId, sh.id))}>Helfer hinzufügen</Button>
               </div>
             )}
+            <Button variant={o.free > 0 ? 'primary' : 'soft'} size="sm" icon="plus" onClick={() => navigate(routes.eventHelfer(eventId, sh.id))}>Helfer hinzufügen</Button>
           </div>
         )}
 
@@ -445,7 +610,6 @@ function ShiftRow({ sh, eventId, ev, onDeregister, memberMap }: { sh: Shift; eve
       <AddMemberSheet
         shift={sh}
         eventId={eventId}
-        members={Object.values(memberMap)}
         onClose={closeModal}
       />
     )}
@@ -770,6 +934,8 @@ function EditEventPage({ ev, onClose }: { ev: Event; onClose: () => void }) {
         />
       </div>
 
+      <AttachmentsSection eventId={ev.id} editable />
+
       {/* Eckdaten */}
       <div style={{ fontWeight: 800, fontSize: 13, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '.06em', marginBottom: 10 }}>Eckdaten</div>
       <Field label="Name">
@@ -966,7 +1132,9 @@ function DeleteAttachmentDialog({ attachment, onClose, onConfirm }: { attachment
 // Images and other attachments for an event (V-008). Board members can add
 // and remove files; everyone else just sees what's there (and the section is
 // hidden entirely for them when it's empty, to keep the detail page tidy).
-function AttachmentsSection({ eventId, isBoard }: { eventId: string; isBoard: boolean }) {
+// Attachments (V-008): the event view only lists existing ones; uploading and
+// removing happens on the edit page (`editable`).
+function AttachmentsSection({ eventId, editable }: { eventId: string; editable: boolean }) {
   const { showToast } = useAppStore();
   const { data: attachments } = useEventAttachments(eventId);
   const upload = useUploadEventAttachment(eventId);
@@ -1005,33 +1173,11 @@ function AttachmentsSection({ eventId, isBoard }: { eventId: string; isBoard: bo
     setConfirmDelete(null);
   };
 
-  if (!isBoard && (!attachments || attachments.length === 0)) return null;
+  if (!editable && (!attachments || attachments.length === 0)) return null;
 
   return (
-    <div style={{ margin: '18px 0 4px' }}>
-      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 9 }}>
-        <span style={{ fontWeight: 700, fontSize: 12.5, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: 0.3 }}>Anhänge</span>
-        {isBoard && (
-          <>
-            <button
-              onClick={() => fileInputRef.current?.click()}
-              disabled={upload.isPending}
-              className="pressable"
-              title="Bild oder Datei hinzufügen"
-              style={{ width: 26, height: 26, borderRadius: '50%', border: '1px solid var(--line-2)', background: 'var(--surface)', display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer' }}
-            >
-              <Icon name="plus" size={13} stroke={2.6} color="var(--ink-2)" />
-            </button>
-            <input
-              ref={fileInputRef}
-              type="file"
-              accept={ALLOWED_ATTACHMENT_TYPES}
-              style={{ display: 'none' }}
-              onChange={onFileChange}
-            />
-          </>
-        )}
-      </div>
+    <div data-testid="attachments" style={{ margin: editable ? '0 0 20px' : '14px 0 4px' }}>
+      <div style={{ fontWeight: 800, fontSize: editable ? 13 : 12, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '.06em', marginBottom: 9 }}>Anhänge</div>
       {attachments && attachments.length > 0 && (
         <div style={{ display: 'flex', gap: 8, overflowX: 'auto', paddingBottom: 2 }}>
           {attachments.map((a) => (
@@ -1048,7 +1194,7 @@ function AttachmentsSection({ eventId, isBoard }: { eventId: string; isBoard: bo
                   {a.fileName}
                 </div>
               </a>
-              {isBoard && (
+              {editable && (
                 <button
                   onClick={() => setConfirmDelete(a)}
                   disabled={deletingIds.has(a.id)}
@@ -1062,6 +1208,28 @@ function AttachmentsSection({ eventId, isBoard }: { eventId: string; isBoard: bo
             </div>
           ))}
         </div>
+      )}
+      {editable && (
+        <>
+          <button
+            className="sm-card pressable"
+            onClick={() => fileInputRef.current?.click()}
+            disabled={upload.isPending}
+            style={{ width: '100%', marginTop: attachments && attachments.length > 0 ? 10 : 0, border: '1.5px dashed var(--line-2)', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8, padding: '14px', cursor: 'pointer', background: 'var(--surface)', fontFamily: 'inherit' }}
+          >
+            <Icon name="paperclip" size={18} color="var(--muted)" />
+            <span style={{ fontWeight: 700, fontSize: 13.5, color: 'var(--ink-2)' }}>
+              {upload.isPending ? 'Wird hochgeladen…' : 'Bild oder Datei anhängen'}
+            </span>
+          </button>
+          <input
+            ref={fileInputRef}
+            type="file"
+            accept={ALLOWED_ATTACHMENT_TYPES}
+            style={{ display: 'none' }}
+            onChange={onFileChange}
+          />
+        </>
       )}
       {confirmDelete && (
         <DeleteAttachmentDialog attachment={confirmDelete} onClose={() => setConfirmDelete(null)} onConfirm={confirmRemove} />
@@ -1091,12 +1259,6 @@ export function EventDetail() {
   const eventQ = useEvent(id);
   const timelineQ = useEventTimeline(id);
   const { data: settings } = useSettings();
-  // Member names are only needed in the board view (otherwise spare the request).
-  const { data: members } = useMembers(isBoard);
-  const memberMap: Record<string, Member> = (members ?? []).reduce(
-    (acc, m) => { acc[m.id] = m; return acc; },
-    {} as Record<string, Member>,
-  );
 
   const deregisterDeadlineH = settings?.deregisterDeadlineH ?? 24;
 
@@ -1112,8 +1274,6 @@ export function EventDetail() {
 
   // Prefer the dedicated timeline (multi-day grouped, occupancy ready); fall back to the event days.
   const days = timelineQ.data?.days ?? ev.days ?? [];
-  const allShifts = days.flatMap((d) => d.shifts);
-  const free = allShifts.reduce((a, s) => a + calcOccupancy(s).free, 0);
 
   return (
     <div className="fade-in">
@@ -1190,24 +1350,14 @@ export function EventDetail() {
           </span>
           <span style={{ display: 'flex', alignItems: 'center', gap: 9 }}><Icon name="pin" size={17} color="var(--muted)" />{ev.location}</span>
         </div>
-        {ev.description && (
-          <div style={{ marginTop: 14 }}>
-            <MarkdownContent text={ev.description} />
-          </div>
-        )}
+        {ev.description && <EventDescription text={ev.description} />}
 
-        <AttachmentsSection eventId={id} isBoard={isBoard} />
-
-        <div style={{ display: 'flex', gap: 10, margin: '16px 0 4px' }}>
-          <MiniStat label="Schichten" val={allShifts.length} />
-          <MiniStat label="Freie Plätze" val={free} accent={free > 0} />
-          <MiniStat label={days.length > 1 ? 'Tage' : 'Tag'} val={days.length} />
-        </div>
+        <AttachmentsSection eventId={id} editable={false} />
 
         {days.map((day, i) => (
           <div className="tl-day" key={day.date}>
             <div className="tl-dayhead">
-              <span className="tl-daybadge">{days.length > 1 ? `Tag ${i + 1}` : 'Programm'}</span>
+              <span className="tl-daybadge">{days.length > 1 ? `Tag ${i + 1}` : 'Schichten'}</span>
               <span style={{ fontWeight: 700, fontSize: 13.5, color: 'var(--ink-2)' }}>{fmtDate(day.date, 'weekday-long')}</span>
             </div>
             <div className="tl-rail">
@@ -1217,7 +1367,6 @@ export function EventDetail() {
                   sh={sh}
                   eventId={id}
                   ev={ev}
-                  memberMap={memberMap}
                   onDeregister={() => setConfirmOff(sh)}
                 />
               ))}
@@ -1233,4 +1382,4 @@ export function EventDetail() {
   );
 }
 
-export { ShiftRow, RegisterSheet, DeregisterDialog, MiniStat, findEvent };
+export { ShiftRow, RegisterSheet, DeregisterDialog, findEvent };

@@ -19,7 +19,7 @@ func newHourUC() (*HourUsecase, *fakeHourRepo, *fakeMemberRepo, *fakeShiftRepo, 
 	email := &fakeEmailService{}
 	events := newFakeEventRepo()
 	regs := newFakeRegistrationRepo()
-	return NewHourUsecase(hours, members, shifts, regs, audit, email, events), hours, members, shifts, audit
+	return NewHourUsecase(hours, members, shifts, regs, audit, email, events, newFakeSettingsRepo()), hours, members, shifts, audit
 }
 
 func seedYear(hours *fakeHourRepo, defaultTarget float64) *domain.ClubYear {
@@ -323,4 +323,51 @@ func TestCorrectAndDeleteEntry(t *testing.T) {
 	err = uc.DeleteEntry(context.Background(), uuid.New(), entryID)
 	require.NoError(t, err)
 	assert.True(t, audit.has(domain.AuditActionDelete, domain.AuditEntityHourEntry))
+}
+
+func TestGetMemberAccountFull_OpenFeeCents(t *testing.T) {
+	hours := newFakeHourRepo()
+	members := newFakeMemberRepo()
+	settings := newFakeSettingsRepo()
+	uc := NewHourUsecase(hours, members, newFakeShiftRepo(), newFakeRegistrationRepo(), newFakeAuditRepo(), &fakeEmailService{}, newFakeEventRepo(), settings)
+	ctx := context.Background()
+	year := seedYear(hours, 20)
+	memberID := uuid.New()
+	members.add(&domain.Member{ID: memberID, Email: "a@b.de", IsActive: true})
+
+	// No fee tiers configured → no projection.
+	full, err := uc.GetMemberAccountFull(ctx, memberID)
+	require.NoError(t, err)
+	assert.Nil(t, full.OpenFeeCents)
+
+	settings.tiers[year.ID] = []*domain.FeeTier{{Position: 1, AmountCents: 1000}, {Position: 2, AmountCents: 1500}}
+	require.NoError(t, hours.CreateEntry(ctx, &domain.HourEntry{ID: uuid.New(), MemberID: memberID, ClubYearID: year.ID,
+		Hours: 17.5, Type: domain.HourEntryTypeManual, Status: domain.HourEntryStatusConfirmed}))
+
+	// 2.5 missing hours: 1 h × 10 € + 1.5 h × 15 €.
+	full, err = uc.GetMemberAccountFull(ctx, memberID)
+	require.NoError(t, err)
+	require.NotNil(t, full.OpenFeeCents)
+	assert.Equal(t, 3250, *full.OpenFeeCents)
+
+	// A per-member tier list takes precedence (G-004).
+	settings.memberTiers[memberID.String()+"|"+year.ID.String()] = []*domain.FeeTier{{Position: 1, AmountCents: 200}}
+	full, err = uc.GetMemberAccountFull(ctx, memberID)
+	require.NoError(t, err)
+	assert.Equal(t, 500, *full.OpenFeeCents)
+
+	// The member's individual goal (S-004) drives goal and projection alike.
+	goal := 17.5
+	members.members[memberID].IndividualGoalHours = &goal
+	full, err = uc.GetMemberAccountFull(ctx, memberID)
+	require.NoError(t, err)
+	assert.Equal(t, 17.5, full.Goal)
+	assert.Equal(t, 0, *full.OpenFeeCents)
+
+	// Year-end billing skips inactive members, so they get no projection.
+	members.members[memberID].IndividualGoalHours = nil
+	members.members[memberID].IsActive = false
+	full, err = uc.GetMemberAccountFull(ctx, memberID)
+	require.NoError(t, err)
+	assert.Nil(t, full.OpenFeeCents)
 }

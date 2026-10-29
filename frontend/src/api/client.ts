@@ -7,21 +7,55 @@ const apiClient: AxiosInstance = axios.create({
   headers: { 'Content-Type': 'application/json' },
 });
 
-// Attach JWT from localStorage on every request
+// ── Kiosk link token (K-016) ─────────────────────────────────────────────────
+// A kiosk device is unlocked by a link with ?token=…; the token is kept in
+// this device's storage and sent with every kiosk request instead of a JWT.
+const KIOSK_TOKEN_KEY = 'sm_kiosk_token';
+// Kept in memory too: without usable storage (private mode, blocked site
+// data) the token adopted from the link still works until the next reload.
+let kioskTokenInMemory: string | null = null;
+
+export function getKioskToken(): string | null {
+  try {
+    return localStorage.getItem(KIOSK_TOKEN_KEY) ?? kioskTokenInMemory;
+  } catch {
+    return kioskTokenInMemory;
+  }
+}
+
+export function setKioskToken(token: string): void {
+  kioskTokenInMemory = token;
+  try {
+    localStorage.setItem(KIOSK_TOKEN_KEY, token);
+  } catch {
+    // Private mode etc.: the kiosk then needs the link again on reload.
+  }
+}
+
+const isKioskRequest = (url?: string) => !!url && url.startsWith('/kiosk/');
+
+// Attach JWT from localStorage on every request (kiosk requests carry the
+// kiosk link token instead).
 apiClient.interceptors.request.use((config) => {
+  config.headers = config.headers ?? {};
+  if (isKioskRequest(config.url)) {
+    const kiosk = getKioskToken();
+    if (kiosk) config.headers['X-Kiosk-Token'] = kiosk;
+    return config;
+  }
   const token = localStorage.getItem('sm_token');
   if (token) {
-    config.headers = config.headers ?? {};
     config.headers['Authorization'] = `Bearer ${token}`;
   }
   return config;
 });
 
-// On 401, clear token and redirect to login
+// On 401, clear token and redirect to login — except for the kiosk, which
+// shows its own "not unlocked" screen.
 apiClient.interceptors.response.use(
   (res) => res,
   (err) => {
-    if (err?.response?.status === 401) {
+    if (err?.response?.status === 401 && !isKioskRequest(err?.config?.url)) {
       localStorage.removeItem('sm_token');
       if (!window.location.pathname.startsWith('/auth')) {
         window.location.href = '/auth/login';

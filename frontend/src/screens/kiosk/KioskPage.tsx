@@ -1,16 +1,48 @@
 import { useMemo, useState } from 'react';
+import { isAxiosError } from 'axios';
 import { Icon } from '@/components/ui/Icon';
 import { Badge } from '@/components/ui/Badge';
 import { Button } from '@/components/ui/Button';
 import { Input } from '@/components/forms/Field';
-import { useKioskEvents, useKioskMemberSearch, useKioskRegister } from '@/api/kiosk';
-import { useSettings, useBranding } from '@/api/settings';
+import { useKioskConfig, useKioskEvents, useKioskMemberSearch, useKioskRegister } from '@/api/kiosk';
+import { getKioskToken, setKioskToken } from '@/api/client';
 import { calcOccupancy } from '@/hooks/useOccupancy';
 import { LoadingState } from '@/components/ui/States';
-import { DEMO_STATE, fmtDate, hrs, durH, catGradient } from '@/screens/_demo';
+import { fmtDate, hrs, durH, catGradient } from '@/screens/_demo';
 import type { Event, Shift, Member } from '@/types';
 
 type Step = 'event' | 'shift' | 'identify' | 'done';
+// How the person identifies (K-004): typed full name (K-014), e-mail with a
+// display name (K-006/K-007), or the member search when enabled (K-002).
+type Mode = 'name' | 'email' | 'search';
+
+// A kiosk link carries ?token=…; keep it on this device and drop it from the
+// address bar so it isn't left on screen (K-016).
+function adoptTokenFromUrl(): void {
+  const params = new URLSearchParams(window.location.search);
+  const token = params.get('token');
+  if (!token) return;
+  setKioskToken(token);
+  params.delete('token');
+  const rest = params.toString();
+  window.history.replaceState(null, '', window.location.pathname + (rest ? `?${rest}` : '') + window.location.hash);
+}
+
+function statusOf(err: unknown): number | undefined {
+  return isAxiosError(err) ? err.response?.status : undefined;
+}
+
+function KioskNotice({ icon, title, text }: { icon: string; title: string; text: string }) {
+  return (
+    <div className="fade-in" style={{ textAlign: 'center', padding: '60px 20px' }}>
+      <div style={{ width: 88, height: 88, borderRadius: '50%', background: 'var(--surface-2)', display: 'flex', alignItems: 'center', justifyContent: 'center', margin: '0 auto 22px' }}>
+        <Icon name={icon} size={44} stroke={2.2} color="var(--muted)" />
+      </div>
+      <div style={{ fontFamily: 'Bricolage Grotesque', fontWeight: 800, fontSize: 26 }}>{title}</div>
+      <p style={{ color: 'var(--ink-2)', fontSize: 15, fontWeight: 600, lineHeight: 1.5, margin: '12px auto 0', maxWidth: 420 }}>{text}</p>
+    </div>
+  );
+}
 
 function clubInitials(name: string): string {
   const words = name.split(/\s+/).filter(Boolean);
@@ -40,39 +72,57 @@ function KioskHeader({ onBack, title, sub }: { onBack?: () => void; title: strin
 }
 
 export function KioskPage() {
-  const { data: settings } = useSettings();
-  const { data: branding } = useBranding();
-  const { data: remoteEvents, isLoading: eventsLoading } = useKioskEvents();
+  // Runs before the first request of this render so the token is sent along.
+  useState(() => { adoptTokenFromUrl(); return null; });
+  const hasToken = !!getKioskToken();
+
+  const configQ = useKioskConfig();
+  // Without a kiosk link every kiosk request fails with 401 anyway.
+  const { data: remoteEvents, isLoading: eventsLoading } = useKioskEvents(hasToken);
   const register = useKioskRegister();
 
-  const kioskSearch = settings?.kioskSearch ?? DEMO_STATE.settings.kioskSearch;
-  const clubName = branding?.clubName ?? settings?.clubName ?? DEMO_STATE.settings.clubName;
+  const config = configQ.data;
+  const kioskSearch = config?.kioskSearch ?? false;
+  const clubName = config?.clubName ?? '';
   const events = useMemo<Event[]>(
-    () => (remoteEvents ?? DEMO_STATE.events).filter((e) => e.status === 'veröffentlicht'),
+    () => (remoteEvents ?? []).filter((e) => e.status === 'veröffentlicht' || e.status === 'published'),
     [remoteEvents],
   );
 
-  const kioskLocked = settings?.kioskLocked ?? false;
+  const configStatus = statusOf(configQ.error);
+  const notUnlocked = !hasToken || configStatus === 401;
+  const kioskLocked = configStatus === 403;
 
   const [step, setStep] = useState<Step>('event');
   const [event, setEvent] = useState<Event | null>(null);
   const [shift, setShift] = useState<Shift | null>(null);
+  const [mode, setMode] = useState<Mode>('name');
+  const [name, setName] = useState('');
   const [email, setEmail] = useState('');
   const [query, setQuery] = useState('');
+  const [error, setError] = useState('');
+  const [doneMode, setDoneMode] = useState<Mode>('name');
 
   // K-008: running list of people registered in THIS kiosk session.
   interface SessionEntry { who: string; eventName: string; shiftName: string }
   const [sessionEntries, setSessionEntries] = useState<SessionEntry[]>([]);
 
-  const { data: searchResults } = useKioskMemberSearch(query, kioskSearch);
+  const { data: searchResults } = useKioskMemberSearch(query, kioskSearch && mode === 'search');
+
+  const clearPerson = () => {
+    setName('');
+    setEmail('');
+    setQuery('');
+    setError('');
+    setMode('name');
+  };
 
   // Full reset — back to event selection AND clear the session list (new visitor).
   const reset = () => {
     setStep('event');
     setEvent(null);
     setShift(null);
-    setEmail('');
-    setQuery('');
+    clearPerson();
     setSessionEntries([]);
   };
 
@@ -81,33 +131,58 @@ export function KioskPage() {
     setStep('event');
     setEvent(null);
     setShift(null);
-    setEmail('');
-    setQuery('');
+    clearPerson();
   };
+
+  const trimmedName = name.trim().replace(/\s+/g, ' ');
+  const nameValid = trimmedName.length >= 2;
+  const emailValid = /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email.trim());
 
   const submit = (member?: Member) => {
     if (!shift) return;
-    const who = member ? `${member.first} ${member.last}` : email.trim();
-    register.mutate(
-      member ? { shiftId: shift.id, memberId: member.id } : { shiftId: shift.id, email: email.trim() },
-      {
-        onSuccess: () => {
-          setSessionEntries((prev) => [
-            ...prev,
-            { who, eventName: event?.name ?? '', shiftName: shift.name },
-          ]);
-          setStep('done');
-        },
-        onError: () => setStep('done'),
+    const used: Mode = member ? 'search' : mode;
+    const who = member ? `${member.first} ${member.last}`.trim() : trimmedName;
+    const payload = member
+      ? { shiftId: shift.id, memberId: member.id }
+      : used === 'email'
+        ? { shiftId: shift.id, name: trimmedName, email: email.trim() }
+        : { shiftId: shift.id, name: trimmedName };
+    setError('');
+    register.mutate(payload, {
+      onSuccess: () => {
+        setSessionEntries((prev) => [...prev, { who, eventName: event?.name ?? '', shiftName: shift.name }]);
+        setDoneMode(used);
+        setStep('done');
       },
-    );
+      onError: (err) => {
+        const status = statusOf(err);
+        setError(
+          status === 409
+            ? 'Diese Person ist für die Schicht bereits eingetragen.'
+            : status === 404 || status === 422
+              ? 'Für diese Schicht ist keine Eintragung (mehr) möglich.'
+              : 'Die Eintragung hat nicht geklappt. Bitte versuche es noch einmal.',
+        );
+      },
+    });
   };
+
+  const modes: { id: Mode; label: string; icon: string }[] = [
+    { id: 'name', label: 'Name', icon: 'user' },
+    { id: 'email', label: 'Mit E-Mail', icon: 'mail' },
+    ...(kioskSearch ? [{ id: 'search' as Mode, label: 'Mitglied suchen', icon: 'search' }] : []),
+  ];
+  const segStyle = (active: boolean): React.CSSProperties => ({
+    flex: 1, border: 'none', cursor: 'pointer', padding: '13px 0', borderRadius: 11, fontWeight: 700, fontSize: 15, fontFamily: 'inherit',
+    display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 7,
+    background: active ? 'var(--surface)' : 'transparent', color: active ? 'var(--ink)' : 'var(--muted)', boxShadow: active ? 'var(--shadow)' : 'none',
+  });
 
   return (
     <div style={{ minHeight: '100vh', background: 'var(--bg)', display: 'flex', flexDirection: 'column' }}>
       <div style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '20px 32px', borderBottom: '1px solid var(--line)', background: 'var(--surface)' }}>
-        {branding?.logoUrl ? (
-          <img src={branding.logoUrl} alt={clubName} style={{ width: 40, height: 40, borderRadius: '50%', objectFit: 'cover' }} />
+        {config?.logoUrl ? (
+          <img src={config.logoUrl} alt={clubName} style={{ width: 40, height: 40, borderRadius: '50%', objectFit: 'cover' }} />
         ) : (
           <span className="rb-logo" style={{ width: 40, height: 40, fontSize: 15 }}>{clubInitials(clubName)}</span>
         )}
@@ -118,18 +193,17 @@ export function KioskPage() {
       </div>
 
       <div style={{ flex: 1, width: '100%', maxWidth: 720, margin: '0 auto', padding: '32px 32px 48px' }}>
-        {kioskLocked && (
-          <div className="fade-in" style={{ textAlign: 'center', padding: '60px 20px' }}>
-            <div style={{ width: 88, height: 88, borderRadius: '50%', background: 'var(--surface-2)', display: 'flex', alignItems: 'center', justifyContent: 'center', margin: '0 auto 22px' }}>
-              <Icon name="shield" size={44} stroke={2.2} color="var(--muted)" />
-            </div>
-            <div style={{ fontFamily: 'Bricolage Grotesque', fontWeight: 800, fontSize: 26 }}>Kiosk gesperrt</div>
-            <p style={{ color: 'var(--ink-2)', fontSize: 15, fontWeight: 600, lineHeight: 1.5, margin: '12px auto 0', maxWidth: 420 }}>
-              Die Selbst-Eintragung ist derzeit deaktiviert. Bitte wende dich an den Vorstand.
-            </p>
-          </div>
+        {notUnlocked && (
+          <KioskNotice
+            icon="lock"
+            title="Kiosk nicht freigeschaltet"
+            text="Dieses Gerät ist nicht als Kiosk freigeschaltet oder der Kiosk-Link ist abgelaufen. Bitte öffne den Kiosk über den Link vom Vorstand."
+          />
         )}
-        {!kioskLocked && step === 'event' && (
+        {!notUnlocked && kioskLocked && (
+          <KioskNotice icon="shield" title="Kiosk gesperrt" text="Die Selbst-Eintragung ist derzeit deaktiviert. Bitte wende dich an den Vorstand." />
+        )}
+        {!notUnlocked && !kioskLocked && step === 'event' && (
           <div className="fade-in">
             <KioskHeader title="Veranstaltung wählen" sub="Schritt 1 von 3" />
             {eventsLoading && !remoteEvents && <LoadingState label="Veranstaltungen werden geladen…" />}
@@ -162,7 +236,7 @@ export function KioskPage() {
           </div>
         )}
 
-        {step === 'shift' && event && (
+        {!notUnlocked && !kioskLocked && step === 'shift' && event && (
           <div className="fade-in">
             <KioskHeader onBack={() => setStep('event')} title={event.name} sub="Schritt 2 von 3 · Schicht wählen" />
             <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
@@ -194,51 +268,89 @@ export function KioskPage() {
           </div>
         )}
 
-        {step === 'identify' && shift && (
+        {!notUnlocked && !kioskLocked && step === 'identify' && shift && (
           <div className="fade-in">
             <KioskHeader onBack={() => setStep('shift')} title="Anmeldung" sub={`Schritt 3 von 3 · ${shift.name}`} />
-            {kioskSearch ? (
+            {modes.length > 1 && (
+              <div role="tablist" style={{ display: 'flex', gap: 6, marginBottom: 20, background: 'var(--surface-2)', borderRadius: 14, padding: 5, border: '1px solid var(--line)' }}>
+                {modes.map((m) => (
+                  <button key={m.id} role="tab" aria-selected={mode === m.id} className="pressable" onClick={() => { setMode(m.id); setError(''); }} style={segStyle(mode === m.id)}>
+                    <Icon name={m.icon} size={17} stroke={2.2} />{m.label}
+                  </button>
+                ))}
+              </div>
+            )}
+
+            {mode === 'name' && (
+              <div>
+                <label style={{ display: 'block' }}>
+                  <div style={{ fontWeight: 700, fontSize: 16, marginBottom: 10 }}>Vor- und Nachname</div>
+                  <Input placeholder="z. B. Maximilian Mustermann" value={name} onChange={(e) => setName(e.target.value)} maxLength={100} autoComplete="off" style={{ fontSize: 18, padding: '16px 16px' }} />
+                </label>
+                <div style={{ display: 'flex', gap: 10, background: 'var(--surface-2)', borderRadius: 12, padding: 14, fontSize: 13.5, color: 'var(--ink-2)', fontWeight: 600, lineHeight: 1.5, margin: '16px 0' }}>
+                  <Icon name="info" size={18} color="var(--info)" style={{ flexShrink: 0, marginTop: 1 }} />
+                  <span>Bitte deinen vollständigen Namen eintragen. Der Vorstand ordnet die Eintragung anschließend deinem Mitgliedskonto zu.</span>
+                </div>
+                <Button icon="check" disabled={!nameValid} loading={register.isPending} onClick={() => submit()}>Eintragen</Button>
+              </div>
+            )}
+
+            {mode === 'email' && (
+              <div>
+                <label style={{ display: 'block' }}>
+                  <div style={{ fontWeight: 700, fontSize: 16, marginBottom: 10 }}>Anzeigename</div>
+                  <Input placeholder="So erscheinst du in der Schicht" value={name} onChange={(e) => setName(e.target.value)} maxLength={100} autoComplete="off" style={{ fontSize: 18, padding: '16px 16px' }} />
+                </label>
+                <label style={{ display: 'block', marginTop: 14 }}>
+                  <div style={{ fontWeight: 700, fontSize: 16, marginBottom: 10 }}>E-Mail-Adresse</div>
+                  <Input type="email" placeholder="name@example.de" value={email} onChange={(e) => setEmail(e.target.value)} autoComplete="off" style={{ fontSize: 18, padding: '16px 16px' }} />
+                </label>
+                <div style={{ display: 'flex', gap: 10, background: 'var(--surface-2)', borderRadius: 12, padding: 14, fontSize: 13.5, color: 'var(--ink-2)', fontWeight: 600, lineHeight: 1.5, margin: '16px 0' }}>
+                  <Icon name="info" size={18} color="var(--info)" style={{ flexShrink: 0, marginTop: 1 }} />
+                  <span>Du erhältst einen Bestätigungslink per E-Mail. Bis zur Bestätigung erscheint dein Anzeigename in der Schicht.</span>
+                </div>
+                <Button icon="mail" disabled={!nameValid || !emailValid} loading={register.isPending} onClick={() => submit()}>Eintragen und Link senden</Button>
+              </div>
+            )}
+
+            {mode === 'search' && (
               <div>
                 <div style={{ fontWeight: 700, fontSize: 16, marginBottom: 10 }}>Mitglied suchen</div>
                 <Input placeholder="Name eingeben…" value={query} onChange={(e) => setQuery(e.target.value)} style={{ fontSize: 18, padding: '16px 16px' }} />
                 <div style={{ display: 'flex', flexDirection: 'column', gap: 10, marginTop: 16 }}>
-                  {(searchResults ?? DEMO_STATE.members.filter((m) => query.trim().length >= 2 && (m.first + ' ' + m.last).toLowerCase().includes(query.toLowerCase()))).map((m) => (
+                  {(searchResults ?? []).map((m) => (
                     <button
                       key={m.id}
                       className="pressable"
                       onClick={() => submit(m)}
                       style={{ textAlign: 'left', cursor: 'pointer', border: '1px solid var(--line)', borderRadius: 'var(--radius-sm)', background: 'var(--surface)', padding: 16, display: 'flex', alignItems: 'center', gap: 12, fontFamily: 'inherit' }}
                     >
-                      <div style={{ flex: 1, fontWeight: 700, fontSize: 16 }}>{m.first} {m.last}</div>
+                      <div style={{ flex: 1, fontWeight: 700, fontSize: 16 }}>{`${m.first} ${m.last}`.trim()}</div>
                       <Icon name="arrowR" size={22} stroke={2.2} />
                     </button>
                   ))}
                 </div>
               </div>
-            ) : (
-              <div>
-                <div style={{ fontWeight: 700, fontSize: 16, marginBottom: 10 }}>E-Mail-Adresse</div>
-                <Input type="email" placeholder="name@example.de" value={email} onChange={(e) => setEmail(e.target.value)} style={{ fontSize: 18, padding: '16px 16px' }} />
-                <div style={{ display: 'flex', gap: 10, background: 'var(--surface-2)', borderRadius: 12, padding: 14, fontSize: 13.5, color: 'var(--ink-2)', fontWeight: 600, lineHeight: 1.5, margin: '16px 0' }}>
-                  <Icon name="info" size={18} color="var(--info)" style={{ flexShrink: 0, marginTop: 1 }} />
-                  <span>Du erhältst einen Bestätigungslink per E-Mail. Erst nach Bestätigung ist dein Platz verbindlich.</span>
-                </div>
-                <Button icon="mail" disabled={!email.includes('@')} loading={register.isPending} onClick={() => submit()}>Bestätigungslink senden</Button>
-              </div>
+            )}
+
+            {error && (
+              <div role="alert" style={{ marginTop: 16, padding: '12px 14px', borderRadius: 12, background: 'var(--crit-bg)', color: 'var(--crit)', fontWeight: 700, fontSize: 14 }}>{error}</div>
             )}
           </div>
         )}
 
-        {step === 'done' && (
+        {!notUnlocked && !kioskLocked && step === 'done' && (
           <div className="fade-in" style={{ textAlign: 'center', padding: '40px 20px' }}>
             <div style={{ width: 88, height: 88, borderRadius: '50%', background: 'var(--ok-bg)', display: 'flex', alignItems: 'center', justifyContent: 'center', margin: '0 auto 22px' }}>
               <Icon name="check" size={44} stroke={2.4} color="var(--ok)" />
             </div>
             <div style={{ fontFamily: 'Bricolage Grotesque', fontWeight: 800, fontSize: 28 }}>Eintragung gespeichert</div>
             <p style={{ color: 'var(--ink-2)', fontSize: 15.5, fontWeight: 600, lineHeight: 1.5, margin: '12px auto 24px', maxWidth: 420 }}>
-              {kioskSearch
-                ? 'Die Anmeldung wurde gespeichert. Vielen Dank für deine Unterstützung!'
-                : 'Bitte prüfe dein Postfach und bestätige die Anmeldung über den Link in der E-Mail.'}
+              {doneMode === 'email'
+                ? 'Bitte bestätige die Eintragung über den Link, den wir an die angegebene Adresse geschickt haben. Vielen Dank für deine Unterstützung!'
+                : doneMode === 'name'
+                  ? 'Der Vorstand ordnet die Eintragung deinem Mitgliedskonto zu. Vielen Dank für deine Unterstützung!'
+                  : 'Die Anmeldung wurde gespeichert. Vielen Dank für deine Unterstützung!'}
             </p>
 
             {sessionEntries.length > 0 && (

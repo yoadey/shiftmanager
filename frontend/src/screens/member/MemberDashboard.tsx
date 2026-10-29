@@ -11,6 +11,7 @@ import { useMyHours } from '@/api/hours';
 import { useSettings, useBranding } from '@/api/settings';
 import { LoadingState, ErrorState } from '@/components/ui/States';
 import { routes } from '@/routes';
+import { eur } from '@/screens/_demo';
 import type { Event, Shift, ShiftDay, Signup } from '@/types';
 
 // ── Date helpers ──────────────────────────────────────────────────────────────
@@ -185,8 +186,12 @@ export function MemberDashboard() {
   const confirmed = hoursQ.data?.confirmed ?? 0;
   const reservedExtra = up.reduce((a, r) => a + r.dur, 0);
   const incl = confirmed + (hoursQ.data?.reserved ?? reservedExtra);
-  const goal = hoursQ.data?.goal || settings?.yearGoal || 20;
+  // An individual goal of 0 h is a real goal (exempt member); only fall back
+  // when there is no active club year behind the account.
+  const goal = hoursQ.data?.clubYearLabel ? hoursQ.data.goal : (settings?.yearGoal ?? 20);
   const remaining = Math.max(goal - incl, 0);
+  // What the member would owe if they worked no further hours (G-011).
+  const openFee = hoursQ.data?.openFeeCents ?? 0;
 
   if (eventsQ.isLoading || hoursQ.isLoading) return <LoadingState />;
   if (eventsQ.isError || hoursQ.isError) return <ErrorState />;
@@ -226,6 +231,12 @@ export function MemberDashboard() {
               ? <span>Noch <b style={{ color: 'var(--ink)' }}>{hrs(remaining)}</b> bis zum Jahresziel – inkl. deiner Reservierungen.</span>
               : <span>Stark! Du hast dein Jahresziel bereits erreicht.</span>}
           </div>
+          {openFee > 0 && (
+            <div data-testid="open-fee" style={{ marginTop: 8, padding: '11px 13px', background: 'var(--surface-2)', borderRadius: 13, fontSize: 13.5, fontWeight: 600, color: 'var(--ink-2)', display: 'flex', alignItems: 'center', gap: 8 }}>
+              <Icon name="euro" size={17} color="var(--muted)" />
+              <span>Ohne weitere Stunden wären <b style={{ color: 'var(--ink)' }}>{eur(openFee / 100)}</b> Abgeltung fällig.</span>
+            </div>
+          )}
         </div>
 
         <div style={{ marginTop: 14 }}>

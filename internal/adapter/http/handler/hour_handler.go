@@ -156,6 +156,10 @@ func (h *HourHandler) GetMemberAccountByID(w http.ResponseWriter, r *http.Reques
 		writeError(w, http.StatusBadRequest, "invalid memberId")
 		return
 	}
+	if !isSelfOrBoard(r, memberID) { // SA-011
+		writeError(w, http.StatusForbidden, "forbidden")
+		return
+	}
 	full, err := h.uc.GetMemberAccountFull(r.Context(), memberID)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error())
@@ -163,6 +167,7 @@ func (h *HourHandler) GetMemberAccountByID(w http.ResponseWriter, r *http.Reques
 	}
 	writeJSON(w, http.StatusOK, full)
 }
+
 
 // GetMemberAccount returns a member's hour account for a club year.
 // GET /api/v1/hours/account?memberId=...&clubYearId=...
@@ -175,6 +180,10 @@ func (h *HourHandler) GetMemberAccount(w http.ResponseWriter, r *http.Request) {
 	clubYearID, err := uuid.Parse(r.URL.Query().Get("clubYearId"))
 	if err != nil {
 		writeError(w, http.StatusBadRequest, "clubYearId is required")
+		return
+	}
+	if !isSelfOrBoard(r, memberID) { // SA-011
+		writeError(w, http.StatusForbidden, "forbidden")
 		return
 	}
 

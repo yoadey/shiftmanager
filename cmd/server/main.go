@@ -178,9 +178,9 @@ func run() error {
 
 	// --- Usecases ---
 	memberUC := usecase.NewMemberUsecase(memberRepo, auditRepo)
-	eventUC := usecase.NewEventUsecase(eventRepo, shiftRepo, regRepo, auditRepo, emailSvc, memberRepo, eventAttachmentRepo)
+	eventUC := usecase.NewEventUsecase(eventRepo, shiftRepo, regRepo, auditRepo, emailSvc, memberRepo, eventAttachmentRepo, settingsRepo)
 	regUC := usecase.NewRegistrationUsecase(regRepo, shiftRepo, eventRepo, memberRepo, emailSvc, auditRepo, settingsRepo)
-	hourUC := usecase.NewHourUsecase(hourRepo, memberRepo, shiftRepo, regRepo, auditRepo, emailSvc, eventRepo)
+	hourUC := usecase.NewHourUsecase(hourRepo, memberRepo, shiftRepo, regRepo, auditRepo, emailSvc, eventRepo, settingsRepo)
 	billingUC := usecase.NewBillingUsecase(hourRepo, memberRepo, settingsRepo, auditRepo, shiftRepo, regRepo)
 	settingsUC := usecase.NewSettingsUsecase(settingsRepo, auditRepo, memCache)
 	reminderUC := usecase.NewReminderUsecase(shiftRepo, regRepo, eventRepo, memberRepo, emailSvc, auditRepo, settingsRepo)
@@ -189,6 +189,8 @@ func run() error {
 	privacyUC := usecase.NewMemberPrivacyUsecase(memberRepo, regRepo, hourRepo, auditRepo)
 	notificationUC := usecase.NewNotificationUsecase(hourRepo, memberRepo, shiftRepo, eventRepo, regRepo, settingsRepo, emailSvc, auditRepo, cfg.SMTPFrom)
 	regUC.SetUnderstaffedNotifier(notificationUC)
+	regUC.SetPublicBaseURL(cfg.BaseURL)
+	kioskUC := usecase.NewKioskUsecase(db.NewKioskLinkRepo(gdb), auditRepo)
 
 	// --- Handlers ---
 	handlers := httpadapter.Handlers{
@@ -197,7 +199,7 @@ func run() error {
 		Event:    handler.NewEventHandler(eventUC, mediaStorage),
 		Shift:    handler.NewShiftHandler(eventUC, regUC),
 		Hour:     handler.NewHourHandler(hourUC),
-		Kiosk:    handler.NewKioskHandler(regUC, eventUC, memberUC, settingsUC),
+		Kiosk:    handler.NewKioskHandler(regUC, eventUC, memberUC, settingsUC, kioskUC),
 		Settings: handler.NewSettingsHandler(settingsUC, templateUC, mediaStorage),
 		Billing:  handler.NewBillingHandler(billingUC),
 		Stats:    handler.NewStatsHandler(statsUC),

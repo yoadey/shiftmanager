@@ -15,6 +15,7 @@ import { LoadingState, ErrorState } from '@/components/ui/States';
 import { DEMO_STATE } from '@/screens/_demo';
 import { Section } from '@/screens/member/MemberDashboard';
 import { LinkRow } from '@/screens/member/MemberProfile';
+import { KioskLinks } from './KioskLinks';
 import type { AppSettings } from '@/types';
 
 function RowBetween({ label, sub, children }: { label: string; sub?: string; children: React.ReactNode }) {
@@ -141,7 +142,7 @@ export function AdminSettings() {
           />
           <div className="sm-hint">{s.nameMode === 'abbrev' ? '„Maximilian M.“ – Nachname gekürzt. Vorstand sieht immer den vollen Namen.' : '„Maximilian Müller“ – voller Name für alle Rollen.'}</div>
           <hr className="sm-divider" style={{ margin: '14px 0' }} />
-          <RowBetween label="Mitgliedersuche im Kiosk" sub="Sonst nur Eintragung per E-Mail">
+          <RowBetween label="Mitgliedersuche im Kiosk" sub="Zusätzlich zur Eintragung per Name oder E-Mail">
             <Toggle on={s.kioskSearch} onClick={() => setSetting('kioskSearch', !s.kioskSearch)} />
           </RowBetween>
         </div>
@@ -329,6 +330,9 @@ export function AdminSettings() {
           <RowBetween label="Kiosk sperren" sub="Deaktiviert die öffentliche Kiosk-Eintragung (K-012)">
             <Toggle on={!!s.kioskLocked} onClick={() => setSetting('kioskLocked', !s.kioskLocked)} />
           </RowBetween>
+        </div>
+        <div style={{ marginTop: 12 }}>
+          <KioskLinks />
         </div>
 
         {isAdmin && (

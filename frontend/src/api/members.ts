@@ -122,6 +122,30 @@ export function usePendingMembers(enabled = true) {
   });
 }
 
+export interface MemberName {
+  id: string;
+  name: string;
+}
+
+/** Name-only member search for assigning helpers (Veranstaltungsleiter+,
+ * ML-014); runs once the query has at least two characters. `exclude` (the
+ * helpers already on the shift) is dropped server-side before the result
+ * limit, so they don't crowd out other matches. */
+export function useMemberLookup(query: string, exclude: string[] = []) {
+  const q = query.trim();
+  return useQuery({
+    queryKey: ['members', 'lookup', q, exclude],
+    queryFn: () =>
+      apiGet<MemberName[]>('/members/lookup', {
+        params: { q, exclude },
+        // Repeated keys (exclude=a&exclude=b), as the API expects.
+        paramsSerializer: { indexes: null },
+      }),
+    enabled: q.length >= 2,
+    placeholderData: keepPreviousData,
+  });
+}
+
 export function useMember(id: string) {
   return useQuery({
     queryKey: ['members', id],

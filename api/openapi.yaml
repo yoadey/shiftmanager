@@ -13,6 +13,11 @@ components:
       type: http
       scheme: bearer
       bearerFormat: JWT
+    kioskToken:
+      type: apiKey
+      in: header
+      name: X-Kiosk-Token
+      description: Token from a kiosk link created by Vorstand/Admin (K-016)
 
   schemas:
     # ── Identity ──────────────────────────────────────────────────────────────
@@ -173,7 +178,15 @@ components:
         id:       { $ref: '#/components/schemas/UUID' }
         memberId: { $ref: '#/components/schemas/UUID' }
         state:    { type: string }
-        comment:  { type: string }
+        comment:  { type: string, description: "Empty on other people's signups below Veranstaltungsleiter" }
+        displayName:
+          type: string
+          description: >-
+            Name to show for this signup to the caller, per name mode (full for
+            Veranstaltungsleiter+ and for the caller's own signup).
+        selfRegistered:    { type: boolean, description: "Kiosk entry still to be assigned (Veranstaltungsleiter+ only)" }
+        pendingMemberId:   { $ref: '#/components/schemas/UUID', description: "Member asked to confirm (Veranstaltungsleiter+ only)" }
+        pendingMemberName: { type: string, description: "Veranstaltungsleiter+ only" }
 
     ShiftDay:
       type: object
@@ -225,9 +238,40 @@ components:
     KioskRegisterRequest:
       type: object
       properties:
-        email:    { type: string, format: email, description: "Guest e-mail address" }
-        memberId: { $ref: '#/components/schemas/UUID', description: "Known member ID" }
+        name:     { type: string, minLength: 2, maxLength: 100, description: "Full name, or display name with an e-mail (required unless memberId)" }
+        email:    { type: string, format: email, description: "Optional e-mail; a member's address gets a confirmation request" }
+        memberId: { $ref: '#/components/schemas/UUID', description: "Member picked via the kiosk search" }
         comment:  { type: string }
+
+    KioskConfig:
+      type: object
+      required: [kioskSearch]
+      properties:
+        kioskSearch:  { type: boolean }
+        clubName:     { type: string }
+        logoUrl:      { type: string }
+        primaryColor: { type: string }
+
+    KioskLink:
+      type: object
+      required: [id, label, createdAt, expiresAt]
+      properties:
+        id:        { $ref: '#/components/schemas/UUID' }
+        label:     { type: string }
+        createdBy: { $ref: '#/components/schemas/UUID' }
+        createdAt: { type: string, format: date-time }
+        expiresAt: { type: string, format: date-time }
+        revokedAt: { type: string, format: date-time }
+        token:     { type: string, description: "Only in the response to its creation" }
+
+    MemberSuggestion:
+      type: object
+      required: [id, name, score]
+      properties:
+        id:      { $ref: '#/components/schemas/UUID' }
+        name:    { type: string }
+        score:   { type: number, description: "Name similarity 0..1" }
+        pending: { type: boolean, description: "The member whose e-mail was entered at the kiosk" }
 
     ConfirmResult:
       type: object
@@ -262,6 +306,13 @@ components:
         eventName:   { type: string }
         shiftName:   { type: string }
 
+    MemberName:
+      type: object
+      required: [id, name]
+      properties:
+        id:   { $ref: '#/components/schemas/UUID' }
+        name: { type: string }
+
     MemberHourAccount:
       type: object
       required: [confirmed, reserved, goal, entries]
@@ -269,6 +320,12 @@ components:
         confirmed: { type: number }
         reserved:  { type: number }
         goal:      { type: number }
+        clubYearLabel: { type: string }
+        openFeeCents:
+          type: integer
+          description: >-
+            Compensation fee in euro cents due if the member works no further
+            hours this club year. Omitted when no fee tiers are configured.
         entries:
           type: array
           items: { $ref: '#/components/schemas/HourEntry' }
@@ -553,7 +610,7 @@ paths:
     get:
       operationId: listMembers
       tags: [members]
-      summary: List members (paginated, sorted by last/first name)
+      summary: List members (paginated, sorted by last/first name; Vorstand+)
       parameters:
         - name: search
           in: query
@@ -635,7 +692,7 @@ paths:
     get:
       operationId: exportMembers
       tags: [members]
-      summary: Export members as CSV
+      summary: Export members as CSV (Vorstand+)
       responses:
         "200":
           description: CSV file
@@ -643,6 +700,30 @@ paths:
             text/csv:
               schema: { type: string, format: binary }
         "401": { $ref: '#/components/responses/Unauthorized' }
+        "403": { $ref: '#/components/responses/Forbidden' }
+
+  /members/lookup:
+    get:
+      operationId: lookupMembers
+      tags: [members]
+      summary: Search active members by name or e-mail for helper assignment (Veranstaltungsleiter+); returns id and full name only
+      parameters:
+        - { name: q, in: query, required: true, schema: { type: string, minLength: 2 } }
+        - name: exclude
+          in: query
+          description: Member ids to leave out before the 20-result limit applies (e.g. helpers already on the shift); repeat the parameter per id, at most 500
+          schema: { type: array, maxItems: 500, items: { $ref: '#/components/schemas/UUID' } }
+          style: form
+          explode: true
+      responses:
+        "200":
+          description: Up to 20 matching members
+          content:
+            application/json:
+              schema: { type: array, items: { $ref: '#/components/schemas/MemberName' } }
+        "400": { $ref: '#/components/responses/BadRequest' }
+        "401": { $ref: '#/components/responses/Unauthorized' }
+        "403": { $ref: '#/components/responses/Forbidden' }
 
   /members/me/preferences:
     put:
@@ -668,7 +749,7 @@ paths:
     get:
       operationId: getMember
       tags: [members]
-      summary: Get a single member
+      summary: Get a single member (own record, or any for Vorstand+)
       responses:
         "200":
           description: Member
@@ -676,6 +757,7 @@ paths:
             application/json:
               schema: { $ref: '#/components/schemas/Member' }
         "401": { $ref: '#/components/responses/Unauthorized' }
+        "403": { $ref: '#/components/responses/Forbidden' }
         "404": { $ref: '#/components/responses/NotFound' }
     put:
       operationId: updateMember
@@ -744,16 +826,24 @@ paths:
       parameters:
         - { name: status, in: query, schema: { $ref: '#/components/schemas/EventStatus' } }
         - { name: visibility, in: query, schema: { $ref: '#/components/schemas/EventVisibility' } }
-        - { name: from, in: query, schema: { type: string, format: date } }
-        - { name: to, in: query, schema: { type: string, format: date } }
-        - { name: limit, in: query, schema: { type: integer, default: 50 } }
-        - { name: offset, in: query, schema: { type: integer, default: 0 } }
+        - { name: category, in: query, schema: { type: string } }
+        - { name: from, in: query, description: "Events ending on or after this day", schema: { type: string, format: date } }
+        - { name: to, in: query, description: "Events starting on or before this day (inclusive)", schema: { type: string, format: date } }
+        - { name: freeSlots, in: query, description: "Only events with at least one shift that still has a free place (unlimited, or fewer registered/reserved/confirmed helpers than its maximum)", schema: { type: boolean } }
+        - { name: order, in: query, description: "Sort by start date", schema: { type: string, enum: [asc, desc], default: desc } }
+        - { name: limit, in: query, description: "Page size; 0 returns all matches", schema: { type: integer, minimum: 0, default: 50 } }
+        - { name: offset, in: query, schema: { type: integer, minimum: 0, default: 0 } }
       responses:
         "200":
           description: Events
+          headers:
+            X-Total-Count:
+              description: Number of events matching the filter, ignoring limit/offset.
+              schema: { type: integer }
           content:
             application/json:
               schema: { type: array, items: { $ref: '#/components/schemas/Event' } }
+        "400": { $ref: '#/components/responses/BadRequest' }
         "401": { $ref: '#/components/responses/Unauthorized' }
     post:
       operationId: createEvent
@@ -1096,7 +1186,7 @@ paths:
     get:
       operationId: getMemberAccount
       tags: [hours]
-      summary: Get a member's hour account by memberId+clubYearId query params
+      summary: Get a member's hour account by memberId+clubYearId query params (own account, or any for Vorstand+)
       parameters:
         - { name: memberId, in: query, required: true, schema: { $ref: '#/components/schemas/UUID' } }
         - { name: clubYearId, in: query, required: true, schema: { $ref: '#/components/schemas/UUID' } }
@@ -1107,6 +1197,7 @@ paths:
             application/json:
               schema: { $ref: '#/components/schemas/MemberHourAccount' }
         "401": { $ref: '#/components/responses/Unauthorized' }
+        "403": { $ref: '#/components/responses/Forbidden' }
 
   /hours/confirm:
     post:
@@ -1131,7 +1222,7 @@ paths:
     get:
       operationId: getYearSummary
       tags: [hours]
-      summary: Year-end hour summary for all members (Veranstaltungsleiter+)
+      summary: Year-end hour summary for all members (Vorstand+)
       parameters:
         - { name: clubYearId, in: query, required: true, schema: { $ref: '#/components/schemas/UUID' } }
       responses:
@@ -1168,7 +1259,7 @@ paths:
     get:
       operationId: getMemberHours
       tags: [hours]
-      summary: Get any member's hour account (active club year)
+      summary: Get a member's hour account for the active club year (own account, or any for Vorstand+)
       responses:
         "200":
           description: Hour account with entries
@@ -1176,6 +1267,7 @@ paths:
             application/json:
               schema: { $ref: '#/components/schemas/MemberHourAccount' }
         "401": { $ref: '#/components/responses/Unauthorized' }
+        "403": { $ref: '#/components/responses/Forbidden' }
 
   /hours/{id}:
     parameters:
@@ -1525,18 +1617,111 @@ paths:
         "403": { $ref: '#/components/responses/Forbidden' }
 
   # ── Kiosk (public, no auth) ───────────────────────────────────────────────────
+  /settings/kiosk-links:
+    get:
+      operationId: listKioskLinks
+      tags: [settings]
+      summary: List kiosk links (Vorstand+)
+      responses:
+        "200":
+          description: Kiosk links, newest first
+          content:
+            application/json:
+              schema: { type: array, items: { $ref: '#/components/schemas/KioskLink' } }
+        "401": { $ref: '#/components/responses/Unauthorized' }
+        "403": { $ref: '#/components/responses/Forbidden' }
+    post:
+      operationId: createKioskLink
+      tags: [settings]
+      summary: Create a kiosk link (Vorstand+); the token is only returned here
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [validDays]
+              properties:
+                label:     { type: string }
+                validDays: { type: integer, minimum: 1, maximum: 3650 }
+      responses:
+        "201":
+          description: Created link including its token
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/KioskLink' }
+        "400": { $ref: '#/components/responses/BadRequest' }
+        "401": { $ref: '#/components/responses/Unauthorized' }
+        "403": { $ref: '#/components/responses/Forbidden' }
+
+  /settings/kiosk-links/{id}:
+    parameters:
+      - { name: id, in: path, required: true, schema: { $ref: '#/components/schemas/UUID' } }
+    delete:
+      operationId: revokeKioskLink
+      tags: [settings]
+      summary: Revoke a kiosk link (Vorstand+)
+      responses:
+        "204": { description: Revoked }
+        "401": { $ref: '#/components/responses/Unauthorized' }
+        "403": { $ref: '#/components/responses/Forbidden' }
+        "404": { $ref: '#/components/responses/NotFound' }
+
+  /registrations/{id}/suggestions:
+    parameters:
+      - { name: id, in: path, required: true, schema: { $ref: '#/components/schemas/UUID' } }
+    get:
+      operationId: suggestRegistrationMembers
+      tags: [shifts]
+      summary: Members to assign an unassigned kiosk entry to, by name similarity (Veranstaltungsleiter+)
+      responses:
+        "200":
+          description: Up to 5 suggestions, the pending member first
+          content:
+            application/json:
+              schema: { type: array, items: { $ref: '#/components/schemas/MemberSuggestion' } }
+        "401": { $ref: '#/components/responses/Unauthorized' }
+        "403": { $ref: '#/components/responses/Forbidden' }
+        "404": { $ref: '#/components/responses/NotFound' }
+        "409": { description: Already assigned }
+
+  /registrations/{id}/assign:
+    parameters:
+      - { name: id, in: path, required: true, schema: { $ref: '#/components/schemas/UUID' } }
+    post:
+      operationId: assignRegistration
+      tags: [shifts]
+      summary: Assign an unassigned kiosk entry to a member, who is told by e-mail (Veranstaltungsleiter+)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [memberId]
+              properties:
+                memberId: { $ref: '#/components/schemas/UUID' }
+      responses:
+        "200": { description: Assigned registration }
+        "400": { $ref: '#/components/responses/BadRequest' }
+        "401": { $ref: '#/components/responses/Unauthorized' }
+        "403": { $ref: '#/components/responses/Forbidden' }
+        "404": { $ref: '#/components/responses/NotFound' }
+        "409": { description: Already assigned, or the member is already on the shift }
+
   /kiosk/events:
     get:
       operationId: listKioskEvents
       tags: [kiosk]
       summary: List all published events (no auth)
-      security: []
+      security: [{ kioskToken: [] }]
       responses:
         "200":
           description: Published events
           content:
             application/json:
               schema: { type: array, items: { $ref: '#/components/schemas/Event' } }
+        "401": { description: Missing or invalid kiosk link token }
         "403": { description: Kiosk locked }
 
   /kiosk/events/{id}:
@@ -1546,13 +1731,14 @@ paths:
       operationId: getKioskEventTimeline
       tags: [kiosk]
       summary: Get published event timeline (no auth)
-      security: []
+      security: [{ kioskToken: [] }]
       responses:
         "200":
           description: Event timeline
           content:
             application/json:
               schema: { $ref: '#/components/schemas/EventTimeline' }
+        "401": { description: Missing or invalid kiosk link token }
         "403": { description: Kiosk locked }
         "404": { $ref: '#/components/responses/NotFound' }
 
@@ -1560,8 +1746,8 @@ paths:
     get:
       operationId: searchKioskMembers
       tags: [kiosk]
-      summary: Search active members by name (no auth, kioskSearch must be enabled)
-      security: []
+      summary: Search active members by name (no auth, kioskSearch must be enabled); returns id and first name plus last initial only
+      security: [{ kioskToken: [] }]
       parameters:
         - { name: q, in: query, required: true, schema: { type: string, minLength: 2 } }
       responses:
@@ -1569,9 +1755,10 @@ paths:
           description: Matching members
           content:
             application/json:
-              schema: { type: array, items: { $ref: '#/components/schemas/Member' } }
+              schema: { type: array, items: { $ref: '#/components/schemas/MemberName' } }
         "400": { $ref: '#/components/responses/BadRequest' }
-        "403": { description: Kiosk locked }
+        "401": { description: Missing or invalid kiosk link token }
+        "403": { description: Kiosk locked or member search disabled }
 
   /kiosk/shifts/{id}/register:
     parameters:
@@ -1579,8 +1766,10 @@ paths:
     post:
       operationId: kioskRegister
       tags: [kiosk]
-      summary: Register for a shift via kiosk (no auth); sends confirmation email
-      security: []
+      summary: >-
+        Register for a shift via kiosk: a member picked via the search (memberId, search enabled only),
+        or a typed name with an optional e-mail. Same response whether or not the e-mail is a member's (K-005).
+      security: [{ kioskToken: [] }]
       requestBody:
         required: true
         content:
@@ -1592,9 +1781,26 @@ paths:
           content:
             application/json:
               schema: { $ref: '#/components/schemas/MessageResponse' }
-        "403": { description: Kiosk locked }
+        "401": { description: Missing or invalid kiosk link token }
+        "400": { $ref: '#/components/responses/BadRequest' }
+        "403": { description: Kiosk locked, or memberId while the member search is disabled }
         "409": { description: Already registered }
         "422": { description: Shift fully booked }
+
+  /kiosk/config:
+    get:
+      operationId: getKioskConfig
+      tags: [kiosk]
+      summary: What the kiosk screen needs without a login
+      security: [{ kioskToken: [] }]
+      responses:
+        "200":
+          description: Kiosk configuration
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/KioskConfig' }
+        "401": { description: Missing or invalid kiosk link token }
+        "403": { description: Kiosk locked }
 
   /kiosk/confirm/{token}:
     parameters:
@@ -1602,7 +1808,7 @@ paths:
     get:
       operationId: confirmKioskRegistration
       tags: [kiosk]
-      summary: Confirm a kiosk registration via email token (no auth)
+      summary: Confirm a kiosk registration via email token (no auth, no kiosk link); assigns it to the member whose e-mail was entered
       security: []
       responses:
         "200":

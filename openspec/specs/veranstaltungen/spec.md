@@ -50,11 +50,26 @@ Abgeschlossen oder Abgesagt haben.
 - **THEN** übernimmt das System den neuen Status
 
 ### Requirement: Sichtbarkeit nur für veröffentlichte Veranstaltungen (V-006)
-Für Mitglieder MUST nur veröffentlichte Veranstaltungen sichtbar sein.
+Für Mitglieder MUST nur veröffentlichte Veranstaltungen sichtbar sein;
+Entwürfe MUST NOT in Liste, Detail, Zeitleiste oder Anhängen erscheinen.
+Abgeschlossene und abgesagte Veranstaltungen bleiben sichtbar, damit
+Mitglieder ihre eigenen Anmeldungen und deren Ausgang nachvollziehen
+können. Der Kiosk MUST ausschließlich veröffentlichte Veranstaltungen
+zeigen. Veranstaltungsleiter, Vorstand und Admin sehen alle
+Veranstaltungen. Eine nicht sichtbare Veranstaltung MUST wie eine
+fehlende mit 404 beantwortet werden.
 
 #### Scenario: Entwurf nicht sichtbar
 - **WHEN** ein Mitglied `GET /api/v1/events` aufruft
 - **THEN** liefert das System Veranstaltungen im Status Entwurf nicht mit
+
+#### Scenario: Entwurf direkt abgerufen
+- **WHEN** ein Mitglied oder der Kiosk die Zeitleiste eines Entwurfs abruft
+- **THEN** antwortet das System mit 404
+
+#### Scenario: Veranstaltungsleiter sieht Entwürfe
+- **WHEN** ein Veranstaltungsleiter `GET /api/v1/events?status=draft` aufruft
+- **THEN** liefert das System die Entwürfe
 
 ### Requirement: Wiederkehrende Veranstaltungen (V-007)
 Eine Veranstaltung SHOULD als wöchentlich oder monatlich wiederkehrend
@@ -74,7 +89,10 @@ konfigurierbar sein.
 
 ### Requirement: Bilder und Anhänge an Veranstaltungen (V-008)
 Eine Veranstaltung SHOULD mit Bildern und Anhängen versehen werden
-können.
+können. Hochladen und Entfernen von Anhängen MUST auf der
+Bearbeiten-Seite der Veranstaltung erfolgen. Die Veranstaltungsansicht
+MUST den Bereich „Anhänge“ nur anzeigen, wenn Anhänge vorhanden sind,
+und dort keine Bearbeitung anbieten.
 
 #### Scenario: Anhang hochladen
 - **WHEN** ein Veranstaltungsleiter über `POST /api/v1/events/{id}/attachments` eine Bilddatei innerhalb der Größen- und Typ-Allowlist hochlädt
@@ -83,6 +101,14 @@ können.
 #### Scenario: Abgelehnter Dateityp
 - **WHEN** eine Datei außerhalb der Extension-/Content-Type-Allowlist (z. B. SVG) oder über dem 5-MB-Limit hochgeladen wird
 - **THEN** lehnt das System den Upload ab
+
+#### Scenario: Veranstaltung ohne Anhänge
+- **WHEN** ein Veranstaltungsleiter eine Veranstaltung ohne Anhänge ansieht
+- **THEN** zeigt die Ansicht keinen Bereich „Anhänge“
+
+#### Scenario: Anhänge auf der Bearbeiten-Seite verwalten
+- **WHEN** ein Veranstaltungsleiter die Bearbeiten-Seite einer Veranstaltung öffnet
+- **THEN** kann er dort Anhänge hochladen und entfernen, während die Veranstaltungsansicht vorhandene Anhänge nur anzeigt
 
 ### Requirement: Veranstaltung kopieren (VC-001)
 Veranstaltungsleiter, Vorstand und Admin MUST eine Veranstaltung
@@ -153,3 +179,25 @@ unterliegen (Extension-/Content-Type-Allowlist, kein SVG, Größenlimit).
 #### Scenario: Veranstaltung ohne Headerbild
 - **WHEN** eine Veranstaltung kein Headerbild hat
 - **THEN** zeigt die Detailansicht keinen Kopfbild-Bereich (kein Platzhalter-Fehler)
+
+### Requirement: Kompakte Veranstaltungsansicht (V-011)
+Die Veranstaltungsansicht MUST die Schichten ohne vorgeschaltete
+Übersichtskacheln (Anzahl Schichten, freie Plätze, Tage) zeigen. Die
+Beschreibung MUST als eigener, mit „Beschreibung“ überschriebener Bereich
+abgesetzt sein; ist sie länger als die ersten Zeilen, MUST sie
+standardmäßig eingeklappt sein (der Rest blendet aus) und sich auf- und
+wieder zuklappen lassen. Im Kopf jeder Schicht
+MUST der Titel neben Uhrzeit und Dauer stehen, wenn die Breite reicht,
+und sonst darunter umbrechen.
+
+#### Scenario: Keine Übersichtskacheln
+- **WHEN** ein Mitglied eine Veranstaltung mit zwei Schichten öffnet
+- **THEN** folgen auf Termin, Ort und Beschreibung direkt die Schichten, ohne Kacheln für Schichten, freie Plätze und Tage
+
+#### Scenario: Lange Beschreibung einklappen
+- **WHEN** eine Veranstaltung eine Beschreibung hat, die über die Vorschau hinausgeht
+- **THEN** zeigt die Ansicht im abgesetzten Bereich „Beschreibung“ zunächst nur die ersten Zeilen, die nach unten ausblenden, mit „Mehr anzeigen“; danach den vollständigen Text mit „Weniger anzeigen“, womit sie wieder einklappt
+
+#### Scenario: Titel neben der Uhrzeit
+- **WHEN** die Veranstaltung auf einem breiten Bildschirm angezeigt wird
+- **THEN** steht der Schichttitel in derselben Zeile wie Uhrzeit und Dauer

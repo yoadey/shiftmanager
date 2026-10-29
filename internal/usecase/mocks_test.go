@@ -3,6 +3,7 @@ package usecase
 import (
 	"context"
 	"fmt"
+	"slices"
 	"sort"
 	"strings"
 	"time"
@@ -113,6 +114,12 @@ func (f *fakeMemberRepo) CountFiltered(ctx context.Context, filter port.MemberFi
 
 func fakeMemberMatches(m *domain.Member, filter port.MemberFilter) bool {
 	if filter.IsActive != nil && m.IsActive != *filter.IsActive {
+		return false
+	}
+	if filter.IDs != nil && !slices.Contains(filter.IDs, m.ID) {
+		return false
+	}
+	if slices.Contains(filter.ExcludeIDs, m.ID) {
 		return false
 	}
 	switch filter.Status {
@@ -256,6 +263,12 @@ func (f *fakeEventRepo) List(ctx context.Context, filter port.EventFilter) ([]*d
 		out = append(out, &cp)
 	}
 	return out, nil
+}
+
+func (f *fakeEventRepo) CountFiltered(ctx context.Context, filter port.EventFilter) (int, error) {
+	filter.Limit, filter.Offset = 0, 0
+	all, err := f.List(ctx, filter)
+	return len(all), err
 }
 
 func (f *fakeEventRepo) Update(ctx context.Context, e *domain.Event) error {
@@ -967,6 +980,11 @@ func (f *fakeEmailService) SendCancellation(ctx context.Context, to string, reg 
 
 func (f *fakeEmailService) SendKioskConfirmation(ctx context.Context, to string, confirmURL string, shift *domain.Shift, event *domain.Event) error {
 	f.sent = append(f.sent, sentEmail{kind: "kiosk", to: to})
+	return nil
+}
+
+func (f *fakeEmailService) SendKioskAssigned(ctx context.Context, to string, member *domain.Member, shift *domain.Shift, event *domain.Event) error {
+	f.sent = append(f.sent, sentEmail{kind: "kiosk_assigned", to: to})
 	return nil
 }
 

@@ -1,5 +1,5 @@
-import { useMutation, useQueryClient } from '@tanstack/react-query';
-import { apiPost, apiPut, apiPatch, apiDelete } from './client';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { apiGet, apiPost, apiPut, apiPatch, apiDelete } from './client';
 
 export interface ShiftPayload {
   eventId: string;
@@ -168,6 +168,38 @@ export function useConfirmShiftHours() {
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['events'] });
       qc.invalidateQueries({ queryKey: ['members'] });
+    },
+  });
+}
+
+// ── Kiosk entries: assignment to members (K-015) ─────────────────────────────
+
+export interface MemberSuggestion {
+  id: string;
+  name: string;
+  score: number;
+  /** The member whose e-mail was entered at the kiosk. */
+  pending?: boolean;
+}
+
+/** Members to assign an unassigned kiosk entry to, by name similarity. */
+export function useRegistrationSuggestions(registrationId: string, enabled = true) {
+  return useQuery({
+    queryKey: ['registrations', registrationId, 'suggestions'],
+    queryFn: () => apiGet<MemberSuggestion[]>(`/registrations/${registrationId}/suggestions`),
+    enabled: enabled && !!registrationId,
+  });
+}
+
+/** Assigns a kiosk entry to a member, who is told by e-mail. */
+export function useAssignRegistration() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ registrationId, memberId }: { registrationId: string; memberId: string; eventId: string }) =>
+      apiPost(`/registrations/${registrationId}/assign`, { memberId }),
+    onSuccess: (_d, vars) => {
+      qc.invalidateQueries({ queryKey: ['events', vars.eventId] });
+      qc.invalidateQueries({ queryKey: ['events'] });
     },
   });
 }

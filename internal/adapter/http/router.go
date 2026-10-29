@@ -138,11 +138,17 @@ func NewRouter(h Handlers, cfg RouterConfig) http.Handler {
 			if !cfg.TestMode {
 				kiosk.Use(middleware.RateLimit(cfg.RateLimitRPM))
 			}
-			kiosk.Get("/kiosk/events", h.Kiosk.ListEvents)
-			kiosk.Get("/kiosk/events/{id}", h.Kiosk.PublicTimeline)
-			kiosk.Get("/kiosk/members", h.Kiosk.SearchMembers)
-			kiosk.Post("/kiosk/shifts/{id}/register", h.Kiosk.Register)
+			// The e-mailed confirmation link works without a kiosk link.
 			kiosk.Get("/kiosk/confirm/{token}", h.Kiosk.Confirm)
+			// Everything else only from a device unlocked by a kiosk link (K-016).
+			kiosk.Group(func(k chi.Router) {
+				k.Use(middleware.RequireKioskToken(h.Kiosk.TokenValid))
+				k.Get("/kiosk/config", h.Kiosk.Config)
+				k.Get("/kiosk/events", h.Kiosk.ListEvents)
+				k.Get("/kiosk/events/{id}", h.Kiosk.PublicTimeline)
+				k.Get("/kiosk/members", h.Kiosk.SearchMembers)
+				k.Post("/kiosk/shifts/{id}/register", h.Kiosk.Register)
+			})
 		})
 
 		// Authenticated routes.
@@ -156,8 +162,8 @@ func NewRouter(h Handlers, cfg RouterConfig) http.Handler {
 
 			// Members (board+ for write operations).
 			auth.Route("/members", func(m chi.Router) {
-				m.Get("/", h.Member.List)
-				m.Get("/export", h.Member.Export)
+				// Name-only search for assigning helpers to shifts (ML-014).
+				m.With(middleware.RequireRole(domain.RoleVeranstaltungsleiter)).Get("/lookup", h.Member.Lookup)
 				// Member self-service preferences (N-001).
 				if h.Privacy != nil {
 					m.Put("/me/preferences", h.Privacy.UpdatePreferences)
@@ -165,9 +171,12 @@ func NewRouter(h Handlers, cfg RouterConfig) http.Handler {
 					// (the handler enforces ownership / role).
 					m.Get("/{id}/export-data", h.Privacy.ExportData)
 				}
+				// Own record for everyone; other members for the board only (ML-010).
 				m.Get("/{id}", h.Member.Get)
 				m.Group(func(w chi.Router) {
 					w.Use(middleware.RequireRole(domain.RoleVorstand))
+					w.Get("/", h.Member.List)
+					w.Get("/export", h.Member.Export)
 					w.Post("/", h.Member.Create)
 					w.Post("/import", h.Member.Import)
 					w.Put("/{id}", h.Member.Update)
@@ -227,19 +236,20 @@ func NewRouter(h Handlers, cfg RouterConfig) http.Handler {
 					w.Use(middleware.RequireRole(domain.RoleVeranstaltungsleiter))
 					w.Patch("/{id}", h.Shift.PatchRegistration)
 					w.Delete("/{id}", h.Shift.ForceDeleteReg)
+					// Assigning kiosk entries to members (K-015).
+					w.Get("/{id}/suggestions", h.Shift.SuggestMembers)
+					w.Post("/{id}/assign", h.Shift.AssignRegistration)
 				})
 			})
 
 			// Hours.
 			auth.Route("/hours", func(hr chi.Router) {
 				hr.Get("/me", h.Hour.GetMyAccount)
+				// Own account for everyone; other members' for the board only (SA-011).
 				hr.Get("/account", h.Hour.GetMemberAccount)
 				hr.Get("/club-years", h.Hour.ListClubYears)
-				hr.Group(func(w chi.Router) {
-					w.Use(middleware.RequireRole(domain.RoleVeranstaltungsleiter))
-					w.Post("/confirm", h.Hour.ConfirmShiftHours)
-					w.Get("/summary", h.Hour.GetYearSummary)
-				})
+				hr.With(middleware.RequireRole(domain.RoleVeranstaltungsleiter)).Post("/confirm", h.Hour.ConfirmShiftHours)
+				hr.With(middleware.RequireRole(domain.RoleVorstand)).Get("/summary", h.Hour.GetYearSummary)
 				hr.Group(func(w chi.Router) {
 					w.Use(middleware.RequireRole(domain.RoleVorstand))
 					w.Post("/club-years", h.Hour.CreateClubYear)
@@ -277,6 +287,10 @@ func NewRouter(h Handlers, cfg RouterConfig) http.Handler {
 					// Email send log + resend (N-004).
 					w.Get("/email-log", h.Settings.GetEmailLog)
 					w.Post("/email-log/{id}/resend", h.Settings.ResendEmail)
+					// Kiosk links (K-016).
+					w.Get("/kiosk-links", h.Kiosk.ListLinks)
+					w.Post("/kiosk-links", h.Kiosk.CreateLink)
+					w.Delete("/kiosk-links/{id}", h.Kiosk.RevokeLink)
 					// Per-member fee tier overrides (G-004).
 					w.Get("/members/{id}/fee-tiers", h.Settings.GetMemberFeeTiers)
 					w.Put("/members/{id}/fee-tiers", h.Settings.UpdateMemberFeeTiers)

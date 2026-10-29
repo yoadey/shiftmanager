@@ -98,3 +98,44 @@ unabhängig vom Namensanzeige-Modus (siehe `namensanzeige` NM-005-Ausnahme).
 #### Scenario: Vollständiger Name in der Helferliste
 - **WHEN** ein Veranstaltungsleiter die Helferliste einer Schicht ansieht, während systemweit der abgekürzte Namensmodus aktiv ist
 - **THEN** zeigt das System dort trotzdem vollständige Namen
+
+### Requirement: Helfernamen pro Schicht (SC-011)
+In einer Veranstaltung MUST jedes Mitglied die Namen der in der
+jeweiligen Schicht eingetragenen Helfer sehen können, nach Namensmodus
+(NM-001 bis NM-006). Weitere Daten fremder Anmeldungen (Mitglieds-ID,
+voller Gastname, E-Mail eines Gastes, Kommentar, gebuchte Stunden,
+Reservierungsfrist) MUST das System Nutzern unterhalb der Rolle
+Veranstaltungsleiter und im Kiosk NOT ausliefern; die eigene Anmeldung
+bleibt vollständig sichtbar.
+
+#### Scenario: Mitglied sieht Helfernamen
+- **WHEN** ein Mitglied eine Veranstaltung öffnet, in deren Schicht „Max Mustermann“ eingetragen ist, und der Namensmodus „Abgekürzter Name“ aktiv ist
+- **THEN** zeigt die Schicht den Helfer als „Max M.“
+
+#### Scenario: Keine fremden Kommentare und E-Mails
+- **WHEN** ein Mitglied die Zeitleiste einer Veranstaltung abruft, in der ein anderes Mitglied mit Kommentar und ein Gast mit E-Mail-Adresse eingetragen sind
+- **THEN** enthält die Antwort weder den fremden Kommentar noch die E-Mail des Gastes
+
+#### Scenario: Keine fremden Mitglieds-IDs
+- **WHEN** der Kiosk oder ein Mitglied die Zeitleiste einer Veranstaltung abruft, in der ein anderes Mitglied eingetragen ist
+- **THEN** enthält dessen Anmeldung keine Mitglieds-ID
+
+#### Scenario: Veranstaltungsleiter sieht die vollständige Helferliste
+- **WHEN** ein Veranstaltungsleiter die Zeitleiste derselben Veranstaltung abruft
+- **THEN** enthält die Antwort volle Namen, Kommentare und die E-Mail des Gastes
+
+### Requirement: Helferliste direkt in der Schicht (SC-012)
+In der Veranstaltungsansicht MUST Veranstaltungsleitern in jeder Schicht
+die eingetragenen Helfer ohne zusätzliches Aufklappen angezeigt werden,
+zusammen mit einer direkt sichtbaren Aktion „Helfer hinzufügen“, die
+hervorgehoben ist, solange die Schicht freie Plätze hat. Eine eigene
+Angabe der Anzahl Eingetragener neben dem Belegungsbalken MUST entfallen,
+da der Balken sie bereits zeigt.
+
+#### Scenario: Helfer sofort sichtbar
+- **WHEN** ein Veranstaltungsleiter eine Veranstaltung öffnet, in deren Schicht zwei Helfer eingetragen sind
+- **THEN** sieht er beide Helfer mit ihren Aktionen (Zeit, Anwesenheit, Entfernen) direkt in der Schicht, ohne vorher etwas aufzuklappen
+
+#### Scenario: Helfer hinzufügen
+- **WHEN** ein Veranstaltungsleiter eine Schicht mit freien Plätzen ansieht
+- **THEN** ist „Helfer hinzufügen“ direkt in der Schicht als hervorgehobene Schaltfläche sichtbar und öffnet die Helfersuche

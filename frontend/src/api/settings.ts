@@ -1,5 +1,5 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { apiGet, apiPut, apiPost, apiClient } from './client';
+import { apiGet, apiPut, apiPost, apiDelete, apiClient } from './client';
 import type {
   AppSettings,
   BrandingConfig,
@@ -190,4 +190,44 @@ export function useUpdateMemberFeeTiers() {
     onSuccess: (_d, vars) =>
       qc.invalidateQueries({ queryKey: ['member-fee-tiers', vars.memberId, vars.clubYearId] }),
   });
+}
+
+// ── Kiosk links (K-016) ──────────────────────────────────────────────────────
+
+export interface KioskLink {
+  id: string;
+  label: string;
+  createdAt: string;
+  expiresAt: string;
+  revokedAt?: string;
+  /** Only in the response to its creation. */
+  token?: string;
+}
+
+export function useKioskLinks() {
+  return useQuery({
+    queryKey: ['kiosk-links'],
+    queryFn: () => apiGet<KioskLink[]>('/settings/kiosk-links'),
+  });
+}
+
+export function useCreateKioskLink() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (data: { label: string; validDays: number }) => apiPost<KioskLink>('/settings/kiosk-links', data),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['kiosk-links'] }),
+  });
+}
+
+export function useRevokeKioskLink() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (id: string) => apiDelete(`/settings/kiosk-links/${id}`),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['kiosk-links'] }),
+  });
+}
+
+/** The URL that opens the kiosk on a device with the given link token. */
+export function kioskLinkUrl(token: string): string {
+  return `${window.location.origin}/kiosk?token=${encodeURIComponent(token)}`;
 }

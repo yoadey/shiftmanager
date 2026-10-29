@@ -20,6 +20,7 @@ type EventUsecase struct {
 	email         port.EmailService
 	members       port.MemberRepository
 	attachments   port.EventAttachmentRepository
+	settings      port.SettingsRepository // name mode for timeline names (SC-011)
 }
 
 // NewEventUsecase creates a new EventUsecase.
@@ -31,6 +32,7 @@ func NewEventUsecase(
 	emailSvc port.EmailService,
 	members port.MemberRepository,
 	attachments port.EventAttachmentRepository,
+	settings port.SettingsRepository,
 ) *EventUsecase {
 	return &EventUsecase{
 		events:        events,
@@ -40,6 +42,7 @@ func NewEventUsecase(
 		email:         emailSvc,
 		members:       members,
 		attachments:   attachments,
+		settings:      settings,
 	}
 }
 
@@ -289,9 +292,25 @@ func (uc *EventUsecase) notifyNewEvent(ctx context.Context, e *domain.Event) {
 	}
 }
 
-// ListEvents returns events matching the filter.
-func (uc *EventUsecase) ListEvents(ctx context.Context, filter port.EventFilter) ([]*domain.Event, error) {
-	return uc.events.List(ctx, filter)
+// ListEvents returns the page of events matching the filter together with
+// the total number of matches (ignoring Limit/Offset).
+func (uc *EventUsecase) ListEvents(ctx context.Context, filter port.EventFilter) ([]*domain.Event, int, error) {
+	events, err := uc.events.List(ctx, filter)
+	if err != nil {
+		return nil, 0, err
+	}
+	total, err := pageTotal(len(events), filter.Limit, filter.Offset, func() (int, error) {
+		return uc.events.CountFiltered(ctx, filter)
+	})
+	if err != nil {
+		return nil, 0, err
+	}
+	return events, total, nil
+}
+
+// GetShift returns a single shift by ID.
+func (uc *EventUsecase) GetShift(ctx context.Context, id uuid.UUID) (*domain.Shift, error) {
+	return uc.shifts.GetByID(ctx, id)
 }
 
 // GetEvent returns a single event by ID.
@@ -421,12 +440,17 @@ func (uc *EventUsecase) DeleteShift(ctx context.Context, actorID uuid.UUID, id u
 
 // GetEventTimeline returns an event with all its shifts grouped by day, each with
 // registrations and occupancy data.
-func (uc *EventUsecase) GetEventTimeline(ctx context.Context, eventID uuid.UUID) (*domain.EventTimeline, error) {
+func (uc *EventUsecase) getEventTimeline(ctx context.Context, eventID uuid.UUID) (*domain.EventTimeline, error) {
 	event, err := uc.events.GetByID(ctx, eventID)
 	if err != nil {
 		return nil, err
 	}
+	return uc.buildTimeline(ctx, event)
+}
 
+// buildTimeline loads an event's shifts and registrations, grouped by day.
+func (uc *EventUsecase) buildTimeline(ctx context.Context, event *domain.Event) (*domain.EventTimeline, error) {
+	eventID := event.ID
 	shifts, err := uc.shifts.FindByEventID(ctx, eventID)
 	if err != nil {
 		return nil, fmt.Errorf("load shifts: %w", err)
@@ -464,6 +488,149 @@ func (uc *EventUsecase) GetEventTimeline(ctx context.Context, eventID uuid.UUID)
 	}
 
 	return &domain.EventTimeline{Event: *event, Days: days}, nil
+}
+
+// TimelineViewer identifies who looks at a timeline. The zero value is an
+// anonymous kiosk visitor.
+type TimelineViewer struct {
+	ID   uuid.UUID
+	Role string
+}
+
+// anonymous reports whether the viewer is the unauthenticated kiosk.
+func (v TimelineViewer) anonymous() bool { return v.ID == uuid.Nil && v.Role == "" }
+
+// EventVisibleTo reports whether viewer may see the event at all (V-006):
+// organisers see every event, members everything but drafts (completed
+// events stay visible for their shift history), the anonymous kiosk only
+// published events.
+func EventVisibleTo(e *domain.Event, viewer TimelineViewer) bool {
+	switch {
+	case domain.HasRole(viewer.Role, domain.RoleVeranstaltungsleiter):
+		return true
+	case viewer.anonymous():
+		return e.Status == domain.EventStatusPublished
+	default:
+		return e.Status != domain.EventStatusDraft
+	}
+}
+
+// GetEventTimelineFor returns the timeline as viewer may see it (SC-011):
+// every registration carries the name to show, and below the
+// Veranstaltungsleiter role other people's registrations are reduced to that
+// name — no member id, guest e-mail, comment, booked hours or reservation
+// deadline. An event the viewer may not see is reported as not found.
+func (uc *EventUsecase) GetEventTimelineFor(ctx context.Context, eventID uuid.UUID, viewer TimelineViewer) (*domain.EventTimeline, error) {
+	event, err := uc.events.GetByID(ctx, eventID)
+	if err != nil {
+		return nil, err
+	}
+	if !EventVisibleTo(event, viewer) {
+		return nil, domain.ErrEventNotFound
+	}
+	tl, err := uc.buildTimeline(ctx, event)
+	if err != nil {
+		return nil, err
+	}
+
+	mode := domain.NameModeAbbrev // NM-004 default
+	if uc.settings != nil {
+		if v, err := uc.settings.GetSetting(ctx, domain.SettingKeyNameMode); err == nil && v != "" {
+			mode = domain.NameMode(v)
+		}
+	}
+	// Organisers see full names in the helper list (SC-010) and everything
+	// they need to manage it (SA-009).
+	organiser := domain.HasRole(viewer.Role, domain.RoleVeranstaltungsleiter)
+
+	// Load every member on the timeline in one query rather than one per helper.
+	seen := make(map[uuid.UUID]bool)
+	var ids []uuid.UUID
+	for _, d := range tl.Days {
+		for _, sh := range d.Shifts {
+			for _, r := range sh.Registrations {
+				ref := []*uuid.UUID{r.MemberID}
+				if organiser {
+					ref = append(ref, r.PendingMemberID) // only organisers see it
+				}
+				for _, id := range ref {
+					if id != nil && !seen[*id] {
+						seen[*id] = true
+						ids = append(ids, *id)
+					}
+				}
+			}
+		}
+	}
+	members := make(map[uuid.UUID]*domain.Member, len(ids))
+	if len(ids) > 0 {
+		// Names are a nicety: if they can't be loaded, show the timeline with
+		// "Unbekannt" rather than failing the whole event view.
+		if list, err := uc.members.List(ctx, port.MemberFilter{IDs: ids}); err == nil {
+			for _, m := range list {
+				members[m.ID] = m
+			}
+		}
+	}
+	memberName := func(id uuid.UUID) string {
+		m := members[id]
+		switch {
+		case m == nil:
+			return "Unbekannt" // e.g. the member record is gone
+		case organiser:
+			return m.FullName()
+		default:
+			return m.DisplayNameFor(mode, viewer.ID, viewer.Role)
+		}
+	}
+
+	for i := range tl.Days {
+		for j := range tl.Days[i].Shifts {
+			regs := tl.Days[i].Shifts[j].Registrations
+			for k := range regs {
+				r := &regs[k]
+				switch {
+				case r.MemberID != nil:
+					r.DisplayName = memberName(*r.MemberID)
+				case r.GuestName != nil:
+					// Same rule as Member.DisplayNameFor: full only in "full" mode.
+					r.DisplayName = *r.GuestName
+					if !organiser && mode != domain.NameModeFull {
+						r.DisplayName = domain.AbbreviateName(*r.GuestName)
+					}
+				case organiser && r.GuestEmail != nil:
+					r.DisplayName = *r.GuestEmail
+				default:
+					r.DisplayName = "Gast"
+				}
+
+				// Organisers see whom a kiosk entry waits on (K-006); others
+				// don't learn that an e-mail belongs to a member.
+				if organiser && r.PendingMemberID != nil {
+					if m := members[*r.PendingMemberID]; m != nil {
+						r.PendingMemberName = m.FullName()
+					}
+				}
+				if !organiser {
+					r.PendingMemberID = nil
+					r.SelfRegistered = false
+				}
+
+				own := viewer.ID != uuid.Nil && r.MemberID != nil && *r.MemberID == viewer.ID
+				if !organiser && !own {
+					// No ids to act on others' behalf (e.g. kiosk sign-up);
+					// DisplayName carries the (abbreviated) guest name.
+					r.MemberID = nil
+					r.GuestName = nil
+					r.GuestEmail = nil
+					r.Comment = ""
+					r.BookedHours = nil
+					r.ReservedUntil = nil
+				}
+			}
+		}
+	}
+	return tl, nil
 }
 
 // computeOccupancy calculates occupancy stats for a shift.
@@ -818,9 +985,13 @@ func (uc *EventUsecase) ClearHeaderImage(ctx context.Context, actorID uuid.UUID,
 }
 
 // ListAttachments returns the files attached to an event (V-008).
-func (uc *EventUsecase) ListAttachments(ctx context.Context, eventID uuid.UUID) ([]*domain.EventAttachment, error) {
-	if _, err := uc.events.GetByID(ctx, eventID); err != nil {
+func (uc *EventUsecase) ListAttachments(ctx context.Context, eventID uuid.UUID, viewer TimelineViewer) ([]*domain.EventAttachment, error) {
+	e, err := uc.events.GetByID(ctx, eventID)
+	if err != nil {
 		return nil, err
+	}
+	if !EventVisibleTo(e, viewer) {
+		return nil, domain.ErrEventNotFound
 	}
 	return uc.attachments.ListByEvent(ctx, eventID)
 }

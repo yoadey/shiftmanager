@@ -89,6 +89,10 @@ var defaultTemplates = map[string]struct{ Subject, Body string }{
 		"Schicht unterbesetzt: {{.EventName}}",
 		"Hallo,\n\ndie Schicht \"{{.ShiftName}}\" bei \"{{.EventName}}\" am {{.StartAt}} ist unterbesetzt.\n\nViele Gruesse\nTSC Schwarz-Gelb Aachen",
 	},
+	domain.EmailTemplateKioskAssigned: {
+		"Du bist eingetragen: {{.EventName}}",
+		"Hallo {{.MemberName}},\n\ndeine Eintragung am Kiosk wurde deinem Konto zugeordnet: Schicht \"{{.ShiftName}}\" bei \"{{.EventName}}\".\nOrt: {{.Location}}\nBeginn: {{.StartAt}}\n\nFalls das nicht du warst, melde dich bitte beim Vorstand.\n\nViele Gruesse\nTSC Schwarz-Gelb Aachen",
+	},
 	domain.EmailTemplateNewEvent: {
 		"Neue Veranstaltung: {{.EventName}}",
 		"Hallo,\n\nes gibt eine neue Veranstaltung: \"{{.EventName}}\".\nOrt: {{.Location}}\nBeginn: {{.StartAt}}\n\nSchau vorbei und melde dich fuer eine Schicht an!\n\nViele Gruesse\nTSC Schwarz-Gelb Aachen",
@@ -150,6 +154,11 @@ func (s *SMTPService) SendCancellation(ctx context.Context, to string, reg *doma
 // SendKioskConfirmation sends a kiosk double-opt-in confirmation email.
 func (s *SMTPService) SendKioskConfirmation(ctx context.Context, to string, confirmURL string, shift *domain.Shift, event *domain.Event) error {
 	return s.sendTemplate(ctx, to, domain.EmailTemplateKioskConfirmation, shiftData(nil, shift, event, map[string]any{"ConfirmURL": confirmURL}))
+}
+
+// SendKioskAssigned tells a member that a kiosk entry was assigned to them (K-015).
+func (s *SMTPService) SendKioskAssigned(ctx context.Context, to string, member *domain.Member, shift *domain.Shift, event *domain.Event) error {
+	return s.sendTemplate(ctx, to, domain.EmailTemplateKioskAssigned, shiftData(member, shift, event, nil))
 }
 
 // SendMissingHoursWarning sends a warning about unfulfilled hours.
