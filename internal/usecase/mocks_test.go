@@ -983,6 +983,11 @@ func (f *fakeEmailService) SendKioskConfirmation(ctx context.Context, to string,
 	return nil
 }
 
+func (f *fakeEmailService) SendKioskAssigned(ctx context.Context, to string, member *domain.Member, shift *domain.Shift, event *domain.Event) error {
+	f.sent = append(f.sent, sentEmail{kind: "kiosk_assigned", to: to})
+	return nil
+}
+
 func (f *fakeEmailService) SendMissingHoursWarning(ctx context.Context, to string, member *domain.Member, missingHours float64, year *domain.ClubYear) error {
 	f.sent = append(f.sent, sentEmail{kind: "missing_hours", to: to})
 	return nil

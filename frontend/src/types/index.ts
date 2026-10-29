@@ -76,6 +76,9 @@ export interface Signup {
   hours?: number;
   guest?: string;
   name?: string;    // name to show, resolved by the server for the viewer
+  selfRegistered?: boolean;    // kiosk entry not yet assigned to a member (organisers only)
+  pendingMemberId?: string;    // member asked to confirm the kiosk entry (organisers only)
+  pendingMemberName?: string;
 }
 
 // Shift uses short HH:MM strings for display; api/events.ts maps from ISO datetimes

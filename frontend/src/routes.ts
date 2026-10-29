@@ -35,6 +35,7 @@ export const routes = {
   eventAnmelden: (id: string, shiftId: string) => `${TAB_PATHS.events}/${id}/anmelden/${shiftId}`,
   eventHelfer: (id: string, shiftId: string) => `${TAB_PATHS.events}/${id}/helfer/${shiftId}`,
   eventZeit: (id: string, signupId: string) => `${TAB_PATHS.events}/${id}/zeit/${signupId}`,
+  eventZuordnen: (id: string, signupId: string) => `${TAB_PATHS.events}/${id}/zuordnen/${signupId}`,
 
   mitglieder: TAB_PATHS.mitglieder,
   mitgliederNeu: `${TAB_PATHS.mitglieder}/neu`,

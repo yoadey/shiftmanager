@@ -1,6 +1,7 @@
 package handler
 
 import (
+	"errors"
 	"net/http"
 	"time"
 
@@ -231,6 +232,61 @@ func (h *ShiftHandler) PatchRegistration(w http.ResponseWriter, r *http.Request)
 		return
 	}
 	writeJSON(w, http.StatusOK, reg)
+}
+
+// SuggestMembers proposes members for an unassigned kiosk entry (K-015).
+// GET /api/v1/registrations/:id/suggestions
+func (h *ShiftHandler) SuggestMembers(w http.ResponseWriter, r *http.Request) {
+	id, err := parseUUIDParam(r, "id")
+	if err != nil {
+		writeError(w, http.StatusBadRequest, "invalid registration id")
+		return
+	}
+	out, err := h.regUC.SuggestMembers(r.Context(), id)
+	switch {
+	case errors.Is(err, domain.ErrRegistrationNotFound):
+		writeError(w, http.StatusNotFound, "registration not found")
+	case errors.Is(err, domain.ErrRegistrationAssigned):
+		writeError(w, http.StatusConflict, err.Error())
+	case err != nil:
+		writeError(w, http.StatusInternalServerError, err.Error())
+	default:
+		if out == nil {
+			out = []domain.MemberSuggestion{}
+		}
+		writeJSON(w, http.StatusOK, out)
+	}
+}
+
+// AssignRegistration assigns an unassigned kiosk entry to a member, who is
+// told by e-mail (K-015).
+// POST /api/v1/registrations/:id/assign {memberId}
+func (h *ShiftHandler) AssignRegistration(w http.ResponseWriter, r *http.Request) {
+	id, err := parseUUIDParam(r, "id")
+	if err != nil {
+		writeError(w, http.StatusBadRequest, "invalid registration id")
+		return
+	}
+	var body struct {
+		MemberID uuid.UUID `json:"memberId"`
+	}
+	if err := decodeJSON(r, &body); err != nil || body.MemberID == uuid.Nil {
+		writeError(w, http.StatusBadRequest, "memberId is required")
+		return
+	}
+	reg, err := h.regUC.AssignRegistration(r.Context(), middleware.GetUserID(r.Context()), id, body.MemberID)
+	switch {
+	case errors.Is(err, domain.ErrRegistrationNotFound):
+		writeError(w, http.StatusNotFound, "registration not found")
+	case errors.Is(err, domain.ErrMemberNotFound):
+		writeError(w, http.StatusBadRequest, "member not found or inactive")
+	case errors.Is(err, domain.ErrRegistrationAssigned), errors.Is(err, domain.ErrAlreadyRegistered):
+		writeError(w, http.StatusConflict, err.Error())
+	case err != nil:
+		writeError(w, http.StatusInternalServerError, err.Error())
+	default:
+		writeJSON(w, http.StatusOK, reg)
+	}
 }
 
 // ForceDeleteReg force-removes a registration regardless of deadline or event status.

@@ -14,6 +14,8 @@ type EmailService interface {
 	SendReminder(ctx context.Context, to string, reg *domain.Registration, shift *domain.Shift, event *domain.Event, daysUntil int) error
 	SendCancellation(ctx context.Context, to string, reg *domain.Registration, shift *domain.Shift, event *domain.Event) error
 	SendKioskConfirmation(ctx context.Context, to string, confirmURL string, shift *domain.Shift, event *domain.Event) error
+	// SendKioskAssigned tells a member that a kiosk entry was assigned to them (K-015).
+	SendKioskAssigned(ctx context.Context, to string, member *domain.Member, shift *domain.Shift, event *domain.Event) error
 	SendMissingHoursWarning(ctx context.Context, to string, member *domain.Member, missingHours float64, year *domain.ClubYear) error
 	// SendYearBilling notifies a member of their year-end billing amount.
 	SendYearBilling(ctx context.Context, to string, member *domain.Member, missingHours float64, amountCents int, year *domain.ClubYear) error

@@ -17,6 +17,7 @@ import (
 
 const (
 	BearerAuthScopes bearerAuthContextKey = "bearerAuth.Scopes"
+	KioskTokenScopes kioskTokenContextKey = "kioskToken.Scopes"
 )
 
 // Defines values for AppSettingsBillingMode.
@@ -425,13 +426,37 @@ type HourEntryType string
 // HourEntryStatus defines model for HourEntryStatus.
 type HourEntryStatus string
 
+// KioskConfig defines model for KioskConfig.
+type KioskConfig struct {
+	ClubName     *string `json:"clubName,omitempty"`
+	KioskSearch  bool    `json:"kioskSearch"`
+	LogoUrl      *string `json:"logoUrl,omitempty"`
+	PrimaryColor *string `json:"primaryColor,omitempty"`
+}
+
+// KioskLink defines model for KioskLink.
+type KioskLink struct {
+	CreatedAt time.Time  `json:"createdAt"`
+	CreatedBy *UUID      `json:"createdBy,omitempty"`
+	ExpiresAt time.Time  `json:"expiresAt"`
+	Id        UUID       `json:"id"`
+	Label     string     `json:"label"`
+	RevokedAt *time.Time `json:"revokedAt,omitempty"`
+
+	// Token Only in the response to its creation
+	Token *string `json:"token,omitempty"`
+}
+
 // KioskRegisterRequest defines model for KioskRegisterRequest.
 type KioskRegisterRequest struct {
 	Comment *string `json:"comment,omitempty"`
 
-	// Email Guest e-mail address
+	// Email Optional e-mail; a member's address gets a confirmation request
 	Email    *openapi_types.Email `json:"email,omitempty"`
 	MemberId *UUID                `json:"memberId,omitempty"`
+
+	// Name Full name, or display name with an e-mail (required unless memberId)
+	Name *string `json:"name,omitempty"`
 }
 
 // ManualBookingRequest defines model for ManualBookingRequest.
@@ -506,6 +531,18 @@ type MemberPreferences struct {
 
 // MemberRole defines model for MemberRole.
 type MemberRole string
+
+// MemberSuggestion defines model for MemberSuggestion.
+type MemberSuggestion struct {
+	Id   UUID   `json:"id"`
+	Name string `json:"name"`
+
+	// Pending The member whose e-mail was entered at the kiosk
+	Pending *bool `json:"pending,omitempty"`
+
+	// Score Name similarity 0..1
+	Score float32 `json:"score"`
+}
 
 // MemberWrite defines model for MemberWrite.
 type MemberWrite struct {
@@ -597,10 +634,17 @@ type Signup struct {
 	Comment *string `json:"comment,omitempty"`
 
 	// DisplayName Name to show for this signup to the caller, per name mode (full for Veranstaltungsleiter+ and for the caller's own signup).
-	DisplayName *string `json:"displayName,omitempty"`
-	Id          UUID    `json:"id"`
-	MemberId    UUID    `json:"memberId"`
-	State       string  `json:"state"`
+	DisplayName     *string `json:"displayName,omitempty"`
+	Id              UUID    `json:"id"`
+	MemberId        UUID    `json:"memberId"`
+	PendingMemberId *UUID   `json:"pendingMemberId,omitempty"`
+
+	// PendingMemberName Veranstaltungsleiter+ only
+	PendingMemberName *string `json:"pendingMemberName,omitempty"`
+
+	// SelfRegistered Kiosk entry still to be assigned (Veranstaltungsleiter+ only)
+	SelfRegistered *bool  `json:"selfRegistered,omitempty"`
+	State          string `json:"state"`
 }
 
 // SystemStats defines model for SystemStats.
@@ -640,6 +684,9 @@ type Unauthorized = ErrorResponse
 
 // bearerAuthContextKey is the context key for bearerAuth security scheme
 type bearerAuthContextKey string
+
+// kioskTokenContextKey is the context key for kioskToken security scheme
+type kioskTokenContextKey string
 
 // AuthCallbackParams defines parameters for AuthCallback.
 type AuthCallbackParams struct {
@@ -745,6 +792,11 @@ type LookupMembersParams struct {
 	Exclude *[]UUID `form:"exclude,omitempty" json:"exclude,omitempty"`
 }
 
+// AssignRegistrationJSONBody defines parameters for AssignRegistration.
+type AssignRegistrationJSONBody struct {
+	MemberId UUID `json:"memberId"`
+}
+
 // GetAuditLogParams defines parameters for GetAuditLog.
 type GetAuditLogParams struct {
 	Limit  *int `form:"limit,omitempty" json:"limit,omitempty"`
@@ -759,6 +811,12 @@ type GetEmailLogParams struct {
 
 // UpdateFeeTiersJSONBody defines parameters for UpdateFeeTiers.
 type UpdateFeeTiersJSONBody = []FeeTier
+
+// CreateKioskLinkJSONBody defines parameters for CreateKioskLink.
+type CreateKioskLinkJSONBody struct {
+	Label     *string `json:"label,omitempty"`
+	ValidDays int     `json:"validDays"`
+}
 
 // UploadLogoMultipartBody defines parameters for UploadLogo.
 type UploadLogoMultipartBody struct {
@@ -833,6 +891,9 @@ type UpdateMyPreferencesJSONRequestBody = MemberPreferences
 // UpdateMemberJSONRequestBody defines body for UpdateMember for application/json ContentType.
 type UpdateMemberJSONRequestBody = MemberWrite
 
+// AssignRegistrationJSONRequestBody defines body for AssignRegistration for application/json ContentType.
+type AssignRegistrationJSONRequestBody AssignRegistrationJSONBody
+
 // UpdateSettingsJSONRequestBody defines body for UpdateSettings for application/json ContentType.
 type UpdateSettingsJSONRequestBody = AppSettings
 
@@ -844,6 +905,9 @@ type UpdateEmailTemplateJSONRequestBody = EmailTemplate
 
 // UpdateFeeTiersJSONRequestBody defines body for UpdateFeeTiers for application/json ContentType.
 type UpdateFeeTiersJSONRequestBody = UpdateFeeTiersJSONBody
+
+// CreateKioskLinkJSONRequestBody defines body for CreateKioskLink for application/json ContentType.
+type CreateKioskLinkJSONRequestBody CreateKioskLinkJSONBody
 
 // UploadLogoMultipartRequestBody defines body for UploadLogo for multipart/form-data ContentType.
 type UploadLogoMultipartRequestBody UploadLogoMultipartBody
@@ -955,7 +1019,10 @@ type ServerInterface interface {
 	// Get a member's hour account for the active club year (own account, or any for Vorstand+)
 	// (GET /hours/{memberId})
 	GetMemberHours(w http.ResponseWriter, r *http.Request, memberId UUID)
-	// Confirm a kiosk registration via email token (no auth)
+	// What the kiosk screen needs without a login
+	// (GET /kiosk/config)
+	GetKioskConfig(w http.ResponseWriter, r *http.Request)
+	// Confirm a kiosk registration via email token (no auth, no kiosk link); assigns it to the member whose e-mail was entered
 	// (GET /kiosk/confirm/{token})
 	ConfirmKioskRegistration(w http.ResponseWriter, r *http.Request, token UUID)
 	// List all published events (no auth)
@@ -967,7 +1034,7 @@ type ServerInterface interface {
 	// Search active members by name (no auth, kioskSearch must be enabled); returns id and first name plus last initial only
 	// (GET /kiosk/members)
 	SearchKioskMembers(w http.ResponseWriter, r *http.Request, params SearchKioskMembersParams)
-	// Register for a shift via kiosk (no auth); sends confirmation email
+	// Register for a shift via kiosk: a member picked via the search (memberId, search enabled only), or a typed name with an optional e-mail. Same response whether or not the e-mail is a member's (K-005).
 	// (POST /kiosk/shifts/{id}/register)
 	KioskRegister(w http.ResponseWriter, r *http.Request, id UUID)
 	// List members (paginated, sorted by last/first name; Vorstand+)
@@ -1003,6 +1070,12 @@ type ServerInterface interface {
 	// Anonymize a member (GDPR, Vorstand+)
 	// (POST /members/{id}/gdpr-delete)
 	GdprDeleteMember(w http.ResponseWriter, r *http.Request, id UUID)
+	// Assign an unassigned kiosk entry to a member, who is told by e-mail (Veranstaltungsleiter+)
+	// (POST /registrations/{id}/assign)
+	AssignRegistration(w http.ResponseWriter, r *http.Request, id UUID)
+	// Members to assign an unassigned kiosk entry to, by name similarity (Veranstaltungsleiter+)
+	// (GET /registrations/{id}/suggestions)
+	SuggestRegistrationMembers(w http.ResponseWriter, r *http.Request, id UUID)
 	// Get application settings
 	// (GET /settings)
 	GetSettings(w http.ResponseWriter, r *http.Request)
@@ -1039,6 +1112,15 @@ type ServerInterface interface {
 	// Update fee tiers (Vorstand+)
 	// (PUT /settings/fee-tiers)
 	UpdateFeeTiers(w http.ResponseWriter, r *http.Request)
+	// List kiosk links (Vorstand+)
+	// (GET /settings/kiosk-links)
+	ListKioskLinks(w http.ResponseWriter, r *http.Request)
+	// Create a kiosk link (Vorstand+); the token is only returned here
+	// (POST /settings/kiosk-links)
+	CreateKioskLink(w http.ResponseWriter, r *http.Request)
+	// Revoke a kiosk link (Vorstand+)
+	// (DELETE /settings/kiosk-links/{id})
+	RevokeKioskLink(w http.ResponseWriter, r *http.Request, id UUID)
 	// Upload club logo PNG/SVG (Vorstand+)
 	// (POST /settings/logo)
 	UploadLogo(w http.ResponseWriter, r *http.Request)
@@ -1258,7 +1340,13 @@ func (_ Unimplemented) GetMemberHours(w http.ResponseWriter, r *http.Request, me
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
-// Confirm a kiosk registration via email token (no auth)
+// What the kiosk screen needs without a login
+// (GET /kiosk/config)
+func (_ Unimplemented) GetKioskConfig(w http.ResponseWriter, r *http.Request) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// Confirm a kiosk registration via email token (no auth, no kiosk link); assigns it to the member whose e-mail was entered
 // (GET /kiosk/confirm/{token})
 func (_ Unimplemented) ConfirmKioskRegistration(w http.ResponseWriter, r *http.Request, token UUID) {
 	w.WriteHeader(http.StatusNotImplemented)
@@ -1282,7 +1370,7 @@ func (_ Unimplemented) SearchKioskMembers(w http.ResponseWriter, r *http.Request
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
-// Register for a shift via kiosk (no auth); sends confirmation email
+// Register for a shift via kiosk: a member picked via the search (memberId, search enabled only), or a typed name with an optional e-mail. Same response whether or not the e-mail is a member's (K-005).
 // (POST /kiosk/shifts/{id}/register)
 func (_ Unimplemented) KioskRegister(w http.ResponseWriter, r *http.Request, id UUID) {
 	w.WriteHeader(http.StatusNotImplemented)
@@ -1351,6 +1439,18 @@ func (_ Unimplemented) ExportMemberData(w http.ResponseWriter, r *http.Request, 
 // Anonymize a member (GDPR, Vorstand+)
 // (POST /members/{id}/gdpr-delete)
 func (_ Unimplemented) GdprDeleteMember(w http.ResponseWriter, r *http.Request, id UUID) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// Assign an unassigned kiosk entry to a member, who is told by e-mail (Veranstaltungsleiter+)
+// (POST /registrations/{id}/assign)
+func (_ Unimplemented) AssignRegistration(w http.ResponseWriter, r *http.Request, id UUID) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// Members to assign an unassigned kiosk entry to, by name similarity (Veranstaltungsleiter+)
+// (GET /registrations/{id}/suggestions)
+func (_ Unimplemented) SuggestRegistrationMembers(w http.ResponseWriter, r *http.Request, id UUID) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
@@ -1423,6 +1523,24 @@ func (_ Unimplemented) GetFeeTiers(w http.ResponseWriter, r *http.Request) {
 // Update fee tiers (Vorstand+)
 // (PUT /settings/fee-tiers)
 func (_ Unimplemented) UpdateFeeTiers(w http.ResponseWriter, r *http.Request) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// List kiosk links (Vorstand+)
+// (GET /settings/kiosk-links)
+func (_ Unimplemented) ListKioskLinks(w http.ResponseWriter, r *http.Request) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// Create a kiosk link (Vorstand+); the token is only returned here
+// (POST /settings/kiosk-links)
+func (_ Unimplemented) CreateKioskLink(w http.ResponseWriter, r *http.Request) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// Revoke a kiosk link (Vorstand+)
+// (DELETE /settings/kiosk-links/{id})
+func (_ Unimplemented) RevokeKioskLink(w http.ResponseWriter, r *http.Request, id UUID) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
@@ -2541,6 +2659,26 @@ func (siw *ServerInterfaceWrapper) GetMemberHours(w http.ResponseWriter, r *http
 	handler.ServeHTTP(w, r)
 }
 
+// GetKioskConfig operation middleware
+func (siw *ServerInterfaceWrapper) GetKioskConfig(w http.ResponseWriter, r *http.Request) {
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, KioskTokenScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.GetKioskConfig(w, r)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
 // ConfirmKioskRegistration operation middleware
 func (siw *ServerInterfaceWrapper) ConfirmKioskRegistration(w http.ResponseWriter, r *http.Request) {
 
@@ -2570,6 +2708,12 @@ func (siw *ServerInterfaceWrapper) ConfirmKioskRegistration(w http.ResponseWrite
 // ListKioskEvents operation middleware
 func (siw *ServerInterfaceWrapper) ListKioskEvents(w http.ResponseWriter, r *http.Request) {
 
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, KioskTokenScopes, []string{})
+
+	r = r.WithContext(ctx)
+
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		siw.Handler.ListKioskEvents(w, r)
 	}))
@@ -2596,6 +2740,12 @@ func (siw *ServerInterfaceWrapper) GetKioskEventTimeline(w http.ResponseWriter, 
 		return
 	}
 
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, KioskTokenScopes, []string{})
+
+	r = r.WithContext(ctx)
+
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		siw.Handler.GetKioskEventTimeline(w, r, id)
 	}))
@@ -2612,6 +2762,12 @@ func (siw *ServerInterfaceWrapper) SearchKioskMembers(w http.ResponseWriter, r *
 
 	var err error
 	_ = err
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, KioskTokenScopes, []string{})
+
+	r = r.WithContext(ctx)
 
 	// Parameter object where we will unmarshal all parameters from the context
 	var params SearchKioskMembersParams
@@ -2654,6 +2810,12 @@ func (siw *ServerInterfaceWrapper) KioskRegister(w http.ResponseWriter, r *http.
 		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "id", Err: err})
 		return
 	}
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, KioskTokenScopes, []string{})
+
+	r = r.WithContext(ctx)
 
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		siw.Handler.KioskRegister(w, r, id)
@@ -3049,6 +3211,70 @@ func (siw *ServerInterfaceWrapper) GdprDeleteMember(w http.ResponseWriter, r *ht
 	handler.ServeHTTP(w, r)
 }
 
+// AssignRegistration operation middleware
+func (siw *ServerInterfaceWrapper) AssignRegistration(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "id" -------------
+	var id UUID
+
+	err = runtime.BindStyledParameterWithOptions("simple", "id", chi.URLParam(r, "id"), &id, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "uuid"})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "id", Err: err})
+		return
+	}
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, BearerAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.AssignRegistration(w, r, id)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// SuggestRegistrationMembers operation middleware
+func (siw *ServerInterfaceWrapper) SuggestRegistrationMembers(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "id" -------------
+	var id UUID
+
+	err = runtime.BindStyledParameterWithOptions("simple", "id", chi.URLParam(r, "id"), &id, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "uuid"})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "id", Err: err})
+		return
+	}
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, BearerAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.SuggestRegistrationMembers(w, r, id)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
 // GetSettings operation middleware
 func (siw *ServerInterfaceWrapper) GetSettings(w http.ResponseWriter, r *http.Request) {
 
@@ -3374,6 +3600,78 @@ func (siw *ServerInterfaceWrapper) UpdateFeeTiers(w http.ResponseWriter, r *http
 
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		siw.Handler.UpdateFeeTiers(w, r)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// ListKioskLinks operation middleware
+func (siw *ServerInterfaceWrapper) ListKioskLinks(w http.ResponseWriter, r *http.Request) {
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, BearerAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.ListKioskLinks(w, r)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// CreateKioskLink operation middleware
+func (siw *ServerInterfaceWrapper) CreateKioskLink(w http.ResponseWriter, r *http.Request) {
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, BearerAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.CreateKioskLink(w, r)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// RevokeKioskLink operation middleware
+func (siw *ServerInterfaceWrapper) RevokeKioskLink(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "id" -------------
+	var id UUID
+
+	err = runtime.BindStyledParameterWithOptions("simple", "id", chi.URLParam(r, "id"), &id, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "uuid"})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "id", Err: err})
+		return
+	}
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, BearerAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.RevokeKioskLink(w, r, id)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -3915,6 +4213,9 @@ func HandlerWithOptions(si ServerInterface, options ChiServerOptions) http.Handl
 		r.Get(options.BaseURL+"/hours/{memberId}", wrapper.GetMemberHours)
 	})
 	r.Group(func(r chi.Router) {
+		r.Get(options.BaseURL+"/kiosk/config", wrapper.GetKioskConfig)
+	})
+	r.Group(func(r chi.Router) {
 		r.Get(options.BaseURL+"/kiosk/confirm/{token}", wrapper.ConfirmKioskRegistration)
 	})
 	r.Group(func(r chi.Router) {
@@ -3963,6 +4264,12 @@ func HandlerWithOptions(si ServerInterface, options ChiServerOptions) http.Handl
 		r.Post(options.BaseURL+"/members/{id}/gdpr-delete", wrapper.GdprDeleteMember)
 	})
 	r.Group(func(r chi.Router) {
+		r.Post(options.BaseURL+"/registrations/{id}/assign", wrapper.AssignRegistration)
+	})
+	r.Group(func(r chi.Router) {
+		r.Get(options.BaseURL+"/registrations/{id}/suggestions", wrapper.SuggestRegistrationMembers)
+	})
+	r.Group(func(r chi.Router) {
 		r.Get(options.BaseURL+"/settings", wrapper.GetSettings)
 	})
 	r.Group(func(r chi.Router) {
@@ -3997,6 +4304,15 @@ func HandlerWithOptions(si ServerInterface, options ChiServerOptions) http.Handl
 	})
 	r.Group(func(r chi.Router) {
 		r.Put(options.BaseURL+"/settings/fee-tiers", wrapper.UpdateFeeTiers)
+	})
+	r.Group(func(r chi.Router) {
+		r.Get(options.BaseURL+"/settings/kiosk-links", wrapper.ListKioskLinks)
+	})
+	r.Group(func(r chi.Router) {
+		r.Post(options.BaseURL+"/settings/kiosk-links", wrapper.CreateKioskLink)
+	})
+	r.Group(func(r chi.Router) {
+		r.Delete(options.BaseURL+"/settings/kiosk-links/{id}", wrapper.RevokeKioskLink)
 	})
 	r.Group(func(r chi.Router) {
 		r.Post(options.BaseURL+"/settings/logo", wrapper.UploadLogo)

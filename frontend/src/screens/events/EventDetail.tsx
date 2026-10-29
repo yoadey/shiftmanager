@@ -26,7 +26,10 @@ import {
   useForceDeleteRegistration,
   useAddMemberToShift,
   useAddGuestToShift,
+  useRegistrationSuggestions,
+  useAssignRegistration,
 } from '@/api/shifts';
+import { isAxiosError } from 'axios';
 import {
   useEvent,
   useEventTimeline,
@@ -192,6 +195,16 @@ function RegistrationRow({
   );
   const registrationId = s.id ?? '';
   const timeOpen = registrationId !== '' && (params['*'] ?? '') === `zeit/${registrationId}`;
+  const assignOpen = registrationId !== '' && !s.memberId && (params['*'] ?? '') === `zuordnen/${registrationId}`;
+  const assign = useAssignRegistration();
+  // Confirming a pending kiosk match is assigning to the member asked (K-006).
+  const onConfirmPending = () => {
+    if (!s.pendingMemberId) return;
+    assign.mutate({ registrationId, memberId: s.pendingMemberId, eventId }, {
+      onSuccess: () => showToast(`${s.pendingMemberName ?? 'Mitglied'} zugeordnet.`),
+      onError: () => showToast('Zuordnen fehlgeschlagen.', 'crit'),
+    });
+  };
   const [deleteConfirm, setDeleteConfirm] = useState(false);
 
   const isConfirmed = s.status === 'bestätigt';
@@ -241,9 +254,31 @@ function RegistrationRow({
     <>
       <div style={{ display: 'flex', alignItems: 'center', gap: 5, padding: '6px 8px', borderRadius: 10, border: '1px solid var(--line)', background: bg }}>
         <Avatar name={displayName} size={24} />
-        <span style={{ fontSize: 12.5, fontWeight: 700, flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-          {displayName}
+        <span style={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column', gap: 3 }}>
+          <span style={{ fontSize: 12.5, fontWeight: 700, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+            {displayName}
+          </span>
+          {/* Kiosk entries still to be assigned to a member (K-014/K-015). */}
+          {!s.memberId && (s.selfRegistered || s.pendingMemberId) && (
+            <span style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
+              <span className="sm-badge b-warn" data-testid="assignment-badge" style={{ fontSize: 10.5, padding: '1px 7px', whiteSpace: 'normal' }}>
+                {s.pendingMemberId ? `Bestätigung ausstehend · ${s.pendingMemberName ?? 'Mitglied'}` : 'Zuordnung offen'}
+              </span>
+              {s.pendingMemberId && (
+                <button onClick={onConfirmPending} disabled={assign.isPending} className="pressable"
+                  style={{ border: 'none', background: 'none', padding: 0, cursor: 'pointer', fontSize: 11.5, fontWeight: 800, color: 'var(--ok)', fontFamily: 'inherit' }}>
+                  Bestätigen
+                </button>
+              )}
+            </span>
+          )}
         </span>
+        {!s.memberId && (
+          <button onClick={() => navigate(routes.eventZuordnen(eventId, registrationId))} title="Mitglied zuordnen" className="pressable"
+            style={{ padding: '3px 9px', borderRadius: 8, border: '1px solid var(--line)', background: 'var(--surface)', fontSize: 12, fontWeight: 800, fontFamily: 'inherit', cursor: 'pointer', flexShrink: 0, whiteSpace: 'nowrap' }}>
+            Zuordnen
+          </button>
+        )}
         {!isNoShow && (
           <button onClick={() => navigate(routes.eventZeit(eventId, registrationId))} title="Zeit bearbeiten" className="pressable"
             style={{ padding: '3px 9px', borderRadius: 8, border: '1px solid var(--line)', background: 'var(--surface)', fontSize: 12.5, fontWeight: 800, fontFamily: 'inherit', cursor: 'pointer', flexShrink: 0, whiteSpace: 'nowrap' }}>
@@ -266,6 +301,7 @@ function RegistrationRow({
       {timeOpen && (
         <TimePickerSheet hh={hh} mm={mm} dur={dur} onSave={onTimeSave} onClose={closeModal} />
       )}
+      {assignOpen && <AssignSheet s={s} eventId={eventId} onClose={closeModal} />}
       {deleteConfirm && (
         <Sheet variant="dialog" onClose={() => setDeleteConfirm(false)}>
           <div style={{ textAlign: 'center', padding: '6px 4px 4px' }}>
@@ -284,6 +320,73 @@ function RegistrationRow({
         </Sheet>
       )}
     </>
+  );
+}
+
+// Assigning a kiosk entry to a member (K-015): suggestions by name
+// similarity (also near misses), the member whose e-mail was entered first,
+// and a name search for anyone else.
+function AssignSheet({ s, eventId, onClose }: { s: Signup; eventId: string; onClose: () => void }) {
+  const { showToast } = useAppStore();
+  const registrationId = s.id ?? '';
+  const suggestionsQ = useRegistrationSuggestions(registrationId);
+  const assign = useAssignRegistration();
+  const [search, setSearch] = useState('');
+  const [query, setQuery] = useState('');
+  useEffect(() => {
+    const t = setTimeout(() => setQuery(search), 250);
+    return () => clearTimeout(t);
+  }, [search]);
+  const lookupQ = useMemberLookup(query);
+  const searching = search.trim().length >= 2;
+
+  const pick = (memberId: string, name: string) => {
+    assign.mutate({ registrationId, memberId, eventId }, {
+      onSuccess: () => showToast(`${name} zugeordnet und per E-Mail informiert.`),
+      onError: (err) => showToast(
+        isAxiosError(err) && err.response?.status === 409 ? `${name} ist schon in dieser Schicht eingetragen.` : 'Zuordnen fehlgeschlagen.',
+        'crit',
+      ),
+    });
+    onClose();
+  };
+
+  const row = (id: string, name: string, extra?: React.ReactNode) => (
+    <button key={id} onClick={() => pick(id, name)} className="pressable"
+      style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '10px 12px', borderRadius: 12, border: '1px solid var(--line)', background: 'var(--surface)', cursor: 'pointer', fontFamily: 'inherit', textAlign: 'left', width: '100%' }}
+    >
+      <div style={{ flex: 1, minWidth: 0, fontWeight: 700, fontSize: 14 }}>{name}</div>
+      {extra}
+      <Icon name="check" size={16} stroke={2.4} color="var(--primary)" />
+    </button>
+  );
+  const suggestions = suggestionsQ.data ?? [];
+
+  return (
+    <Sheet onClose={onClose} title="Mitglied zuordnen">
+      <div style={{ fontSize: 13.5, color: 'var(--ink-2)', fontWeight: 600, marginBottom: 14 }}>
+        Am Kiosk eingetragen als <b style={{ color: 'var(--ink)' }}>„{s.name ?? s.guest ?? '—'}“</b>. Das Mitglied wird nach der Zuordnung per E-Mail informiert.
+      </div>
+      <div style={{ fontSize: 11.5, fontWeight: 800, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '.06em', marginBottom: 8 }}>Vorschläge</div>
+      <div data-testid="suggestions" style={{ display: 'flex', flexDirection: 'column', gap: 6, marginBottom: 16 }}>
+        {suggestionsQ.isLoading && <span style={{ fontSize: 13, color: 'var(--muted)', fontWeight: 600 }}>Lade Vorschläge…</span>}
+        {!suggestionsQ.isLoading && suggestions.length === 0 && (
+          <span style={{ fontSize: 13, color: 'var(--muted)', fontWeight: 600 }}>Kein ähnlicher Name gefunden – bitte unten suchen.</span>
+        )}
+        {suggestions.map((m) => row(m.id, m.name, m.pending
+          ? <span className="sm-badge b-info" style={{ fontSize: 10.5 }}>E-Mail passt</span>
+          : <span style={{ fontSize: 11.5, color: 'var(--muted)', fontWeight: 700 }}>{Math.round(m.score * 100)} %</span>))}
+      </div>
+      <Field label="Anderes Mitglied suchen">
+        <Input placeholder="Name oder E-Mail…" value={search} onChange={(e) => setSearch(e.target.value)} />
+      </Field>
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+        {searching && (lookupQ.data ?? []).map((m) => row(m.id, m.name))}
+        {searching && !lookupQ.isFetching && query === search && (lookupQ.data ?? []).length === 0 && (
+          <span style={{ fontSize: 13, color: 'var(--muted)', fontWeight: 600, padding: '6px 0' }}>Keine Mitglieder gefunden.</span>
+        )}
+      </div>
+    </Sheet>
   );
 }
 

@@ -308,6 +308,11 @@ func (uc *EventUsecase) ListEvents(ctx context.Context, filter port.EventFilter)
 	return events, total, nil
 }
 
+// GetShift returns a single shift by ID.
+func (uc *EventUsecase) GetShift(ctx context.Context, id uuid.UUID) (*domain.Shift, error) {
+	return uc.shifts.GetByID(ctx, id)
+}
+
 // GetEvent returns a single event by ID.
 func (uc *EventUsecase) GetEvent(ctx context.Context, id uuid.UUID) (*domain.Event, error) {
 	return uc.events.GetByID(ctx, id)
@@ -544,9 +549,11 @@ func (uc *EventUsecase) GetEventTimelineFor(ctx context.Context, eventID uuid.UU
 	for _, d := range tl.Days {
 		for _, sh := range d.Shifts {
 			for _, r := range sh.Registrations {
-				if r.MemberID != nil && !seen[*r.MemberID] {
-					seen[*r.MemberID] = true
-					ids = append(ids, *r.MemberID)
+				for _, id := range []*uuid.UUID{r.MemberID, r.PendingMemberID} {
+					if id != nil && !seen[*id] {
+						seen[*id] = true
+						ids = append(ids, *id)
+					}
 				}
 			}
 		}
@@ -591,6 +598,18 @@ func (uc *EventUsecase) GetEventTimelineFor(ctx context.Context, eventID uuid.UU
 					r.DisplayName = *r.GuestEmail
 				default:
 					r.DisplayName = "Gast"
+				}
+
+				// Organisers see whom a kiosk entry waits on (K-006); others
+				// don't learn that an e-mail belongs to a member.
+				if organiser && r.PendingMemberID != nil {
+					if m := members[*r.PendingMemberID]; m != nil {
+						r.PendingMemberName = m.FullName()
+					}
+				}
+				if !organiser {
+					r.PendingMemberID = nil
+					r.SelfRegistered = false
 				}
 
 				own := viewer.ID != uuid.Nil && r.MemberID != nil && *r.MemberID == viewer.ID

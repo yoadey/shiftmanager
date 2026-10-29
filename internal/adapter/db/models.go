@@ -93,9 +93,24 @@ type RegistrationModel struct {
 	BookedHours       *float64   `gorm:"column:booked_hours"`
 	ConfirmationToken *string    `gorm:"column:confirmation_token;type:text"`
 	CreatedAt         time.Time  `gorm:"column:created_at"`
+	SelfRegistered    bool       `gorm:"column:self_registered;not null;default:false"`
+	PendingMemberID   *string    `gorm:"column:pending_member_id;type:text"`
 }
 
 func (RegistrationModel) TableName() string { return "registrations" }
+
+// KioskLinkModel is the GORM model for the "kiosk_links" table (K-016).
+type KioskLinkModel struct {
+	ID        string     `gorm:"column:id;type:text;primaryKey"`
+	Label     string     `gorm:"column:label;type:text"`
+	TokenHash string     `gorm:"column:token_hash;type:text;uniqueIndex"`
+	CreatedBy *string    `gorm:"column:created_by;type:text"`
+	CreatedAt time.Time  `gorm:"column:created_at"`
+	ExpiresAt time.Time  `gorm:"column:expires_at"`
+	RevokedAt *time.Time `gorm:"column:revoked_at"`
+}
+
+func (KioskLinkModel) TableName() string { return "kiosk_links" }
 
 // HourEntryModel is the GORM model for the "hour_entries" table.
 type HourEntryModel struct {

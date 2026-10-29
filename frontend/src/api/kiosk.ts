@@ -11,6 +11,23 @@ interface RawKioskMember {
 
 // ── Queries ────────────────────────────────────────────────────────────────
 
+export interface KioskConfig {
+  kioskSearch: boolean;
+  clubName?: string;
+  logoUrl?: string;
+  primaryColor?: string;
+}
+
+/** Kiosk settings and branding; fails with 401 without a valid kiosk link
+ * and 403 while the kiosk is locked (K-016, K-012). */
+export function useKioskConfig() {
+  return useQuery({
+    queryKey: ['kiosk', 'config'],
+    queryFn: () => apiGet<KioskConfig>('/kiosk/config'),
+    retry: false,
+  });
+}
+
 /**
  * Published events for the standalone kiosk (no auth), enriched with their
  * public timeline (days/shifts) via GET /kiosk/events/{id}. Per-event failures
@@ -61,13 +78,16 @@ export function useKioskMemberSearch(query: string, enabled: boolean) {
 
 export interface KioskRegisterPayload {
   shiftId: string;
+  /** Full name (K-014), or display name together with an e-mail (K-006/K-007). */
+  name?: string;
   email?: string;
+  /** Member picked via the kiosk search (only when it is enabled). */
   memberId?: string;
 }
 
 /**
- * Registers a single person via the kiosk; the backend sends a confirmation
- * e-mail. One call per person — POST /kiosk/shifts/{id}/register (K-008).
+ * Registers a single person via the kiosk. One call per person —
+ * POST /kiosk/shifts/{id}/register (K-008).
  */
 export function useKioskRegister() {
   return useMutation({

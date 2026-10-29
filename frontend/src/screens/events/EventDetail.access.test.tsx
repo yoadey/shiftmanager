@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, afterEach } from 'vitest';
+import { describe, it, expect, vi, afterEach, beforeEach } from 'vitest';
 import { render, screen, fireEvent } from '@testing-library/react';
 import { MemoryRouter, Routes, Route, useLocation } from 'react-router-dom';
 import { useAuthStore } from '@/store/auth.store';
@@ -55,9 +55,15 @@ vi.mock('@/api/shifts', () => ({
   useForceDeleteRegistration: () => ({ mutate: vi.fn() }),
   useAddMemberToShift: () => ({ mutate: vi.fn() }),
   useAddGuestToShift: () => ({ mutate: vi.fn() }),
+  useRegistrationSuggestions: () => ({
+    data: [{ id: 'm9', name: 'Maximilian Mustermann', score: 0.86 }, { id: 'm1', name: 'Max Mustermann', score: 1, pending: true }],
+    isLoading: false,
+  }),
+  useAssignRegistration: () => ({ mutate: assignMutate, isPending: false }),
 }));
 
 const lookupCalls: { q: string; exclude: string[] }[] = [];
+const assignMutate = vi.fn();
 vi.mock('@/api/members', () => ({
   // Like the server: helpers in `exclude` never come back.
   useMemberLookup: (q: string, exclude: string[] = []) => {
@@ -155,6 +161,55 @@ describe('EventDetail helper names', () => {
     expect(await screen.findByText('Maria Musterfrau')).toBeInTheDocument();
     expect(screen.queryByText('Max Mustermann')).not.toBeInTheDocument();
     expect(lookupCalls).toContainEqual({ q: 'mus', exclude: ['m1'] });
+  });
+});
+
+// Kiosk entries waiting for assignment (K-014, K-015, K-006).
+describe('EventDetail kiosk entries', () => {
+  const kioskSignups = [
+    { id: 'reg2', memberId: '', status: 'angemeldet' as const, name: 'Erika Musterfrau', selfRegistered: true },
+    { id: 'reg3', memberId: '', status: 'angemeldet' as const, name: 'Maxi', selfRegistered: true, pendingMemberId: 'm1', pendingMemberName: 'Max Mustermann' },
+  ];
+  beforeEach(() => {
+    assignMutate.mockClear();
+    fixtureEvent.days[0].shifts[0].signups = [{ id: 'reg1', memberId: 'm1', status: 'angemeldet', name: 'Max M.' }, ...kioskSignups];
+  });
+  afterEach(() => {
+    fixtureEvent.days[0].shifts[0].signups = [{ id: 'reg1', memberId: 'm1', status: 'angemeldet', name: 'Max M.' }];
+  });
+
+  it('marks open and pending kiosk entries for organisers', async () => {
+    setRole('veranstaltungsleiter');
+    renderAt('/events/e1');
+    const badges = await screen.findAllByTestId('assignment-badge');
+    expect(badges.map((b) => b.textContent)).toEqual(['Zuordnung offen', 'Bestätigung ausstehend · Max Mustermann']);
+    expect(screen.getAllByRole('button', { name: 'Zuordnen' })).toHaveLength(2);
+  });
+
+  it('confirms a pending entry by assigning the member asked', async () => {
+    setRole('veranstaltungsleiter');
+    renderAt('/events/e1');
+    fireEvent.click(await screen.findByRole('button', { name: 'Bestätigen' }));
+    expect(assignMutate).toHaveBeenCalledWith({ registrationId: 'reg3', memberId: 'm1', eventId: 'e1' }, expect.anything());
+  });
+
+  it('assigns from the suggestions, the member with the matching e-mail flagged', async () => {
+    setRole('veranstaltungsleiter');
+    renderAt('/events/e1/zuordnen/reg2');
+    const list = await screen.findByTestId('suggestions');
+    expect(list).toHaveTextContent('Maximilian Mustermann');
+    expect(list).toHaveTextContent('86 %');
+    expect(list).toHaveTextContent('E-Mail passt');
+    fireEvent.click(screen.getByRole('button', { name: /Maximilian Mustermann/ }));
+    expect(assignMutate).toHaveBeenCalledWith({ registrationId: 'reg2', memberId: 'm9', eventId: 'e1' }, expect.anything());
+  });
+
+  it('shows plain members only the names, no assignment controls', async () => {
+    setRole('mitglied');
+    renderAt('/events/e1/zuordnen/reg2');
+    expect(await screen.findByTestId('helper-names')).toHaveTextContent('Erika Musterfrau');
+    expect(screen.queryByTestId('assignment-badge')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('suggestions')).not.toBeInTheDocument();
   });
 });
 

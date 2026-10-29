@@ -8,6 +8,9 @@ import {
 } from "./client";
 import { client } from "./client.gen";
 import type {
+  AssignRegistrationData,
+  AssignRegistrationErrors,
+  AssignRegistrationResponses,
   AuthCallbackData,
   AuthLoginData,
   AuthLoginErrors,
@@ -26,6 +29,9 @@ import type {
   CreateEventData,
   CreateEventErrors,
   CreateEventResponses,
+  CreateKioskLinkData,
+  CreateKioskLinkErrors,
+  CreateKioskLinkResponses,
   CreateMemberData,
   CreateMemberErrors,
   CreateMemberResponses,
@@ -94,6 +100,9 @@ import type {
   GetFeeTiersData,
   GetFeeTiersErrors,
   GetFeeTiersResponses,
+  GetKioskConfigData,
+  GetKioskConfigErrors,
+  GetKioskConfigResponses,
   GetKioskEventTimelineData,
   GetKioskEventTimelineErrors,
   GetKioskEventTimelineResponses,
@@ -142,6 +151,9 @@ import type {
   ListKioskEventsData,
   ListKioskEventsErrors,
   ListKioskEventsResponses,
+  ListKioskLinksData,
+  ListKioskLinksErrors,
+  ListKioskLinksResponses,
   ListMembersData,
   ListMembersErrors,
   ListMembersResponses,
@@ -168,9 +180,15 @@ import type {
   ResendEmailData,
   ResendEmailErrors,
   ResendEmailResponses,
+  RevokeKioskLinkData,
+  RevokeKioskLinkErrors,
+  RevokeKioskLinkResponses,
   SearchKioskMembersData,
   SearchKioskMembersErrors,
   SearchKioskMembersResponses,
+  SuggestRegistrationMembersData,
+  SuggestRegistrationMembersErrors,
+  SuggestRegistrationMembersResponses,
   UpdateBrandingData,
   UpdateBrandingErrors,
   UpdateBrandingResponses,
@@ -1307,6 +1325,96 @@ export const exportBillingPdf = <ThrowOnError extends boolean = false>(
   });
 
 /**
+ * List kiosk links (Vorstand+)
+ */
+export const listKioskLinks = <ThrowOnError extends boolean = false>(
+  options?: Options<ListKioskLinksData, ThrowOnError>,
+) =>
+  (options?.client ?? client).get<
+    ListKioskLinksResponses,
+    ListKioskLinksErrors,
+    ThrowOnError
+  >({
+    security: [{ scheme: "bearer", type: "http" }],
+    url: "/settings/kiosk-links",
+    ...options,
+  });
+
+/**
+ * Create a kiosk link (Vorstand+); the token is only returned here
+ */
+export const createKioskLink = <ThrowOnError extends boolean = false>(
+  options: Options<CreateKioskLinkData, ThrowOnError>,
+) =>
+  (options.client ?? client).post<
+    CreateKioskLinkResponses,
+    CreateKioskLinkErrors,
+    ThrowOnError
+  >({
+    security: [{ scheme: "bearer", type: "http" }],
+    url: "/settings/kiosk-links",
+    ...options,
+    headers: {
+      "Content-Type": "application/json",
+      ...options.headers,
+    },
+  });
+
+/**
+ * Revoke a kiosk link (Vorstand+)
+ */
+export const revokeKioskLink = <ThrowOnError extends boolean = false>(
+  options: Options<RevokeKioskLinkData, ThrowOnError>,
+) =>
+  (options.client ?? client).delete<
+    RevokeKioskLinkResponses,
+    RevokeKioskLinkErrors,
+    ThrowOnError
+  >({
+    security: [{ scheme: "bearer", type: "http" }],
+    url: "/settings/kiosk-links/{id}",
+    ...options,
+  });
+
+/**
+ * Members to assign an unassigned kiosk entry to, by name similarity (Veranstaltungsleiter+)
+ */
+export const suggestRegistrationMembers = <
+  ThrowOnError extends boolean = false,
+>(
+  options: Options<SuggestRegistrationMembersData, ThrowOnError>,
+) =>
+  (options.client ?? client).get<
+    SuggestRegistrationMembersResponses,
+    SuggestRegistrationMembersErrors,
+    ThrowOnError
+  >({
+    security: [{ scheme: "bearer", type: "http" }],
+    url: "/registrations/{id}/suggestions",
+    ...options,
+  });
+
+/**
+ * Assign an unassigned kiosk entry to a member, who is told by e-mail (Veranstaltungsleiter+)
+ */
+export const assignRegistration = <ThrowOnError extends boolean = false>(
+  options: Options<AssignRegistrationData, ThrowOnError>,
+) =>
+  (options.client ?? client).post<
+    AssignRegistrationResponses,
+    AssignRegistrationErrors,
+    ThrowOnError
+  >({
+    security: [{ scheme: "bearer", type: "http" }],
+    url: "/registrations/{id}/assign",
+    ...options,
+    headers: {
+      "Content-Type": "application/json",
+      ...options.headers,
+    },
+  });
+
+/**
  * List all published events (no auth)
  */
 export const listKioskEvents = <ThrowOnError extends boolean = false>(
@@ -1316,7 +1424,11 @@ export const listKioskEvents = <ThrowOnError extends boolean = false>(
     ListKioskEventsResponses,
     ListKioskEventsErrors,
     ThrowOnError
-  >({ url: "/kiosk/events", ...options });
+  >({
+    security: [{ name: "X-Kiosk-Token", type: "apiKey" }],
+    url: "/kiosk/events",
+    ...options,
+  });
 
 /**
  * Get published event timeline (no auth)
@@ -1328,7 +1440,11 @@ export const getKioskEventTimeline = <ThrowOnError extends boolean = false>(
     GetKioskEventTimelineResponses,
     GetKioskEventTimelineErrors,
     ThrowOnError
-  >({ url: "/kiosk/events/{id}", ...options });
+  >({
+    security: [{ name: "X-Kiosk-Token", type: "apiKey" }],
+    url: "/kiosk/events/{id}",
+    ...options,
+  });
 
 /**
  * Search active members by name (no auth, kioskSearch must be enabled); returns id and first name plus last initial only
@@ -1340,10 +1456,14 @@ export const searchKioskMembers = <ThrowOnError extends boolean = false>(
     SearchKioskMembersResponses,
     SearchKioskMembersErrors,
     ThrowOnError
-  >({ url: "/kiosk/members", ...options });
+  >({
+    security: [{ name: "X-Kiosk-Token", type: "apiKey" }],
+    url: "/kiosk/members",
+    ...options,
+  });
 
 /**
- * Register for a shift via kiosk (no auth); sends confirmation email
+ * Register for a shift via kiosk: a member picked via the search (memberId, search enabled only), or a typed name with an optional e-mail. Same response whether or not the e-mail is a member's (K-005).
  */
 export const kioskRegister = <ThrowOnError extends boolean = false>(
   options: Options<KioskRegisterData, ThrowOnError>,
@@ -1353,6 +1473,7 @@ export const kioskRegister = <ThrowOnError extends boolean = false>(
     KioskRegisterErrors,
     ThrowOnError
   >({
+    security: [{ name: "X-Kiosk-Token", type: "apiKey" }],
     url: "/kiosk/shifts/{id}/register",
     ...options,
     headers: {
@@ -1362,7 +1483,23 @@ export const kioskRegister = <ThrowOnError extends boolean = false>(
   });
 
 /**
- * Confirm a kiosk registration via email token (no auth)
+ * What the kiosk screen needs without a login
+ */
+export const getKioskConfig = <ThrowOnError extends boolean = false>(
+  options?: Options<GetKioskConfigData, ThrowOnError>,
+) =>
+  (options?.client ?? client).get<
+    GetKioskConfigResponses,
+    GetKioskConfigErrors,
+    ThrowOnError
+  >({
+    security: [{ name: "X-Kiosk-Token", type: "apiKey" }],
+    url: "/kiosk/config",
+    ...options,
+  });
+
+/**
+ * Confirm a kiosk registration via email token (no auth, no kiosk link); assigns it to the member whose e-mail was entered
  */
 export const confirmKioskRegistration = <ThrowOnError extends boolean = false>(
   options: Options<ConfirmKioskRegistrationData, ThrowOnError>,

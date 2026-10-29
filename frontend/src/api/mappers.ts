@@ -52,6 +52,9 @@ interface RawRegistration {
   comment?: string;
   bookedHours?: number | null;
   displayName?: string;
+  selfRegistered?: boolean;
+  pendingMemberId?: string | null;
+  pendingMemberName?: string;
 }
 
 interface RawShiftWithDetails {
@@ -109,6 +112,10 @@ function toSignup(r: RawRegistration): Signup {
     guest: r.guestName ?? r.guestEmail ?? undefined,
     // Server-resolved name for the current viewer (name mode, SC-011).
     name: r.displayName || undefined,
+    // Kiosk entries still to be assigned (K-014/K-015; organisers only).
+    selfRegistered: r.selfRegistered || undefined,
+    pendingMemberId: r.pendingMemberId ?? undefined,
+    pendingMemberName: r.pendingMemberName || undefined,
   };
 }
 

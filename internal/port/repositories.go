@@ -154,6 +154,15 @@ type RegistrationRepository interface {
 	ListUnconfirmedExpiredReservations(ctx context.Context, before time.Time) ([]*domain.Registration, error)
 }
 
+// KioskLinkRepository persists kiosk links (K-016); tokens are stored hashed.
+type KioskLinkRepository interface {
+	Create(ctx context.Context, l *domain.KioskLink, tokenHash string) error
+	// List returns all links, newest first.
+	List(ctx context.Context) ([]*domain.KioskLink, error)
+	GetByTokenHash(ctx context.Context, tokenHash string) (*domain.KioskLink, error)
+	Revoke(ctx context.Context, id uuid.UUID, at time.Time) error
+}
+
 // HourRepository defines persistence operations for hour entries and club years.
 type HourRepository interface {
 	CreateEntry(ctx context.Context, e *domain.HourEntry) error

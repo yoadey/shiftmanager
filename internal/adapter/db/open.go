@@ -57,6 +57,7 @@ func Migrate(db *gorm.DB) error {
 		&EventAttachmentModel{},
 		&ShiftModel{},
 		&RegistrationModel{},
+		&KioskLinkModel{},
 		&HourEntryModel{},
 		&ClubYearModel{},
 		&HourTargetModel{},

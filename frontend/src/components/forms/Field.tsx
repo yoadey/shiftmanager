@@ -3,13 +3,15 @@ import React from 'react';
 interface FieldProps {
   label?: string;
   hint?: string;
+  /** id of the control the label belongs to. */
+  htmlFor?: string;
   children: React.ReactNode;
 }
 
-export function Field({ label, hint, children }: FieldProps) {
+export function Field({ label, hint, htmlFor, children }: FieldProps) {
   return (
     <div className="sm-field">
-      {label && <label className="sm-label">{label}</label>}
+      {label && <label className="sm-label" htmlFor={htmlFor}>{label}</label>}
       {children}
       {hint && <div className="sm-hint">{hint}</div>}
     </div>

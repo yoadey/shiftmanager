@@ -106,6 +106,7 @@ func New(_ context.Context) (*Server, error) {
 	reminderUC := usecase.NewReminderUsecase(shiftRepo, regRepo, eventRepo, memberRepo, emailSvc, auditRepo, settingsRepo)
 	_ = reminderUC
 	regUC.SetUnderstaffedNotifier(notifUC)
+	kioskUC := usecase.NewKioskUsecase(db.NewKioskLinkRepo(gdb), auditRepo)
 
 	// --- Handlers ---
 	// No real OIDC provider in integration tests — /api/v1/dev/token issues
@@ -120,7 +121,7 @@ func New(_ context.Context) (*Server, error) {
 		Event:    handler.NewEventHandler(eventUC, mediaStorage),
 		Shift:    handler.NewShiftHandler(eventUC, regUC),
 		Hour:     handler.NewHourHandler(hourUC),
-		Kiosk:    handler.NewKioskHandler(regUC, eventUC, memberUC, settingsUC),
+		Kiosk:    handler.NewKioskHandler(regUC, eventUC, memberUC, settingsUC, kioskUC),
 		Settings: handler.NewSettingsHandler(settingsUC, templateUC, mediaStorage),
 		Billing:  handler.NewBillingHandler(billingUC),
 		Stats:    handler.NewStatsHandler(statsUC),

@@ -276,3 +276,121 @@ func TestOrganizerAddGuest_UnknownShift(t *testing.T) {
 	_, err := f.uc.OrganizerAddGuest(context.Background(), uuid.New(), uuid.New(), "Jane Doe", nil)
 	assert.ErrorIs(t, err, domain.ErrShiftNotFound)
 }
+
+func TestKioskRegister_NameOnly(t *testing.T) {
+	f := newRegFixture(5)
+	reg, err := f.uc.KioskRegister(context.Background(), KioskRegisterInput{ShiftID: f.shift.ID, Name: "  Maximilian   Mustermann "})
+	require.NoError(t, err)
+	assert.Nil(t, reg.MemberID)
+	require.NotNil(t, reg.GuestName)
+	assert.Equal(t, "Maximilian Mustermann", *reg.GuestName)
+	assert.True(t, reg.SelfRegistered)
+	assert.Nil(t, reg.ConfirmationToken, "nothing to confirm without an e-mail")
+	assert.Empty(t, f.email.sent)
+
+	_, err = f.uc.KioskRegister(context.Background(), KioskRegisterInput{ShiftID: f.shift.ID, Name: "M"})
+	assert.ErrorIs(t, err, ErrInvalidKioskName)
+}
+
+func TestKioskRegister_KnownEmailAsksMemberAndAssignsOnConfirm(t *testing.T) {
+	f := newRegFixture(5)
+	memberID := uuid.New()
+	f.members.add(&domain.Member{ID: memberID, Email: "max@example.org", FirstName: "Max", LastName: "Mustermann", IsActive: true})
+
+	reg, err := f.uc.KioskRegister(context.Background(), KioskRegisterInput{ShiftID: f.shift.ID, Name: "Maxi", Email: " MAX@example.org "})
+	require.NoError(t, err)
+	assert.Nil(t, reg.MemberID)
+	require.NotNil(t, reg.PendingMemberID)
+	assert.Equal(t, memberID, *reg.PendingMemberID)
+	assert.Equal(t, "Maxi", *reg.GuestName)
+	assert.Nil(t, reg.GuestEmail)
+	require.Len(t, f.email.sent, 1)
+	assert.Equal(t, sentEmail{kind: "kiosk", to: "max@example.org"}, f.email.sent[0])
+
+	// Confirming assigns the entry without marking attendance (K-006).
+	confirmed, err := f.uc.ConfirmByLink(context.Background(), *reg.ConfirmationToken)
+	require.NoError(t, err)
+	require.NotNil(t, confirmed.MemberID)
+	assert.Equal(t, memberID, *confirmed.MemberID)
+	assert.Equal(t, domain.RegistrationStateRegistered, confirmed.State)
+	assert.Nil(t, confirmed.GuestName)
+	assert.Nil(t, confirmed.PendingMemberID)
+	assert.False(t, confirmed.SelfRegistered)
+	assert.Equal(t, 0, f.email.countKind("kiosk_assigned"), "they confirmed themselves")
+
+	// The link works once (K-011).
+	_, err = f.uc.ConfirmByLink(context.Background(), *reg.ConfirmationToken)
+	assert.ErrorIs(t, err, domain.ErrInvalidToken)
+}
+
+func TestKioskRegister_UnknownEmailStaysGuest(t *testing.T) {
+	f := newRegFixture(5)
+	reg, err := f.uc.KioskRegister(context.Background(), KioskRegisterInput{ShiftID: f.shift.ID, Name: "Hans Gast", Email: "hans@example.org"})
+	require.NoError(t, err)
+	assert.Nil(t, reg.PendingMemberID)
+	assert.Equal(t, "hans@example.org", *reg.GuestEmail)
+	assert.True(t, reg.SelfRegistered)
+	assert.Equal(t, []sentEmail{{kind: "kiosk", to: "hans@example.org"}}, f.email.sent)
+}
+
+func TestAssignRegistration(t *testing.T) {
+	f := newRegFixture(5)
+	memberID := uuid.New()
+	f.members.add(&domain.Member{ID: memberID, Email: "anna@example.org", FirstName: "Anna", LastName: "Bauer", IsActive: true})
+	reg, err := f.uc.KioskRegister(context.Background(), KioskRegisterInput{ShiftID: f.shift.ID, Name: "Anna Baur"})
+	require.NoError(t, err)
+
+	actor := uuid.New()
+	assigned, err := f.uc.AssignRegistration(context.Background(), actor, reg.ID, memberID)
+	require.NoError(t, err)
+	assert.Equal(t, memberID, *assigned.MemberID)
+	assert.Nil(t, assigned.GuestName)
+	assert.Equal(t, []sentEmail{{kind: "kiosk_assigned", to: "anna@example.org"}}, f.email.sent)
+	assert.True(t, f.audit.has(domain.AuditActionAssign, domain.AuditEntityRegistration))
+
+	_, err = f.uc.AssignRegistration(context.Background(), actor, reg.ID, memberID)
+	assert.ErrorIs(t, err, domain.ErrRegistrationAssigned)
+
+	// A member can't end up twice on the same shift.
+	other, err := f.uc.KioskRegister(context.Background(), KioskRegisterInput{ShiftID: f.shift.ID, Name: "Anna B."})
+	require.NoError(t, err)
+	_, err = f.uc.AssignRegistration(context.Background(), actor, other.ID, memberID)
+	assert.ErrorIs(t, err, domain.ErrAlreadyRegistered)
+
+	// Inactive members can't be assigned.
+	gone := uuid.New()
+	f.members.add(&domain.Member{ID: gone, FirstName: "Alt", LastName: "Glied", IsActive: false})
+	_, err = f.uc.AssignRegistration(context.Background(), actor, other.ID, gone)
+	assert.ErrorIs(t, err, domain.ErrMemberNotFound)
+}
+
+func TestSuggestMembers(t *testing.T) {
+	f := newRegFixture(5)
+	maxi := uuid.New()
+	pending := uuid.New()
+	onShift := uuid.New()
+	f.members.add(&domain.Member{ID: maxi, FirstName: "Maximilian", LastName: "Müller", IsActive: true})
+	f.members.add(&domain.Member{ID: uuid.New(), FirstName: "Erika", LastName: "Schmidt", IsActive: true})
+	f.members.add(&domain.Member{ID: uuid.New(), FirstName: "Max", LastName: "Muller", IsActive: false})
+	f.members.add(&domain.Member{ID: pending, Email: "zz@example.org", FirstName: "Zora", LastName: "Zimmer", IsActive: true})
+	f.members.add(&domain.Member{ID: onShift, FirstName: "Max", LastName: "Mueller", IsActive: true})
+	_, err := f.uc.Register(context.Background(), &onShift, RegisterInput{ShiftID: f.shift.ID, MemberID: &onShift})
+	require.NoError(t, err)
+
+	reg, err := f.uc.KioskRegister(context.Background(), KioskRegisterInput{ShiftID: f.shift.ID, Name: "Max Muller"})
+	require.NoError(t, err)
+	got, err := f.uc.SuggestMembers(context.Background(), reg.ID)
+	require.NoError(t, err)
+	require.Len(t, got, 1, "near miss suggested; unlike names, inactive and already-registered members left out")
+	assert.Equal(t, maxi, got[0].ID)
+	assert.Equal(t, "Maximilian Müller", got[0].Name)
+
+	// The member whose e-mail was entered comes first, however unlike the name.
+	withMail, err := f.uc.KioskRegister(context.Background(), KioskRegisterInput{ShiftID: f.shift.ID, Name: "Max Muller", Email: "zz@example.org"})
+	require.NoError(t, err)
+	got, err = f.uc.SuggestMembers(context.Background(), withMail.ID)
+	require.NoError(t, err)
+	require.NotEmpty(t, got)
+	assert.Equal(t, pending, got[0].ID)
+	assert.True(t, got[0].Pending)
+}

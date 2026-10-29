@@ -128,12 +128,12 @@ type Registration struct {
 	// GuestName is set for a helper an organizer added who isn't a member
 	// (name only, no account) — distinct from GuestEmail, which is set for a
 	// self-service kiosk guest registration (email only, no name).
-	GuestName         *string           `json:"guestName,omitempty"`
-	GuestEmail        *string           `json:"guestEmail,omitempty"`
-	State             RegistrationState `json:"state"`
-	Comment           string            `json:"comment"`
-	ReservedUntil     *time.Time        `json:"reservedUntil,omitempty"`
-	BookedHours       *float64          `json:"bookedHours,omitempty"`
+	GuestName     *string           `json:"guestName,omitempty"`
+	GuestEmail    *string           `json:"guestEmail,omitempty"`
+	State         RegistrationState `json:"state"`
+	Comment       string            `json:"comment"`
+	ReservedUntil *time.Time        `json:"reservedUntil,omitempty"`
+	BookedHours   *float64          `json:"bookedHours,omitempty"`
 	// ConfirmationToken is only ever sent by e-mail and never serialised
 	// into an API response (DS-009).
 	ConfirmationToken *uuid.UUID `json:"-"`
@@ -141,6 +141,15 @@ type Registration struct {
 	// DisplayName is the name to show for this registration to the current
 	// viewer; set when building a timeline, not persisted (SC-011).
 	DisplayName string `json:"displayName,omitempty"`
+	// SelfRegistered marks a kiosk entry by name or e-mail that no member
+	// has been assigned to yet (K-014, K-007).
+	SelfRegistered bool `json:"selfRegistered,omitempty"`
+	// PendingMemberID is the member whose e-mail was entered at the kiosk;
+	// the entry is assigned once they (or an organiser) confirm (K-006).
+	PendingMemberID *uuid.UUID `json:"pendingMemberId,omitempty"`
+	// PendingMemberName is PendingMemberID's full name, for organisers;
+	// set when building a timeline, not persisted.
+	PendingMemberName string `json:"pendingMemberName,omitempty"`
 }
 
 // IsExpired returns true when a reserved registration has passed its deadline.
@@ -262,4 +271,34 @@ var (
 	ErrEventAttachmentNotFound  = fmt.Errorf("event attachment not found")
 	ErrInvalidRecurrence        = fmt.Errorf("invalid recurrence configuration")
 	ErrAlreadyRecurring         = fmt.Errorf("event is already part of a recurrence series")
+)
+
+// KioskLink is a long-lived link that unlocks the kiosk on a device (K-016).
+// Only a hash of its token is stored; the token itself is shown once.
+type KioskLink struct {
+	ID        uuid.UUID  `json:"id"`
+	Label     string     `json:"label"`
+	CreatedBy *uuid.UUID `json:"createdBy,omitempty"`
+	CreatedAt time.Time  `json:"createdAt"`
+	ExpiresAt time.Time  `json:"expiresAt"`
+	RevokedAt *time.Time `json:"revokedAt,omitempty"`
+}
+
+// ActiveAt reports whether the link still unlocks the kiosk at now.
+func (l *KioskLink) ActiveAt(now time.Time) bool {
+	return l.RevokedAt == nil && now.Before(l.ExpiresAt)
+}
+
+// MemberSuggestion is a member proposed for a kiosk entry (K-015).
+type MemberSuggestion struct {
+	ID      uuid.UUID `json:"id"`
+	Name    string    `json:"name"`
+	Score   float64   `json:"score"`
+	Pending bool      `json:"pending,omitempty"` // the member whose e-mail was entered
+}
+
+// Errors for kiosk operations.
+var (
+	ErrKioskLinkNotFound    = fmt.Errorf("kiosk link not found")
+	ErrRegistrationAssigned = fmt.Errorf("registration is already assigned to a member")
 )
