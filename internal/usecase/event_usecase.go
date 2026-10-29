@@ -549,7 +549,11 @@ func (uc *EventUsecase) GetEventTimelineFor(ctx context.Context, eventID uuid.UU
 	for _, d := range tl.Days {
 		for _, sh := range d.Shifts {
 			for _, r := range sh.Registrations {
-				for _, id := range []*uuid.UUID{r.MemberID, r.PendingMemberID} {
+				ref := []*uuid.UUID{r.MemberID}
+				if organiser {
+					ref = append(ref, r.PendingMemberID) // only organisers see it
+				}
+				for _, id := range ref {
 					if id != nil && !seen[*id] {
 						seen[*id] = true
 						ids = append(ids, *id)

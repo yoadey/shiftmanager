@@ -28,7 +28,7 @@ export function KioskLinks() {
   const [created, setCreated] = useState<KioskLink | null>(null);
   const [confirmRevoke, setConfirmRevoke] = useState<KioskLink | null>(null);
 
-  const validDays = Number.isFinite(days) && days >= 1 && days <= 3650;
+  const validDays = Number.isInteger(days) && days >= 1 && days <= 3650;
   const onCreate = () => {
     create.mutate({ label: label.trim(), validDays: days }, {
       onSuccess: (link) => { setCreated(link); setLabel(''); },

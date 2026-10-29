@@ -33,9 +33,10 @@ export function useKioskConfig() {
  * public timeline (days/shifts) via GET /kiosk/events/{id}. Per-event failures
  * degrade to a flat event rather than failing the whole list.
  */
-export function useKioskEvents() {
+export function useKioskEvents(enabled = true) {
   return useQuery({
     queryKey: ['kiosk', 'events'],
+    enabled,
     queryFn: async (): Promise<Event[]> => {
       const list = await apiGet<RawEvent[]>('/kiosk/events');
       const rows = Array.isArray(list) ? list : [];

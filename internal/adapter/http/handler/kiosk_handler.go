@@ -120,6 +120,9 @@ func (h *KioskHandler) Register(w http.ResponseWriter, r *http.Request) {
 	case errors.Is(err, domain.ErrAlreadyRegistered):
 		writeError(w, http.StatusConflict, err.Error())
 		return
+	case errors.Is(err, domain.ErrShiftNotFound), errors.Is(err, domain.ErrEventNotFound):
+		writeError(w, http.StatusNotFound, "shift not found")
+		return
 	case err != nil:
 		writeError(w, http.StatusUnprocessableEntity, err.Error())
 		return

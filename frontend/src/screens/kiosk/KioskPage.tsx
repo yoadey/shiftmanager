@@ -77,7 +77,8 @@ export function KioskPage() {
   const hasToken = !!getKioskToken();
 
   const configQ = useKioskConfig();
-  const { data: remoteEvents, isLoading: eventsLoading } = useKioskEvents();
+  // Without a kiosk link every kiosk request fails with 401 anyway.
+  const { data: remoteEvents, isLoading: eventsLoading } = useKioskEvents(hasToken);
   const register = useKioskRegister();
 
   const config = configQ.data;
@@ -158,8 +159,8 @@ export function KioskPage() {
         setError(
           status === 409
             ? 'Diese Person ist für die Schicht bereits eingetragen.'
-            : status === 422
-              ? 'Die Schicht ist inzwischen voll.'
+            : status === 404 || status === 422
+              ? 'Für diese Schicht ist keine Eintragung (mehr) möglich.'
               : 'Die Eintragung hat nicht geklappt. Bitte versuche es noch einmal.',
         );
       },

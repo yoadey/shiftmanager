@@ -394,3 +394,42 @@ func TestSuggestMembers(t *testing.T) {
 	assert.Equal(t, pending, got[0].ID)
 	assert.True(t, got[0].Pending)
 }
+
+func TestKioskRegister_PendingEntryAssignsEvenAfterOrganiserConfirmed(t *testing.T) {
+	f := newRegFixture(5)
+	memberID := uuid.New()
+	f.members.add(&domain.Member{ID: memberID, Email: "max@example.org", FirstName: "Max", LastName: "Mustermann", IsActive: true})
+	reg, err := f.uc.KioskRegister(context.Background(), KioskRegisterInput{ShiftID: f.shift.ID, Name: "Maxi", Email: "max@example.org"})
+	require.NoError(t, err)
+
+	// The organiser confirms attendance before the member clicks the link.
+	_, err = f.uc.ConfirmShiftRegistration(context.Background(), uuid.New(), reg.ID)
+	require.NoError(t, err)
+
+	confirmed, err := f.uc.ConfirmByLink(context.Background(), *reg.ConfirmationToken)
+	require.NoError(t, err)
+	require.NotNil(t, confirmed.MemberID, "the link still assigns the entry (K-006)")
+	assert.Equal(t, memberID, *confirmed.MemberID)
+	assert.Equal(t, domain.RegistrationStateConfirmed, confirmed.State)
+}
+
+func TestKioskRegister_MemberEmailTwiceAndMemberOnShift(t *testing.T) {
+	f := newRegFixture(5)
+	memberID := uuid.New()
+	f.members.add(&domain.Member{ID: memberID, Email: "max@example.org", FirstName: "Max", LastName: "Mustermann", IsActive: true})
+	_, err := f.uc.KioskRegister(context.Background(), KioskRegisterInput{ShiftID: f.shift.ID, Name: "Maxi", Email: "max@example.org"})
+	require.NoError(t, err)
+
+	// A second pending entry for the same member is a duplicate.
+	_, err = f.uc.KioskRegister(context.Background(), KioskRegisterInput{ShiftID: f.shift.ID, Name: "Max M", Email: "max@example.org"})
+	assert.ErrorIs(t, err, domain.ErrAlreadyRegistered)
+	assert.Len(t, f.email.sent, 1, "no second confirmation mail")
+
+	// A member already on the shift: same neutral answer as an unknown address (K-005).
+	other := uuid.New()
+	f.members.add(&domain.Member{ID: other, Email: "anna@example.org", FirstName: "Anna", LastName: "Bauer", IsActive: true})
+	_, err = f.uc.Register(context.Background(), &other, RegisterInput{ShiftID: f.shift.ID, MemberID: &other})
+	require.NoError(t, err)
+	_, err = f.uc.KioskRegister(context.Background(), KioskRegisterInput{ShiftID: f.shift.ID, Name: "Anna", Email: "anna@example.org"})
+	assert.NoError(t, err)
+}
